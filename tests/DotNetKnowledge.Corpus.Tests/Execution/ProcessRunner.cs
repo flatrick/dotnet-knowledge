@@ -6,13 +6,19 @@ namespace DotNetKnowledge.Corpus.Tests.Execution;
 internal sealed class ProcessRunner
 {
     private readonly TimeSpan timeout;
+    private readonly Func<Process, IDisposable?> processJobFactory;
 
     public ProcessRunner()
-        : this(TimeSpan.FromMinutes(5))
+        : this(TimeSpan.FromMinutes(5), ProcessJob.Create)
     {
     }
 
     internal ProcessRunner(TimeSpan timeout)
+        : this(timeout, ProcessJob.Create)
+    {
+    }
+
+    internal ProcessRunner(TimeSpan timeout, Func<Process, IDisposable?> processJobFactory)
     {
         if (timeout <= TimeSpan.Zero)
         {
@@ -20,6 +26,7 @@ internal sealed class ProcessRunner
         }
 
         this.timeout = timeout;
+        this.processJobFactory = processJobFactory ?? throw new ArgumentNullException(nameof(processJobFactory));
     }
 
     public async Task<ProcessResult> RunAsync(
@@ -48,7 +55,32 @@ internal sealed class ProcessRunner
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
-        using var processJob = ProcessJob.Create(process);
+        IDisposable? processJob;
+        try
+        {
+            processJob = processJobFactory(process);
+        }
+        catch
+        {
+            KillProcessTree(process);
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw;
+        }
+
+        using (processJob)
+        {
+            return await RunProcessAsync(process, processJob, executable, arguments, resolvedWorkingDirectory, cancellationToken);
+        }
+    }
+
+    private async Task<ProcessResult> RunProcessAsync(
+        Process process,
+        IDisposable? processJob,
+        string executable,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
 
         var standardOutputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         var standardErrorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
@@ -64,14 +96,14 @@ internal sealed class ProcessRunner
         }
         catch (OperationCanceledException) when (timeoutCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            processJob?.Kill();
+            (processJob as ProcessJob)?.Kill();
             KillProcessTree(process);
             await Task.WhenAll(standardOutputTask, standardErrorTask);
             throw new TimeoutException($"Process timed out after {timeout.TotalMinutes:0} minutes: {executable}.");
         }
         catch (OperationCanceledException)
         {
-            processJob?.Kill();
+            (processJob as ProcessJob)?.Kill();
             KillProcessTree(process);
             await Task.WhenAll(standardOutputTask, standardErrorTask);
             throw new OperationCanceledException(cancellationToken);
@@ -80,7 +112,7 @@ internal sealed class ProcessRunner
         return new ProcessResult(
             executable,
             arguments.ToArray(),
-            resolvedWorkingDirectory,
+            workingDirectory,
             process.ExitCode,
             await standardOutputTask,
             await standardErrorTask);

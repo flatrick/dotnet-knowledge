@@ -77,7 +77,8 @@ internal sealed partial class ToolchainInventory
                 var match = SdkLine().Match(line);
                 if (!match.Success ||
                     !Version.TryParse(match.Groups["version"].Value, out var version) ||
-                    version.Build < 0)
+                    version.Build < 0 ||
+                    version.Revision >= 0)
                 {
                     throw new FormatException($"Malformed .NET SDK listing line: {line}");
                 }
@@ -93,7 +94,8 @@ internal sealed partial class ToolchainInventory
                 var match = RuntimeLine().Match(line);
                 if (!match.Success ||
                     !Version.TryParse(match.Groups["version"].Value, out var version) ||
-                    version.Build < 0)
+                    version.Build < 0 ||
+                    version.Revision >= 0)
                 {
                     throw new FormatException($"Malformed .NET runtime listing line: {line}");
                 }

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace DotNetKnowledge.Corpus.Tests.Execution;
 
 [TestClass]
@@ -29,6 +31,7 @@ public sealed class ProcessRunnerTests
     }
 
     [TestMethod]
+    [Timeout(3000)]
     public async Task RunAsyncKillsTheProcessWhenCancellationIsRequested()
     {
         var runner = new ProcessRunner();
@@ -36,5 +39,62 @@ public sealed class ProcessRunnerTests
 
         await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
             runner.RunAsync("cmd", ["/c", "ping -n 10 127.0.0.1"], cancellationToken: cancellation.Token));
+    }
+
+    [TestMethod]
+    [Timeout(3000)]
+    public async Task RunAsyncCancellationTerminatesDescendantThatRetainsRedirectedOutput()
+    {
+        var marker = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-{Guid.NewGuid():N}.txt");
+        var runner = new ProcessRunner();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var command = $"start \"\" /b cmd /c \"ping -n 2 127.0.0.1 > nul & echo completed > \"{marker}\"\"";
+
+        try
+        {
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+                runner.RunAsync("cmd", ["/c", command], cancellationToken: cancellation.Token));
+
+            await Task.Delay(TimeSpan.FromMilliseconds(1500));
+
+            Assert.IsFalse(File.Exists(marker), "The descendant completed after cancellation instead of being terminated.");
+        }
+        finally
+        {
+            File.Delete(marker);
+        }
+    }
+
+    [TestMethod]
+    [Timeout(3000)]
+    public async Task RunAsyncKillsStartedProcessWhenJobAssignmentFails()
+    {
+        var processId = 0;
+        var runner = new ProcessRunner(
+            TimeSpan.FromSeconds(1),
+            process =>
+            {
+                processId = process.Id;
+                throw new InvalidOperationException("Job assignment failed.");
+            });
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            runner.RunAsync("cmd", ["/c", "ping -n 10 127.0.0.1"]));
+
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+        Assert.IsFalse(IsRunning(processId));
+    }
+
+    private static bool IsRunning(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 }
