@@ -65,4 +65,14 @@ public sealed class ToolchainInventoryTests
 
         Assert.AreEqual("Malformed .NET SDK listing line: not an SDK listing", exception.Message);
     }
+
+    [TestMethod]
+    [DataRow("7.0 [C:\\Program Files\\dotnet\\sdk]", "", "Malformed .NET SDK listing line: 7.0 [C:\\Program Files\\dotnet\\sdk]")]
+    [DataRow("", "Microsoft.NETCore.App 7.0 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]", "Malformed .NET runtime listing line: Microsoft.NETCore.App 7.0 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]")]
+    public void FromListingsRejectsIncompleteSdkAndRuntimeVersions(string sdkListing, string runtimeListing, string expectedMessage)
+    {
+        var exception = Assert.ThrowsExactly<FormatException>(() => ToolchainInventory.FromListings(sdkListing, runtimeListing));
+
+        Assert.AreEqual(expectedMessage, exception.Message);
+    }
 }

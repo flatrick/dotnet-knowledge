@@ -18,7 +18,7 @@ public sealed class RequiredToolchainsTests
                      .SelectMany(testCase => testCase.Compilations)
                      .Select(compilation => compilation.SdkBand)
                      .Distinct(StringComparer.Ordinal)
-                     .OrderBy(band => band, StringComparer.Ordinal))
+                     .OrderBy(ParseBand))
         {
             if (!TryResolveSdk(inventory, sdkBand))
             {
@@ -30,7 +30,7 @@ public sealed class RequiredToolchainsTests
                      .SelectMany(testCase => testCase.Runtimes)
                      .Select(runtime => RuntimeBand(runtime.TargetFramework))
                      .Distinct(StringComparer.Ordinal)
-                     .OrderBy(band => band, StringComparer.Ordinal))
+                     .OrderBy(ParseBand))
         {
             if (!inventory.HasRuntime(runtimeBand))
             {
@@ -82,4 +82,6 @@ public sealed class RequiredToolchainsTests
 
         return targetFramework[netPrefix.Length..];
     }
+
+    private static Version ParseBand(string band) => Version.Parse($"{band}.0");
 }

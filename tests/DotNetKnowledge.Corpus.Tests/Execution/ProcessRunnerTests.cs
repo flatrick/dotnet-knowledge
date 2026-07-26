@@ -18,4 +18,23 @@ public sealed class ProcessRunnerTests
         Assert.AreEqual(Environment.CurrentDirectory, result.WorkingDirectory);
         Assert.AreEqual(0, result.ExitCode);
     }
+
+    [TestMethod]
+    public async Task RunAsyncTimesOutWhenAChildRetainsRedirectedOutputAfterItsParentExits()
+    {
+        var runner = new ProcessRunner(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+            runner.RunAsync("cmd", ["/c", "start /b ping -n 10 127.0.0.1"]));
+    }
+
+    [TestMethod]
+    public async Task RunAsyncKillsTheProcessWhenCancellationIsRequested()
+    {
+        var runner = new ProcessRunner();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            runner.RunAsync("cmd", ["/c", "ping -n 10 127.0.0.1"], cancellationToken: cancellation.Token));
+    }
 }
