@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dotnet-mcp": {
+      "type": "stdio",
+      "command": "dotnet-mcp",
+      "args": [      ]
+    }
+  }
+}
