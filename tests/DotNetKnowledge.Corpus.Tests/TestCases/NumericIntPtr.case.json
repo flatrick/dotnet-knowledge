@@ -1,0 +1,42 @@
+{
+  "id": "LanguageFeatures.NumericIntPtr",
+  "source": "examples/language-features/CSharp/dotnet/10/latest/library/CSharp11/NumericIntPtr/NumericIntPtr.cs",
+  "compilations": [
+    {
+      "sdkBand": "7.0",
+      "targetFramework": "net7.0",
+      "languageVersion": "11.0",
+      "outcome": "success",
+      "diagnostics": []
+    },
+    {
+      "sdkBand": "10.0",
+      "targetFramework": "net6.0",
+      "languageVersion": "11.0",
+      "outcome": "failure",
+      "diagnostics": ["CS0266", "CS0019", "CS9135"]
+    },
+    {
+      "sdkBand": "10.0",
+      "targetFramework": "net7.0",
+      "languageVersion": "10.0",
+      "outcome": "success",
+      "diagnostics": []
+    },
+    {
+      "sdkBand": "10.0",
+      "targetFramework": "net10.0",
+      "languageVersion": "10.0",
+      "outcome": "success",
+      "diagnostics": []
+    },
+    {
+      "sdkBand": "10.0",
+      "targetFramework": "net10.0",
+      "languageVersion": "11.0",
+      "outcome": "success",
+      "diagnostics": []
+    }
+  ],
+  "runtimes": []
+}

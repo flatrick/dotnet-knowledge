@@ -22,6 +22,28 @@ public sealed class ProcessRunnerTests
     }
 
     [TestMethod]
+    public async Task RunAsyncCanRemoveAnInheritedEnvironmentVariable()
+    {
+        var variableName = $"DOTNET_KNOWLEDGE_TEST_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(variableName, "inherited");
+        var runner = new ProcessRunner();
+
+        try
+        {
+            var result = await runner.RunAsync(
+                "cmd",
+                ["/c", $"if defined {variableName} (exit /b 1) else (exit /b 0)"],
+                environmentVariables: new Dictionary<string, string?> { [variableName] = null });
+
+            Assert.AreEqual(0, result.ExitCode);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, null);
+        }
+    }
+
+    [TestMethod]
     public async Task RunAsyncTimesOutWhenAChildRetainsRedirectedOutputAfterItsParentExits()
     {
         var runner = new ProcessRunner(TimeSpan.FromMilliseconds(100));

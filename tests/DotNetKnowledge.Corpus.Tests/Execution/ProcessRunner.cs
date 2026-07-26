@@ -33,6 +33,7 @@ internal sealed class ProcessRunner
         string executable,
         IReadOnlyList<string> arguments,
         string? workingDirectory = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
@@ -51,6 +52,21 @@ internal sealed class ProcessRunner
         foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
+        }
+
+        if (environmentVariables is not null)
+        {
+            foreach (var (name, value) in environmentVariables)
+            {
+                if (value is null)
+                {
+                    _ = startInfo.Environment.Remove(name);
+                }
+                else
+                {
+                    startInfo.Environment[name] = value;
+                }
+            }
         }
 
         using var process = new Process { StartInfo = startInfo };

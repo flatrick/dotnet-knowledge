@@ -57,6 +57,7 @@ internal sealed partial class ProbeProject
                 DotNetHost(sdk),
                 ["build", "probe.csproj", "-t:Rebuild", "--nologo", "-v:minimal"],
                 projectDirectory,
+                new Dictionary<string, string?> { ["MSBuildSDKsPath"] = null },
                 cancellationToken);
             result = new ProbeResult(
                 process,

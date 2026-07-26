@@ -30,6 +30,12 @@ internal sealed partial class ToolchainInventory
         return FromListings(sdkResult.StandardOutput, runtimeResult.StandardOutput);
     }
 
+    public static Task<ToolchainInventory> DiscoverCurrent(ProcessRunner runner)
+    {
+        var hostPath = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+        return Discover(string.IsNullOrWhiteSpace(hostPath) ? "dotnet" : hostPath, runner);
+    }
+
     internal static ToolchainInventory FromListings(string sdkListing, string runtimeListing)
     {
         ArgumentNullException.ThrowIfNull(sdkListing);

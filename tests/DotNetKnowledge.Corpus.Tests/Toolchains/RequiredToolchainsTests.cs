@@ -11,7 +11,7 @@ public sealed class RequiredToolchainsTests
     public async Task EveryCheckedInCaseHasItsRequiredToolchains()
     {
         var cases = LoadCases();
-        var inventory = await ToolchainInventory.Discover("dotnet", new ProcessRunner());
+        var inventory = await ToolchainInventory.DiscoverCurrent(new ProcessRunner());
         var missing = new List<string>();
 
         foreach (var sdkBand in cases
