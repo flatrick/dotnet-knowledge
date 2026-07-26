@@ -1,0 +1,23 @@
+# ------------------------------------------------------------------------------
+# Line endings: normalize to LF.
+#
+# This matters more here than in most repositories: the net48 example projects are
+# DERIVED from their net10 counterparts, and `generate-net48-examples.cs --check`
+# compares the two byte-for-byte. Inconsistent normalization between source and
+# derived file would surface as drift that no edit explains.
+# ------------------------------------------------------------------------------
+* text=auto eol=lf
+
+# ------------------------------------------------------------------------------
+# Encoding: force UTF-8 for source and docs, so diffs and history stay consistent.
+# ------------------------------------------------------------------------------
+*.{cs,cshtml} text working-tree-encoding=UTF-8
+*.{vb,vbhtml} text working-tree-encoding=UTF-8
+*.{md,json,xml,yml,yaml,txt,config,props,targets} text working-tree-encoding=UTF-8
+
+# ------------------------------------------------------------------------------
+# Diff / blame: better hunk headers.
+# ------------------------------------------------------------------------------
+*.cs      diff=csharp
+*.vb      diff=vb
+*.md      diff=markdown

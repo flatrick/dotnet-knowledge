@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+*.user
+
+# Local scratch — never commit run output
+.artifacts/
+
+# Fetched upstream sources.
+#
+# The server's default cache is a per-user directory outside any repository
+# (%LOCALAPPDATA%\dotnet-knowledge\sources on Windows, $XDG_CACHE_HOME/dotnet-knowledge
+# otherwise), so upstream content normally never appears here at all. This entry covers
+# the case where someone points the cache at the repo for debugging.
+/sources/
+/.sources/
+
+# Node, only if a spelling guard is added later
+node_modules/
+
+# Editor-local, auto-generated
+.vscode/
+.idea/

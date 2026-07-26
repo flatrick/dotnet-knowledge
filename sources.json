@@ -1,0 +1,55 @@
+{
+  "$comment": [
+    "Upstream reference sources this server can query. Each is FETCHED on demand into a",
+    "per-user cache directory — none of them is vendored into this repository and none is a",
+    "git submodule. The examples corpus under examples/ is different: it is authored here and",
+    "ships with the server, so it needs no entry in this file and no sync step.",
+    "",
+    "'pin' is the commit this repository vouches for. A caller may instead request the ref in",
+    "'head', which opts into upstream drift; every response states which of the two it came",
+    "from, because an answer whose version is unknown is worse than no answer.",
+    "",
+    "'sparse' limits the checkout to the paths the query tools actually read. dotnet-api-docs",
+    "is large enough that a full clone is not a reasonable first-run experience."
+  ],
+
+  "schemaVersion": 1,
+
+  "sources": {
+    "csharplang": {
+      "url": "https://github.com/dotnet/csharplang.git",
+      "pin": "36796924c898eb698d983b921001fa00cf689d9b",
+      "head": "main",
+      "sparse": ["proposals", "spec", "meetings", "Language-Version-History.md"],
+      "purpose": "C# language design: proposals, specification, LDM notes, version history."
+    },
+    "vblang": {
+      "url": "https://github.com/dotnet/vblang.git",
+      "pin": "0712f0b8c91dfba593fc16f846c5821ed5cad2f9",
+      "head": "main",
+      "sparse": ["proposals", "spec", "meetings", "Language-Version-History.md"],
+      "purpose": "VB.NET language design. Note its version history only covers VB 15.0 onward."
+    },
+    "roslyn-api-docs": {
+      "url": "https://github.com/dotnet/roslyn-api-docs.git",
+      "pin": "4fed37999ba2fb00b90d4489358bb9a7763e49ef",
+      "head": "main",
+      "sparse": ["dotnet/xml"],
+      "purpose": "Roslyn compiler and workspace API XML docs (Microsoft.CodeAnalysis.*)."
+    },
+    "dotnet-api-docs": {
+      "url": "https://github.com/dotnet/dotnet-api-docs.git",
+      "pin": "a81557d32be7626cbd80b453b35b057cbcc472c7",
+      "head": "main",
+      "sparse": ["xml"],
+      "purpose": "BCL API XML docs (System.*, Microsoft.*)."
+    },
+    "roslyn-wiki": {
+      "url": "https://github.com/dotnet/roslyn.git",
+      "pin": "fca0128889ed81ab7a8754586be0ed18aadb4b14",
+      "head": "main",
+      "sparse": ["docs/wiki"],
+      "purpose": "Roslyn wiki pages: analyzer authoring, API changes, contributor docs."
+    }
+  }
+}

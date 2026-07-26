@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpNet10Latest</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      EmbedInteropTypes is a per-reference switch, not a per-compilation one:
+      it changes how this single reference is consumed and leaves every other
+      example in the project untouched.
+    -->
+    <ProjectReference Include="../CSharpComTypeLib/CSharpComTypeLib.csproj" EmbedInteropTypes="true" />
+  </ItemGroup>
+</Project>

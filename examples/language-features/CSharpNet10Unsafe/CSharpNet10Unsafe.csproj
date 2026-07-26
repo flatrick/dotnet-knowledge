@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpNet10Unsafe</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <!--
+      /unsafe is a per-compilation switch: it cannot be scoped to a folder or a
+      file. This project exists so the mainline net10.0 project stays on default
+      compilation, and holds only the features that cannot compile without it.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>

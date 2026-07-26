@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpComTypeLib</RootNamespace>
+    <!--
+      Multi-targeted so both halves of the corpus can embed from it: net48
+      because ImportedFromTypeLibAttribute does not exist in netstandard2.0,
+      and net10.0 for the modern projects.
+    -->
+    <TargetFrameworks>net48;net10.0</TargetFrameworks>
+  </PropertyGroup>
+</Project>

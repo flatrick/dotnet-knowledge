@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpFw48Cs80</RootNamespace>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>8.0</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The C# 4.0 `dynamic` row needs the runtime binder, which the SDK does not reference
+         implicitly on net48; without it that sample fails at emit with CS0656. -->
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Memory" Version="4.5.5" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      EmbedInteropTypes is a per-reference switch, not a per-compilation one: it changes how this
+      single reference is consumed and leaves every other example in the project untouched.
+    -->
+    <ProjectReference Include="../CSharpComTypeLib/CSharpComTypeLib.csproj" EmbedInteropTypes="true" />
+  </ItemGroup>
+</Project>

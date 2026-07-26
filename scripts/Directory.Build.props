@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Single-file dotnet scripts inherit Directory.Build.props from the repo root
+    when MSBuild walks up from the temp project location. Production analyzer
+    settings (TreatWarningsAsErrors, AnalysisLevel) are not appropriate for
+    utility scripts, so we reset them here.
+  -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisLevel>none</AnalysisLevel>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>

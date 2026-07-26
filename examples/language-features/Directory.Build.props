@@ -1,0 +1,21 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- Showcase examples are intentionally minimal illustrative code; disable CA rules entirely -->
+    <AnalysisLevel>latest-none</AnalysisLevel>
+    <!--
+      TreatWarningsAsErrors is deliberately NOT overridden here: it is inherited as true
+      from the repo root's Directory.Build.props. The corpus's completion gate is "0
+      errors AND 0 warnings" (see MANIFEST.md), and leaving the repo default in place
+      makes that gate mechanical — a warning fails the build — instead of a matter of
+      discipline that a silent warning could slip past.
+    -->
+    <!--
+      Nullable reference types are a C# 8.0 language feature with their own manifest
+      row. Inheriting the repo root's Nullable=enable would retrofit C# 8 nullability
+      onto every pre-C#8 example, so the corpus turns it off here; the C# 8.0 example
+      opts back in with an in-file "#nullable enable" when that row is authored.
+    -->
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>
