@@ -40,4 +40,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: corpus-test-results
-          path: TestResults/corpus-tests.trx
+          path: tests/DotNetKnowledge.Corpus.Tests/TestResults/corpus-tests.trx
