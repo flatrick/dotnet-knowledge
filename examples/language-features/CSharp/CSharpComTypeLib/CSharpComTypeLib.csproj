@@ -4,8 +4,8 @@
     <!--
       Multi-targeted so both halves of the corpus can embed from it: net48
       because ImportedFromTypeLibAttribute does not exist in netstandard2.0,
-      and net10.0 for the modern projects.
+      and net5.0 through net10.0 for the modern projects.
     -->
-    <TargetFrameworks>net48;net10.0</TargetFrameworks>
+    <TargetFrameworks>net48;net5.0;net6.0;net7.0;net8.0;net9.0;net10.0</TargetFrameworks>
   </PropertyGroup>
 </Project>

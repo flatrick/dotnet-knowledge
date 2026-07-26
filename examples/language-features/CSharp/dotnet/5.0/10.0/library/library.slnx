@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="../../../../CSharpComTypeLib/CSharpComTypeLib.csproj" />
+  <Project Path="library.csproj" />
+</Solution>

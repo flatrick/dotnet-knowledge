@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpNet9_10</RootNamespace>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\CSharpComTypeLib\CSharpComTypeLib.csproj" />
+  </ItemGroup>
+</Project>

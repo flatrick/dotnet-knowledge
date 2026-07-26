@@ -2,33 +2,47 @@ using System;
 
 namespace CSharpNet10Latest.CSharp11.NumericIntPtr
 {
-    public class NumericPointerSized
+    // This row demonstrates numeric IntPtr behavior as it is available when
+    // compiling against net10.0. It cannot demonstrate a C# 10-to-11 boundary
+    // inside this corpus.
+    //
+    // C# 11 made nint an alias for System.IntPtr. The compiler enables that
+    // behavior when the target framework's reference assemblies define the
+    // RuntimeFeature.NumericIntPtr capability. It does not use LangVersion as
+    // the only switch. net10.0 defines the capability, so the compiler used by
+    // this corpus applies the behavior even when LangVersion is lowered to 10.
+    //
+    // Compiled in isolation with that compiler, this source fails against
+    // net6.0 with CS0266 for the implicit conversion, CS0019 for multiplication,
+    // and CS9135 for the constant patterns. It compiles cleanly against
+    // net10.0 at both C# 10 and C# 11.
+    //
+    // The examples below therefore prove that IntPtr is numeric in this target,
+    // but not which historical compiler or language pin first accepted it.
+    public static class NumericPointerSized
     {
-        // C# 9.0 introduced nint as a distinct language type layered over
-        // IntPtr. C# 11.0 unified them: nint IS System.IntPtr, and IntPtr
-        // gained the numeric operators, so no conversion sits between them.
-        public static bool SameType()
+        // An int implicitly converts to IntPtr as it does to the nint alias.
+        public static IntPtr FromConstant()
         {
-            return typeof(nint) == typeof(IntPtr);
+            IntPtr value = 42;
+            return value;
         }
 
-        // Arithmetic directly on IntPtr, which C# 9.0 required nint for.
-        public static IntPtr AddPointers(IntPtr left, IntPtr right)
+        // IntPtr participates directly in the predefined numeric operators.
+        public static IntPtr Multiply(IntPtr left, IntPtr right)
         {
-            return left + right;
+            return left * right;
         }
 
-        // The two spellings are interchangeable, with no cast.
-        public static nint Mixed(IntPtr value)
+        // Numeric constants can be matched directly against an IntPtr input.
+        public static string Classify(IntPtr value)
         {
-            nint native = value;
-            return native + 1;
-        }
-
-        public static IntPtr BackAgain(nint value)
-        {
-            IntPtr pointer = value;
-            return pointer;
+            return value switch
+            {
+                0 => "zero",
+                1 => "one",
+                _ => "other"
+            };
         }
     }
 }
