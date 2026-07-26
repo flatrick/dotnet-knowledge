@@ -103,7 +103,7 @@ if (missingVersions.Length != 0)
         + string.Join(", ", missingVersions) + ".");
 
 Console.WriteLine("All required private SDKs are present.");
-Console.WriteLine($"Private test host: {QuoteForDisplay(privateHost)} test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --nologo");
+Console.WriteLine($"Private test host: & {QuoteForPowerShell(privateHost)} test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --nologo");
 return 0;
 
 static int Usage(string error)
@@ -184,6 +184,6 @@ static string? FindRepoRoot(string start)
     return null;
 }
 
-static string QuoteForDisplay(string path) => path.Contains(' ', StringComparison.Ordinal) ? $"\"{path}\"" : path;
+static string QuoteForPowerShell(string path) => $"'{path.Replace("'", "''", StringComparison.Ordinal)}'";
 
 internal readonly record struct ProcessResult(int ExitCode, string StandardOutput, string StandardError);
