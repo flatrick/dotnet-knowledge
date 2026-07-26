@@ -49,6 +49,17 @@ call `list_sources` to see what is available and where it is cached.
 The corpus is complete. The server is early: `list_sources` works; `sync_source`, the API-doc
 lookups, and the example queries are not built yet. See [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
+## License
+
+MIT — see [`LICENSE`](LICENSE).
+
+Everything in this repository is authored here. The upstream Microsoft repositories this server
+draws on are **fetched at runtime** into a per-user cache outside the working tree; none of their
+content is vendored, submoduled, or redistributed here, and each stays under its own license in its
+own clone. [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) sets out that boundary — including
+why the example corpus is original work rather than derived from Microsoft's documentation — and
+`dotnet scripts/verify-no-vendored-content.cs` checks the tree against it.
+
 ## Provenance
 
 The corpus and the API-doc query logic were extracted from

@@ -2,6 +2,16 @@
 bin/
 obj/
 *.user
+TestResults/
+
+# MSBuild diagnostics. The net48 corpus projects are built with Visual Studio's MSBuild.exe, and
+# `-bl` is the usual way to work out why one of them resolved a reference the way it did.
+*.binlog
+msbuild.log
+
+# NuGet's per-solution package directory. The corpus uses PackageReference, which restores to the
+# global packages folder instead — this covers a packages.config project being added later.
+packages/
 
 # Local scratch — never commit run output
 .artifacts/
@@ -21,3 +31,13 @@ node_modules/
 # Editor-local, auto-generated
 .vscode/
 .idea/
+
+# Agent-local settings. `.claude/settings.local.json` is per-user by design; anything else under
+# .claude/ (shared settings, skills) is meant to be committed, so this is deliberately not `.claude/`.
+.claude/settings.local.json
+
+# Visual Studio's per-solution local state. Every corpus project carries a .slnx, so opening
+# any of them writes a .vs/ tree — design-time build caches, file-content and Copilot indices,
+# window layout, and the binary .suo. All of it is machine-local and none of it is content.
+.vs/
+*.rsuser

@@ -45,6 +45,12 @@ earned their place, not out of habit.
    changelog. No "previously said X" footers, no dated verification stamps.
 4. **American English** for identifiers, comments, and prose, except where an external standard
    specifies otherwise (the Model Context Protocol's `notifications/cancelled` stays as spelled).
+5. **Never commit upstream content.** The sources in `sources.json` are fetched into a per-user
+   cache at runtime — never vendored, never submoduled, never pasted into a doc. Everything tracked
+   here is authored here, which is what makes the MIT grant in `LICENSE` true. Do not point the
+   fetch cache at the working tree and then stage the result, and do not re-add the `dotnet-mcp`
+   submodules out of habit. [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) states the policy;
+   `dotnet scripts/verify-no-vendored-content.cs` enforces it and exits 1 on a finding.
 
 ## Working on the corpus
 
