@@ -1,0 +1,38 @@
+name: Corpus verification
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  corpus-tests:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install private corpus test SDKs
+        shell: pwsh
+        run: dotnet scripts/install-corpus-test-sdks.cs
+
+      - name: Restore corpus tests
+        shell: pwsh
+        run: |
+          $env:DOTNET_HOST_PATH = (Resolve-Path .artifacts\dotnet\dotnet.exe)
+          & $env:DOTNET_HOST_PATH restore tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --nologo
+
+      - name: Verify corpus compilation and runtime behavior
+        shell: pwsh
+        run: |
+          $env:DOTNET_HOST_PATH = (Resolve-Path .artifacts\dotnet\dotnet.exe)
+          & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --configuration Release --nologo --no-restore --logger "trx;LogFileName=corpus-tests.trx"
+
+      - name: Verify no vendored content
+        run: dotnet scripts/verify-no-vendored-content.cs
+
+      - name: Upload corpus test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-test-results
+          path: tests/DotNetKnowledge.Corpus.Tests/TestResults/corpus-tests.trx
