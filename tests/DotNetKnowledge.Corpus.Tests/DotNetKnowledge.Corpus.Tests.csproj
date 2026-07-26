@@ -8,6 +8,7 @@
     <UseVSTest>true</UseVSTest>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="TestCases\**\*.Program.cs" />
     <Content Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="TestCases\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

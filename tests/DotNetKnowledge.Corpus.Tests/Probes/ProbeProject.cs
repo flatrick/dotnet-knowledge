@@ -77,6 +77,33 @@ internal sealed partial class ProbeProject
         }
     }
 
+    public static Task<ProcessResult> RunAsync(
+        InstalledSdk sdk,
+        ProbeResult successfulBuild,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sdk);
+        ArgumentNullException.ThrowIfNull(successfulBuild);
+
+        if (successfulBuild.Process.ExitCode != 0)
+        {
+            throw new InvalidOperationException("Cannot run a probe whose build failed.");
+        }
+
+        var outputRoot = Path.Combine(successfulBuild.ProjectDirectory, "bin");
+        var probePath = Directory
+            .GetFiles(outputRoot, "probe.dll", SearchOption.AllDirectories)
+            .Single();
+        var outputDirectory = Path.GetDirectoryName(probePath)
+            ?? throw new InvalidOperationException($"Could not resolve the probe output directory: {probePath}.");
+
+        return new ProcessRunner().RunAsync(
+            DotNetHost(sdk),
+            [Path.GetFullPath(probePath)],
+            outputDirectory,
+            cancellationToken: cancellationToken);
+    }
+
     private static async Task WriteGlobalJson(
         string path,
         InstalledSdk sdk,
@@ -110,7 +137,9 @@ internal sealed partial class ProbeProject
             new XElement("GenerateTargetFrameworkAttribute", "false"));
         if (harnessPath is not null)
         {
-            propertyGroup.Add(new XElement("OutputType", "Exe"));
+            propertyGroup.Add(
+                new XElement("OutputType", "Exe"),
+                new XElement("CheckEolTargetFramework", "false"));
         }
 
         var itemGroup = new XElement(

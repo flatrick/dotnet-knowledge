@@ -24,5 +24,14 @@
       "diagnostics": []
     }
   ],
-  "runtimes": []
+  "runtimes": [
+    {
+      "harness": "tests/DotNetKnowledge.Corpus.Tests/TestCases/ModernCompilerOldTarget.Program.cs",
+      "sdkBand": "10.0",
+      "targetFramework": "net5.0",
+      "languageVersion": "10.0",
+      "exitCode": 0,
+      "standardOutput": ["C# 10 on net5.0"]
+    }
+  ]
 }

@@ -38,5 +38,30 @@
       "diagnostics": []
     }
   ],
-  "runtimes": []
+  "runtimes": [
+    {
+      "harness": "tests/DotNetKnowledge.Corpus.Tests/TestCases/NumericIntPtr.Program.cs",
+      "sdkBand": "10.0",
+      "targetFramework": "net7.0",
+      "languageVersion": "10.0",
+      "exitCode": 0,
+      "standardOutput": [
+        "From constant: 42",
+        "Multiply: 42",
+        "Classify: zero, one, other"
+      ]
+    },
+    {
+      "harness": "tests/DotNetKnowledge.Corpus.Tests/TestCases/NumericIntPtr.Program.cs",
+      "sdkBand": "10.0",
+      "targetFramework": "net10.0",
+      "languageVersion": "11.0",
+      "exitCode": 0,
+      "standardOutput": [
+        "From constant: 42",
+        "Multiply: 42",
+        "Classify: zero, one, other"
+      ]
+    }
+  ]
 }
