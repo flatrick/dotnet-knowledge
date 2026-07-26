@@ -223,29 +223,17 @@ examples/language-features/VbNetNet10Latest/
   Vb17_13/...
 ```
 
-### The net48 projects are derived from their net10 counterparts
+### The per-version projects are hand-authored
 
-`CSharpFw48Cs73`, `CSharpFw48Cs80` and `VbNetFw48` are written by
-`dotnet scripts/generate-net48-examples.cs` rather than by hand. The reason is that they need no
-adaptation: probing established that every C# sample through 8.0 compiles on net48 at 0 errors and 0
-warnings with only its root namespace rewritten, and that VB samples need not even that, because
-they declare version-relative namespaces (`Namespace Vb15.Tuples`) and take their prefix from
-`RootNamespace`. What differs between a net10 project and its net48 twin is the project file, not
-the samples.
+The current per-`<LangVersion>` trees are hand-authored probes and the tracked tree is current
+truth. They replace the older derived-project layout described by the legacy
+`scripts/generate-net48-examples.cs`; that script targets deleted project roots and must not be run
+against the current corpus.
 
-Hand-copying would therefore produce ~220 near-duplicates with no way to keep them in sync. The
-corrections made while authoring this corpus each had to be applied to every copy of the affected
-sample, which was tractable at n=2 and is not at n=220.
-
-The generated files are committed, because the corpus is documentation meant to be read in git
-rather than a build artifact. `--check` is what makes that safe: it re-derives everything and fails
-on any difference, including a stray file hand-added to a derived folder, so an edit to a generated
-copy is caught rather than silently reverted by the next regeneration.
-
-A target may declare **hand-authored groups**, which the generator neither derives, prunes, nor
-reports as strays. Two exist, for the two reasons that can justify one: `MyNamespaceHelpers` has no
-net10 counterpart to derive from, and `ConsumingCSharpRefReturnValues` needs a different subject on
-net48. Anything else diverging from its source is drift, not a variant.
+Some authored samples intentionally appear in several cumulative SDK/TFM project pins. Scope an
+edit to the projects named by the task. When those copies are required to remain identical,
+propagate the canonical edit explicitly and verify byte equality. Project-specific forms remain
+valid where the target framework genuinely changes the construct that can be demonstrated.
 
 ## Coverage manifest
 
@@ -330,11 +318,19 @@ A comments-only file compiles cleanly and declares no types, so it neither break
 gate nor adds a phantom API. It contains no placeholder code and never says "TODO" — the explanation
 *is* the content.
 
-## Build verification (completion gate)
+## Corpus verification contract
 
-Every project must build with **0 errors** (following the repo's build-before-test sequencing rule).
-Six of the seven build with `dotnet build` on any host; `CSharpFw48Cs73` (legacy XML, non-SDK) needs
-Windows, and specifically needs Visual Studio's `MSBuild.exe`:
+Corpus evidence has three layers:
+
+1. Project builds prove validity at a declared SDK, TFM, and language-version coordinate.
+2. Isolated compilation cases prove positive and negative feature boundaries.
+3. Runtime cases prove comments that assert observable behavior.
+
+These layers are complementary. A successful project build cannot establish a historical feature
+boundary or prove a comment about runtime behavior. Every project build still requires **0 errors
+and 0 warnings**. Six of the seven projects build with `dotnet build` on any host;
+`CSharpFw48Cs73` (legacy XML, non-SDK) needs Windows, and specifically needs Visual Studio's
+`MSBuild.exe`:
 
 ```
 "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" \
@@ -361,15 +357,36 @@ a probe that is missing some other reference will report a clean-looking absence
 then produce it as soon as the unrelated error is fixed. `CSharpFw48Cs80` needs the same explicit
 reference despite being SDK-style; the SDK does not add it implicitly on net48.
 
-"100% coverage" is satisfied when:
+Manifest completeness is satisfied when:
 
 - `MANIFEST.md` has no unaccounted-for row (every feature is either included in a named project, or
   excluded with a reason), and
 - every one of the 7 projects builds with 0 errors.
 
-No subjective judgment call is involved in either check.
+That establishes authored coverage, not the stronger compilation-boundary or runtime layers.
+Checked-in cases under `tests/DotNetKnowledge.Corpus.Tests/TestCases/` supply those layers for the
+claims they name. Use [`../../scripts/install-corpus-test-sdks.md`](../../scripts/install-corpus-test-sdks.md)
+to install or verify the exact SDKs in the repository-private test host; do not reproduce that setup
+manually.
 
-### The build gate cannot tell whether a sample demonstrates its feature
+Selecting an older TFM does not select its historical compiler. For example, an SDK 10 build
+targeting `net5.0` uses SDK 10's compiler against the `net5.0` reference pack. SDK selection,
+`TargetFramework`, `LangVersion`, and runtime execution remain independent coordinates in every
+case.
+
+Any new source comment that asserts observable runtime behavior must carry this marker in its
+canonical authored source:
+
+```csharp
+// Runtime verification: <case-id>
+```
+
+The case with that exact ID must contain at least one runtime expectation, and every runtime case
+whose source is in the corpus must have exactly one canonical marker. Toolchain-only cases whose
+source lives under `tests/` are marker-exempt. This contract establishes a mechanical link for
+declared runtime claims; it does not classify every corpus row as runtime-verifiable.
+
+### A project build cannot tell whether a sample demonstrates its feature
 
 A clean build proves a sample is *valid* C#. It says nothing about whether the sample exercises the
 feature its folder is named for. Every corpus project compiles at `LangVersion=latest`, so a file

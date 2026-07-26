@@ -22,8 +22,10 @@ synchronization between the two — the extraction is one-way and final.
 | `src/DotNetKnowledge.Mcp/` | Builds at 0 errors / 0 warnings. Serves `list_sources` over stdio. |
 | `sources.json` | Five upstream sources with the commits `dotnet-mcp` had pinned. |
 | `scripts/api-docs-query.cs` | The working XML-doc query logic, still in CLI form. Port it, don't rewrite it. |
-| `scripts/generate-net48-examples.cs` | The corpus generator, with its `--check` drift mode. |
+| `scripts/generate-net48-examples.cs` | Legacy generator for deleted project roots; do not run it against the current tree. |
 | `scripts/fetch-roslyn-wiki.cs` | A working blobless/sparse clone implementation — the reference for `sync_source`. |
+| `tests/DotNetKnowledge.Corpus.Tests/` | Corpus build, isolated-compilation, runtime, and runtime-marker contracts. |
+| `scripts/install-corpus-test-sdks.cs` | Installs or verifies the exact corpus SDK matrix in a repository-private host. |
 
 The server was smoke-tested over real stdio: `initialize` → `tools/call list_sources` returns the
 pins, sync state, and cache directory. Reproduce with a redirected-process driver, not a shell pipe
@@ -66,6 +68,9 @@ These are correctness obligations, not preferences. The reasoning is in
 
 ## Facts already established — do not re-derive
 
+- **The per-`<LangVersion>` trees are hand-authored probes.** The on-disk tree is current truth.
+  `scripts/generate-net48-examples.cs` targets deleted project roots and is not a validation command
+  for the current corpus.
 - **`CSharpFw48Cs73` needs Visual Studio's `MSBuild.exe`.** `dotnet build` restores its
   `PackageReference` items and resolves none of them, because a non-SDK project consumes package
   assets through NuGet targets that ship with VS, not with the SDK. It fails with `CS0246` on `Span`
@@ -78,7 +83,15 @@ These are correctness obligations, not preferences. The reasoning is in
 - **Pinning an SDK-style project to `ISO-1`/`ISO-2`** always fails on the SDK's generated
   `AssemblyAttributes.cs`, whose `TargetFramework` attribute uses `global::`. Set
   `GenerateTargetFrameworkAttribute=false` or every C# 1.x era probe reports a phantom failure.
-- **The corpus has no test suite and needs none.** Its gate is 0 errors and 0 warnings per project.
+- **Corpus verification has three layers.** Project builds prove validity at a declared
+  SDK/TFM/language coordinate; isolated compilation cases prove positive and negative feature
+  boundaries; runtime cases prove comments that assert observable behavior. Project builds still
+  require 0 errors and 0 warnings.
+- **An older TFM does not select its historical compiler.** SDK 10 targeting an older TFM uses SDK
+  10's compiler against the older reference pack. SDK, TFM, `LangVersion`, and runtime execution
+  are independent case inputs.
+- **Runtime-behavior claims require a canonical source marker.** Add
+  `// Runtime verification: <case-id>` and give that exact case a nonempty `runtimes` array.
 
 ## Open decisions
 
@@ -88,8 +101,9 @@ These are correctness obligations, not preferences. The reasoning is in
 - **Whether `dotnet-mcp` consumes this server.** Nothing in it reads the corpus today, so the
   extraction was subtractive. If it later wants the examples as test fixtures, it should consume
   this server or clone this repo — never copy files back.
-- **Test strategy.** No tests exist yet. The `sync_source` and manifest-index paths are the two
-  worth covering first; both have failure modes that are silent rather than loud.
+- **Server test strategy.** The corpus tests do not cover the MCP server. `sync_source` and the
+  manifest-index paths are the first server paths worth covering; both have failure modes that are
+  silent rather than loud.
 
 ## Running it
 
@@ -97,6 +111,11 @@ These are correctness obligations, not preferences. The reasoning is in
 dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
 dotnet run --project src/DotNetKnowledge.Mcp    # stdio; expects a client on stdin
 ```
+
+Install or verify the exact corpus test SDKs with
+`dotnet scripts/install-corpus-test-sdks.cs`, then run the suite through the private host as shown
+in [`../scripts/install-corpus-test-sdks.md`](../scripts/install-corpus-test-sdks.md). Do not repeat
+the SDK setup manually.
 
 Client registration:
 

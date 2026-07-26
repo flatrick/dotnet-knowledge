@@ -39,9 +39,11 @@ dotnet scripts/verify-feature-floors.cs -- --offline             # skip the NuGe
 `dotnet <file>.cs` silently claims some flags for itself, which is why every script takes its
 arguments after `--`.
 
-**There is no test suite, and the repo does not want one for the corpus** — the corpus's gate is
-0 errors and 0 warnings per project. `docs/HANDOFF.md` names `sync_source` and the manifest index as
-the first paths worth covering once the server grows tests.
+The corpus test suite is `tests/DotNetKnowledge.Corpus.Tests/`. Its exact SDK bands live in a
+repository-private host. Install or verify them with
+`dotnet scripts/install-corpus-test-sdks.cs`, then use the private-host command documented in
+[`scripts/install-corpus-test-sdks.md`](scripts/install-corpus-test-sdks.md); do not repeat the SDK
+setup manually.
 
 Smoke-testing the server over stdio needs a redirected-process driver, not a shell pipe — a Git Bash
 `>` redirect swallows the server's stdout entirely and looks like a server fault.
@@ -83,13 +85,19 @@ the applicability rule and the rest of the reasoning.
 
 ### Rules that are load-bearing
 
-- **The gate is 0 errors AND 0 warnings.** `TreatWarningsAsErrors` is inherited from the root
-  `Directory.Build.props` specifically so the gate is mechanical. Never add a
+- **Verification has three layers:** project builds prove validity at a declared SDK/TFM/language
+  coordinate; isolated compilation cases prove positive and negative feature boundaries; runtime
+  cases prove comments that assert observable behavior.
+- **Every project build requires 0 errors AND 0 warnings.** `TreatWarningsAsErrors` is inherited
+  from the root `Directory.Build.props` specifically so this layer is mechanical. Never add a
   `#pragma warning disable` to get past a warning, and do not override the property in the corpus
   subtree.
-- **A clean build does not prove a sample demonstrates its feature.** Run the own-version and
-  previous-version pins described in the design doc, and verify by **execution** any comment
-  claiming runtime behavior — compilation cannot check "this is a view" or "this rounds to even".
+- **An older TFM does not select its historical compiler.** SDK 10 targeting an older TFM uses SDK
+  10's compiler against the older reference pack. Keep SDK, TFM, `LangVersion`, and runtime
+  execution as separate case inputs.
+- **Every new runtime-behavior claim needs a source marker.** Add
+  `// Runtime verification: <case-id>` to the canonical authored source, and give that exact case a
+  nonempty `runtimes` array. Compilation cannot check "this is a view" or "this rounds to even".
 - **A pinned `<LangVersion>` does not prove it either.** Roslyn enforces a version only where the
   binder calls `CheckFeatureAvailability`; syntax-driven features got that call, semantic and
   attribute-driven ones did not. `GeneralizedAsyncReturnTypes` (C# 7.0) compiles at
@@ -107,17 +115,17 @@ the applicability rule and the rest of the reasoning.
 - **Probe constructs in isolation.** A whole-project VB build reported 2 errors where per-folder
   builds reported 5; neither compiler announces that it stopped early.
 
-### In-flight rework — where the docs are stale
+### Current per-version project model
 
-The corpus is mid-rework (as of 2026-07-26) into the per-`<LangVersion>` `CSharp_v*` projects above.
-Those are **hand-authored probes**, replacing the older derived-projects model. Consequences:
+The per-`<LangVersion>` `CSharp_v*` projects are **hand-authored probes**, replacing the older
+derived-projects model. Consequences:
 
 - `scripts/generate-net48-examples.cs` still targets the deleted `CSharpNet10Latest` /
   `CSharpFw48Cs73` / `CSharpFw48Cs80` layout. **Do not run it against the new tree.** The
   `GENERATED-COMPILE-ITEMS` markers inside the `CSharp_v*` csproj files are inherited artifacts that
   nothing regenerates.
-- `MANIFEST.md`, `docs/HANDOFF.md`, and parts of `AGENTS.md` and the design doc still describe the
-  old project names and the "net48 projects are derived" model. Treat the on-disk tree as truth.
+- Treat the on-disk tree as truth where older planning material or `MANIFEST.md` still uses the
+  superseded project names.
 - Do not fan an edit across every copy of a sample by default — ask which projects are in scope.
 
 ## The MCP server

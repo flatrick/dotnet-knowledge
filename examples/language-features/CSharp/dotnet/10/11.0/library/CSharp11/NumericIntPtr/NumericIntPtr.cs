@@ -4,6 +4,7 @@ namespace CSharpNet10Latest.CSharp11.NumericIntPtr
 {
     // This row demonstrates numeric IntPtr behavior as it is available when
     // compiling against reference assemblies that advertise the capability.
+    // Runtime verification: CSharp11.NumericIntPtr
     // It cannot demonstrate a C# 10-to-11 boundary inside this corpus.
     //
     // C# 11 made nint an alias for System.IntPtr. The compiler enables that

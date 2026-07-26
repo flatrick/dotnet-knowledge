@@ -1,5 +1,5 @@
 {
-  "id": "LanguageFeatures.NumericIntPtr",
+  "id": "CSharp11.NumericIntPtr",
   "source": "examples/language-features/CSharp/dotnet/10/latest/library/CSharp11/NumericIntPtr/NumericIntPtr.cs",
   "compilations": [
     {
