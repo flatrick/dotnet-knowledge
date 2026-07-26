@@ -1,24 +1,19 @@
 <Project>
 
   <!--
-    CPM opt-out for the examples/language-features/ subtree.
+    Central package management is off for this subtree.
 
-    WHY THIS FILE (not Directory.Build.props):
-    MSBuild evaluates Directory.Build.props before Directory.Packages.props in its import
-    order. A ManagePackageVersionsCentrally=false set in Directory.Build.props would be
-    re-set to true when the repo-root Directory.Packages.props loads afterward, causing
-    a restore failure. NuGet uses a "closest-wins" rule for Directory.Packages.props: the
-    first file found walking up from the project wins. This
-    examples/language-features/Directory.Packages.props is closer than the repo root, so
-    NuGet applies it first and the root file is ignored for all projects under
-    examples/language-features/.
+    The corpus projects pin net48 shim packages inline — System.Memory,
+    Microsoft.Bcl.AsyncInterfaces, System.Threading.Tasks.Extensions, System.Text.Json —
+    to demonstrate features on a TFM whose BCL lacks them. Those versions are properties of
+    the examples that need them, and belong next to those examples rather than in a shared
+    baseline.
 
-    WHY examples/language-features/ opts out:
-    CSharpFw48Cs80 pins corpus-only net48 shim packages inline (System.Memory,
-    Microsoft.Bcl.AsyncInterfaces) to demonstrate C# 8.0 features (Span-based APIs, async
-    streams) on a TFM that lacks native support for them. Those versions belong to this
-    showcase corpus, not the product, so keeping them as inline Version= attributes here
-    avoids polluting the repo's central version baseline with corpus-only pins.
+    This lives in Directory.Packages.props rather than Directory.Build.props because MSBuild
+    evaluates Directory.Build.props first: setting ManagePackageVersionsCentrally=false there
+    would be overwritten if a Directory.Packages.props higher up the tree loaded afterward.
+    NuGet resolves Directory.Packages.props by closest-wins, so this file governs everything
+    under examples/language-features/ regardless of what any ancestor declares.
   -->
 
   <PropertyGroup>

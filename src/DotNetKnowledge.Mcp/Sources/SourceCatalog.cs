@@ -49,7 +49,7 @@ public sealed class SourceCatalog
     public bool TryGet(string name, out SourceDefinition definition) =>
         Sources.TryGetValue(name, out definition!);
 
-    private static IReadOnlyDictionary<string, SourceDefinition> Load()
+    private static Dictionary<string, SourceDefinition> Load()
     {
         var path = Path.Combine(AppContext.BaseDirectory, FileName);
         if (!File.Exists(path))
