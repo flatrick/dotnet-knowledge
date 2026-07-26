@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.302
+
       - name: Install private corpus test SDKs
         shell: pwsh
         run: dotnet scripts/install-corpus-test-sdks.cs
@@ -35,4 +40,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: corpus-test-results
-          path: tests/DotNetKnowledge.Corpus.Tests/TestResults/corpus-tests.trx
+          path: TestResults/corpus-tests.trx
