@@ -12,6 +12,24 @@ namespace DotNetKnowledge.Corpus.Tests;
 public sealed class CorpusRuntimeTests
 {
     [TestMethod]
+    public void NormalizeOutputCanonicalizesOneTerminalNewline()
+    {
+        Assert.AreEqual("line\n", NormalizeOutput("line"));
+        Assert.AreEqual("line\n", NormalizeOutput("line\n"));
+        Assert.AreEqual("line\n", NormalizeOutput("line\r\n"));
+    }
+
+    [TestMethod]
+    public void NormalizeOutputPreservesAnExtraTerminalNewline()
+    {
+        var oneTerminalNewline = NormalizeOutput("line\n");
+        var twoTerminalNewlines = NormalizeOutput("line\n\n");
+
+        Assert.AreEqual("line\n\n", twoTerminalNewlines);
+        Assert.AreNotEqual(oneTerminalNewline, twoTerminalNewlines);
+    }
+
+    [TestMethod]
     [SuppressMessage(
         "Naming",
         "CA1707:Identifiers should not contain underscores",
@@ -132,8 +150,11 @@ public sealed class CorpusRuntimeTests
         }
     }
 
-    private static string NormalizeOutput(string output) =>
-        output.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n') + '\n';
+    private static string NormalizeOutput(string output)
+    {
+        var normalized = output.Replace("\r\n", "\n", StringComparison.Ordinal);
+        return normalized.EndsWith('\n') ? normalized : normalized + '\n';
+    }
 
     private static string ResolveVersion(ToolchainInventory inventory, string sdkBand)
     {
