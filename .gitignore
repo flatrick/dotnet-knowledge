@@ -15,6 +15,7 @@ packages/
 
 # Local scratch — never commit run output
 .artifacts/
+.worktrees/
 
 # Fetched upstream sources.
 #
