@@ -1,0 +1,14 @@
+{
+  "id": "Harness.Valid",
+  "source": "fixtures/Valid.cs",
+  "compilations": [
+    {
+      "sdkBand": "10.0",
+      "targetFramework": "net10.0",
+      "languageVersion": "14.0",
+      "outcome": "success",
+      "diagnostics": []
+    }
+  ],
+  "runtimes": []
+}
