@@ -24,6 +24,7 @@ public sealed class CorpusCaseLoaderTests
     [DataRow("missing-id", "Case ID is required.")]
     [DataRow("duplicate-compilation", "Duplicate compilation coordinate: 10.0|net10.0|14.0.")]
     [DataRow("failure-without-diagnostic", "Failure compilation 10.0|net10.0|13.0 must name at least one diagnostic.")]
+    [DataRow("failure-with-blank-diagnostic", "Failure compilation 10.0|net10.0|13.0 must not name blank diagnostics.")]
     [DataRow("runtime-without-success", "Runtime coordinate 10.0|net10.0|14.0 must have a successful compilation expectation.")]
     [DataRow("missing-source", "Source does not exist: fixtures/Missing.cs.")]
     public void ValidateReportsExpectedError(string scenario, string expectedError)
@@ -39,6 +40,10 @@ public sealed class CorpusCaseLoaderTests
             "failure-without-diagnostic" => CreateCase(compilations:
             [
                 new CompilationExpectation("10.0", "net10.0", "13.0", BuildOutcome.Failure, [])
+            ]),
+            "failure-with-blank-diagnostic" => CreateCase(compilations:
+            [
+                new CompilationExpectation("10.0", "net10.0", "13.0", BuildOutcome.Failure, ["CS0001", " "])
             ]),
             "runtime-without-success" => CreateCase(
                 compilations: [new CompilationExpectation("10.0", "net10.0", "14.0", BuildOutcome.Failure, ["CS0001"])],

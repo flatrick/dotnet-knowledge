@@ -41,6 +41,12 @@ internal sealed record CorpusCase(
                 errors.Add($"Failure compilation {coordinate} must name at least one diagnostic.");
             }
 
+            if (compilation.Outcome == BuildOutcome.Failure &&
+                compilation.Diagnostics.Any(string.IsNullOrWhiteSpace))
+            {
+                errors.Add($"Failure compilation {coordinate} must not name blank diagnostics.");
+            }
+
             if (compilation.Outcome == BuildOutcome.Success && compilation.Diagnostics.Count > 0)
             {
                 errors.Add($"Success compilation {coordinate} must not name diagnostics.");
