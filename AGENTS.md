@@ -76,3 +76,31 @@ Never add a `#pragma warning disable` to get past a warning.
 era probes described in `docs/design/language-feature-showcase-design.md`, and verify by
 **execution** any comment that claims runtime behavior — compilation cannot check "this is a view"
 or "this rounds to even". That check has already caught claims that passed every other gate.
+
+**A pinned `<LangVersion>` does not prove it either.** Roslyn holds a construct to a language
+version only where its binder calls `CheckFeatureAvailability`. Syntax-driven features all got that
+call; semantic and attribute-driven ones did not, so `/langversion:6` on a current compiler is not
+the C# 6 compiler. Two corpus rows are known to compile far below their own version —
+`GeneralizedAsyncReturnTypes` (C# 7.0) and `Variance` (C# 2.0).
+
+```bash
+dotnet scripts/verify-feature-floors.cs                          # classify every group folder
+dotnet scripts/verify-feature-floors.cs -- --project CSharp_v7.0 # one project
+dotnet scripts/verify-feature-floors.cs -- --json                # machine-readable
+```
+
+It compiles each group folder standalone at its own version, again one rung down, and escalates to a
+compiler that natively tops out at that lower rung: Microsoft.Net.Compilers 1.3.2 for C# 6 (cached
+under `.artifacts/`), and the in-box `%WINDIR%\Microsoft.NET\Framework64` compilers for C# 5
+(`v4.0.30319`), C# 3 (`v3.5`) and C# 2 (`v2.0.50727`). Those old compilers read net48 reference
+assemblies without complaint, so no era-specific projects are needed to drive them.
+
+**C# 4 and C# 1.x have no compiler.** .NET 4.5 upgraded `v4.0.30319`'s csc in place from C# 4 to
+C# 5, so the C# 4 binary is gone from any machine with .NET 4.5 or later, and .NET 1.0/1.1 do not
+install on a current Windows. Floors at those versions report `UNPROVEN` rather than a guess.
+
+`MISPLACED` and `NOT-VERSION-SPECIFIC` fail the run. `UNGATED`, `UNPROVEN`, `BASELINE` and
+`INCONCLUSIVE` report what the available compilers can and cannot settle. `EXEMPT` covers rows a
+floor probe structurally cannot judge — `LockStatement` (filed under C# 3.0 to mirror the source
+document, though `lock` is C# 1.0) and `EmbeddedInteropTypes` (NoPIA lives in the reference, not the
+source). Windows and Visual Studio's MSBuild only.

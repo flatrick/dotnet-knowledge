@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharp10Unsafe</RootNamespace>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>1</LangVersion>
+    <!--
+      /unsafe is a per-compilation switch: it cannot be scoped to a folder or a
+      file. This project exists so the mainline net48 projects stay on default
+      compilation, and holds only the features that cannot compile without it.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      The SDK's generated AssemblyAttributes.cs spells its TargetFramework
+      attribute with global::, which is C# 2.0 syntax. Any SDK-style project
+      pinned to C# 1.x fails on that generated file before it reaches a single
+      authored line, so the attribute has to be suppressed here.
+    -->
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+  </PropertyGroup>
+</Project>

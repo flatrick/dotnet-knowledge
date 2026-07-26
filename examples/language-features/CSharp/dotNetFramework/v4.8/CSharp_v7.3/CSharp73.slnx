@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="../../../CSharpComTypeLib/CSharpComTypeLib.csproj" />
+  <Project Path="CSharp73.csproj">
+    <BuildDependency Project="../../../CSharpComTypeLib/CSharpComTypeLib.csproj" />
+  </Project>
+</Solution>

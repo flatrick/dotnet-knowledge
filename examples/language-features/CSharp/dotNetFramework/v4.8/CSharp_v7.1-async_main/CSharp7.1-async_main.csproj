@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <RootNamespace>CSharp71asyncMain</RootNamespace>
+    <ProjectGuid>{7B1A2C3D-4E5F-4061-8A9B-0C1D2E3F4A51}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.1</LangVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <DefineDebug>true</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <OutputPath>bin\Debug\</OutputPath>
+    <ErrorReport>send</ErrorReport>
+    <UseWinFormsOutOfProcDesigner>True</UseWinFormsOutOfProcDesigner>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>portable</DebugType>
+    <DefineTrace>true</DefineTrace>
+    <OutputPath>bin\Release\</OutputPath>
+    <UseWinFormsOutOfProcDesigner>True</UseWinFormsOutOfProcDesigner>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AssemblyName>CSharp71-async_main</AssemblyName>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject>CSharp71.Program</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Net.Http" />
+    <!-- Microsoft.CSharp carries the runtime binder the C# 4.0 `dynamic` row needs; without it
+         that sample fails with CS0656 rather than a missing-type error. -->
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Legacy non-SDK projects consume PackageReference only through the NuGet targets that ship
+      with Visual Studio's MSBuild, so `dotnet build` restores these and then resolves none of
+      them (Span and ValueTask come back as CS0246). Build this project with VS MSBuild.exe;
+      see the design doc's build-verification section.
+
+      System.Memory carries Span for the C# 7.2/7.3 rows; System.Threading.Tasks.Extensions
+      carries ValueTask for the C# 7.0 generalized-async-return-types row. System.Memory does not
+      depend on the latter, so it has to be named explicitly.
+    -->
+    <PackageReference Include="System.Memory" Version="4.5.5" />
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- This project is non-SDK XML and has no globbing, so every file needs an explicit item. -->
+    <!-- GENERATED-COMPILE-ITEMS-BEGIN — written by scripts/generate-net48-examples.cs; do not edit by hand. -->
+    <Compile Include="Program.cs" />
+    <!-- GENERATED-COMPILE-ITEMS-END -->
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

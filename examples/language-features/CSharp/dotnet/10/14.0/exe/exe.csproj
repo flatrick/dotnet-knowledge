@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpNet10Exe</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion>
+    <!--
+      OutputType is a per-project setting and cannot be scoped to a folder, in
+      exactly the way /unsafe cannot. Top-level statements require the
+      compilation to be an executable (CS8805), so this project exists to host
+      the rows that need an entry point, leaving every library project free of
+      one. It holds only those rows.
+
+      A compilation may contain at most one file with top-level statements, so
+      this project can never host more than one such row.
+    -->
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+</Project>

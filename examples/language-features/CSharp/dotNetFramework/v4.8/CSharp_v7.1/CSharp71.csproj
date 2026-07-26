@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <RootNamespace>CSharp71</RootNamespace>
+    <ProjectGuid>{7B1A2C3D-4E5F-4061-8A9B-0C1D2E3F4A51}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.1</LangVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <DefineDebug>true</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <OutputPath>bin\Debug\</OutputPath>
+    <ErrorReport>send</ErrorReport>
+    <UseWinFormsOutOfProcDesigner>True</UseWinFormsOutOfProcDesigner>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>portable</DebugType>
+    <DefineTrace>true</DefineTrace>
+    <OutputPath>bin\Release\</OutputPath>
+    <UseWinFormsOutOfProcDesigner>True</UseWinFormsOutOfProcDesigner>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AssemblyName>CSharp71</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Net.Http" />
+    <!-- Microsoft.CSharp carries the runtime binder the C# 4.0 `dynamic` row needs; without it
+         that sample fails with CS0656 rather than a missing-type error. -->
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Legacy non-SDK projects consume PackageReference only through the NuGet targets that ship
+      with Visual Studio's MSBuild, so `dotnet build` restores these and then resolves none of
+      them (Span and ValueTask come back as CS0246). Build this project with VS MSBuild.exe;
+      see the design doc's build-verification section.
+
+      System.Memory carries Span for the C# 7.2/7.3 rows; System.Threading.Tasks.Extensions
+      carries ValueTask for the C# 7.0 generalized-async-return-types row. System.Memory does not
+      depend on the latter, so it has to be named explicitly.
+    -->
+    <PackageReference Include="System.Memory" Version="4.5.5" />
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- This project is non-SDK XML and has no globbing, so every file needs an explicit item. -->
+    <!-- GENERATED-COMPILE-ITEMS-BEGIN — written by scripts/generate-net48-examples.cs; do not edit by hand. -->
+    <Compile Include="CSharp1\Attributes\Attributes.cs" />
+    <Compile Include="CSharp1\Boxing\Boxing.cs" />
+    <Compile Include="CSharp1\ClassesStructsEnums\ClassesStructsEnums.cs" />
+    <Compile Include="CSharp1\ControlFlowStatements\ControlFlowStatements.cs" />
+    <Compile Include="CSharp1\EventsAndDelegates\EventsAndDelegates.cs" />
+    <Compile Include="CSharp1\Interfaces\Interfaces.cs" />
+    <Compile Include="CSharp1\LiteralsAndExpressions\LiteralsAndExpressions.cs" />
+    <Compile Include="CSharp1\OperatorOverloading\OperatorOverloading.cs" />
+    <Compile Include="CSharp1\ParameterModifiers\ParameterModifiers.cs" />
+    <Compile Include="CSharp1\Preprocessor\Preprocessor.cs" />
+    <Compile Include="CSharp1\PropertiesAndIndexers\PropertiesAndIndexers.cs" />
+    <Compile Include="CSharp1_2\ForeachEnhancements\ForeachEnhancements.cs" />
+    <Compile Include="CSharp2\AnonymousMethods\AnonymousMethods.cs" />
+    <Compile Include="CSharp2\DelegateInferenceAndConversions\DelegateInferenceAndConversions.cs" />
+    <Compile Include="CSharp2\Generics\Generics.cs" />
+    <Compile Include="CSharp2\Iterators\Iterators.cs" />
+    <Compile Include="CSharp2\NamespaceAndTypeAliases\NamespaceAndTypeAliases.cs" />
+    <Compile Include="CSharp2\NullableValueTypes\NullableValueTypes.cs" />
+    <Compile Include="CSharp2\PartialTypes\Order.Core.cs" />
+    <Compile Include="CSharp2\PartialTypes\Order.Validation.cs" />
+    <Compile Include="CSharp2\PropertyAccessorAccessibility\PropertyAccessorAccessibility.cs" />
+    <Compile Include="CSharp2\StaticClasses\StaticClasses.cs" />
+    <Compile Include="CSharp2\Variance\Variance.cs" />
+    <Compile Include="CSharp3\AnonymousTypes\AnonymousTypes.cs" />
+    <Compile Include="CSharp3\AutoImplementedProperties\AutoImplementedProperties.cs" />
+    <Compile Include="CSharp3\ExpressionTrees\ExpressionTrees.cs" />
+    <Compile Include="CSharp3\ExtensionMethods\ExtensionMethods.cs" />
+    <Compile Include="CSharp3\ImplicitlyTypedLocals\ImplicitlyTypedLocals.cs" />
+    <Compile Include="CSharp3\LambdaExpressions\LambdaExpressions.cs" />
+    <Compile Include="CSharp3\Linq\Linq.cs" />
+    <Compile Include="CSharp3\LockStatement\LockStatement.cs" />
+    <Compile Include="CSharp3\ObjectCollectionInitializers\ObjectCollectionInitializers.cs" />
+    <Compile Include="CSharp3\PartialMethods\Report.Generated.cs" />
+    <Compile Include="CSharp3\PartialMethods\Report.Hand.cs" />
+    <Compile Include="CSharp4\DynamicBinding\DynamicBinding.cs" />
+    <Compile Include="CSharp4\EmbeddedInteropTypes\EmbeddedInteropTypes.cs" />
+    <Compile Include="CSharp4\GenericDelegateVariance\GenericDelegateVariance.cs" />
+    <Compile Include="CSharp4\NamedAndOptionalArguments\NamedAndOptionalArguments.cs" />
+    <Compile Include="CSharp5\AsyncAwait\AsyncAwait.cs" />
+    <Compile Include="CSharp5\CallerInfoAttributes\CallerInfoAttributes.cs" />
+    <Compile Include="CSharp5\ForeachLoopVariableScope\ForeachLoopVariableScope.cs" />
+    <Compile Include="CSharp6\AutoPropertyInitializers\AutoPropertyInitializers.cs" />
+    <Compile Include="CSharp6\AwaitInCatchFinally\AwaitInCatchFinally.cs" />
+    <Compile Include="CSharp6\DictionaryInitializer\DictionaryInitializer.cs" />
+    <Compile Include="CSharp6\ExceptionFilters\ExceptionFilters.cs" />
+    <Compile Include="CSharp6\ExpressionBodiedMembers\ExpressionBodiedMembers.cs" />
+    <Compile Include="CSharp6\NameOfOperator\NameOfOperator.cs" />
+    <Compile Include="CSharp6\NullConditionalOperator\NullConditionalOperator.cs" />
+    <Compile Include="CSharp6\StringInterpolation\StringInterpolation.cs" />
+    <Compile Include="CSharp6\UsingStatic\UsingStatic.cs" />
+    <Compile Include="CSharp7\Discards\Discards.cs" />
+    <Compile Include="CSharp7\ExpressionBodiedMembersExtended\ExpressionBodiedMembersExtended.cs" />
+    <Compile Include="CSharp7\GeneralizedAsyncReturnTypes\GeneralizedAsyncReturnTypes.cs" />
+    <Compile Include="CSharp7\LocalFunctions\LocalFunctions.cs" />
+    <Compile Include="CSharp7\NumericLiteralImprovements\NumericLiteralImprovements.cs" />
+    <Compile Include="CSharp7\OutVariables\OutVariables.cs" />
+    <Compile Include="CSharp7\PatternMatching70\PatternMatching70.cs" />
+    <Compile Include="CSharp7\RefReturnsAndLocals\RefReturnsAndLocals.cs" />
+    <Compile Include="CSharp7\ThrowExpressions\ThrowExpressions.cs" />
+    <Compile Include="CSharp7\TuplesAndDeconstruction\TuplesAndDeconstruction.cs" />
+    <Compile Include="CSharp7_1\AsyncMain\AsyncMain.cs" />
+    <Compile Include="CSharp7_1\DefaultLiteralExpressions\DefaultLiteralExpressions.cs" />
+    <Compile Include="CSharp7_1\GenericPatternMatching\GenericPatternMatching.cs" />
+    <Compile Include="CSharp7_1\InferredTupleElementNames\InferredTupleElementNames.cs" />
+    <!-- GENERATED-COMPILE-ITEMS-END -->
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\CSharpComTypeLib\CSharpComTypeLib.csproj">
+      <Project>{0933261c-1bdd-3b45-6db8-0293dcd96906}</Project>
+      <Name>CSharpComTypeLib</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
