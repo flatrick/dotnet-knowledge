@@ -37,23 +37,18 @@ checkable claim rather than an assertion.
 
 ## Project matrix
 
-Eight standalone projects live under a new top-level `examples/language-features/` directory —
-sibling to `testData/`, not a member of it, and not part of `DotNetMcpServer.slnx`. Each project is
-a **full cumulative corpus** up to its own version ceiling: every feature shipped at or before that
-project's max language version is included, *unless* it fails to compile under that project's
-TFM/project-format combination (see the applicability rule below), in which case it's picked up by
-the next project up the chain instead.
+The current tree lives under `examples/language-features/` and materializes each build coordinate
+explicitly:
 
-| # | Project name | TFM | Project format | LangVersion | `/unsafe` | Covers |
-|---|---|---|---|---|---|---|
-| 1 | `CSharpFw48Cs73` | net48 | Legacy XML (non-SDK) | 7.3 | no | C# 1.0 → 7.3, minus the unsafe-requiring features (see below) |
-| 2 | `CSharpFw48Cs80` | net48 | SDK-style | 8.0 | no | C# 1.0 → 8.0, minus default interface members, ranges/indexes, and the unsafe-requiring features |
-| 3 | `CSharpNet10Latest` | net10.0 | SDK-style | latest (14.0 as of this writing) | no | C# 1.0 → 14.0, minus the unsafe-requiring features — including the 2 features skipped by project 2 |
-| 4 | `CSharpFw48Cs80Unsafe` | net48 | SDK-style | 8.0 | **yes** | Only the unsafe-requiring features at or below C# 8.0 |
-| 5 | `CSharpNet10Unsafe` | net10.0 | SDK-style | latest | **yes** | Only the unsafe-requiring features, all versions |
-| 6 | `CSharpNet10Exe` | net10.0 | SDK-style, `OutputType=Exe` | latest | no | Only the features requiring an executable compilation |
-| 7 | `VbNetFw48` | net48 | SDK-style | max reachable on net48 (determined during research) | n/a | VB.NET baseline → whatever net48 unlocks, full |
-| 8 | `VbNetNet10Latest` | net10.0 | SDK-style | latest | n/a | VB.NET baseline → latest, full |
+- `CSharp/dotnet/` contains the cumulative SDK/TFM projects. The executable build matrix discovers
+  11 current SDK-style library projects; `10/latest/` also holds the canonical `library`, `unsafe`,
+  and `exe` sources.
+- `CSharp/dotNetFramework/v4.8/CSharp_v*/` contains the hand-authored net48 language-version
+  projects, including dedicated unsafe projects where required.
+- `VB.NET/dotnet/Net10/` and `VB.NET/dotNetFramework/v4.8/` contain the VB corpus.
+
+Each cumulative project includes every applicable feature up to its version ceiling unless the
+TFM, project format, or a deliberately disabled compiler switch excludes it.
 
 ### Why an executable gets its own project
 
@@ -63,7 +58,7 @@ be an executable; a library is rejected with `CS8805` ("Program using top-level 
 an executable"). Hosting that row in a mainline project would give every other example in it an
 entry point, and would mean the corpus contained no project demonstrating C# as an ordinary library.
 
-Project 6 carries **only** rows that need an entry point. It is also inherently capped at one such
+The `10/latest/exe` project carries **only** rows that need an entry point. It is also inherently capped at one such
 row, because a compilation may contain at most one file with top-level statements — so unlike the
 `*Unsafe` projects it will not accumulate.
 
@@ -78,11 +73,9 @@ be scoped to a folder or a file. Enabling it on a mainline project would mean ev
 project compiles under a switch most real-world projects do not set, and the corpus would contain no
 project demonstrating C# under default compilation.
 
-Projects 4 and 5 resolve that. They carry **only** the features that cannot compile without
-`/unsafe`; every other feature stays in the mainline projects. One project per TFM is enough, because
-the unsafe surface does not vary interestingly between net48 and net10 — a second legacy-XML variant
-would add a Windows-only build dependency for no additional coverage, so project 1's unsafe rows are
-served by project 4.
+The dedicated `unsafe` projects carry **only** the features that cannot compile without `/unsafe`;
+every other feature stays in the mainline projects. One project per relevant TFM is enough, because
+the unsafe surface does not vary interestingly between net48 and net10.
 
 The unsafe-requiring set is, at the time of writing, six rows: *Unsafe code and pointers* (C# 1.0),
 *Indexing movable fixed buffers* and *Custom `fixed` statement* (C# 7.3), *`[SkipLocalsInit]`* and
@@ -128,27 +121,27 @@ It multi-targets `net48;net10.0` because `ImportedFromTypeLibAttribute` does not
 rest of the consuming project compiles — which is why this feature needs no separate project the way
 unsafe code does.
 
-Project 2 exists specifically because C# 8.0 shipped nullable reference types — a purely
+The net48 C# 8.0 project exists specifically because C# 8.0 shipped nullable reference types — a purely
 compile-time feature with no runtime dependency, so it behaves identically on net48 and net10. That
 makes it valuable to prove out on the older TFM (this repo already treats nullable-across-TFM
 behavior as a real area of interest — see e.g. the `CSharpNullabilityMultiTfm*` fixtures in
-`testData/`). Default interface members are excluded from project 2 and appear for the first time in
-project 3: they require `RuntimeFeature.DefaultImplementationsOfInterfaces`, which net48 doesn't
+`testData/`). Default interface members are excluded from that project and appear in the net10
+corpus: they require `RuntimeFeature.DefaultImplementationsOfInterfaces`, which net48 doesn't
 advertise — a hard compiler error, CS8701/CS8703, not a runtime risk.
 
 > **Correction (verified empirically during plan authoring, Plan 0):** the original text here also
 > excluded async streams and Span-dependent C#7.2/C#8 features (stackalloc initializers, Span/ref-like
-> types) from project 2, assuming they needed BCL surface net48 lacks. Actual `dotnet build` probes
+> types) from the net48 C# 8.0 project, assuming they needed BCL surface net48 lacks. Actual `dotnet build` probes
 > against net48 SDK-style/LangVersion 8 showed both compile and build cleanly given the official
 > Microsoft packages `Microsoft.Bcl.AsyncInterfaces` (async streams) and `System.Memory` (Span-based
 > features) — these are first-party BCL-extension packages, not community polyfills, so they're
 > within the design's "no extra polyfill" intent. Only default interface members (hard compiler
 > block) and ranges/indexes genuinely fail: `System.Index`/`System.Range` have no official net48
 > backport package (`System.Memory` doesn't provide them — confirmed via probe: CS0518/CS0656).
-> Project 2 therefore references `Microsoft.Bcl.AsyncInterfaces` and `System.Memory`, and only
-> default interface members and ranges/indexes are deferred to project 3.
+> That project therefore references `Microsoft.Bcl.AsyncInterfaces` and `System.Memory`, and only
+> default interface members and ranges/indexes are deferred to the net10 corpus.
 
-VB.NET gets only one net48 project (6) because VB.NET has never added a feature analogous to
+VB.NET uses one net48 corpus because it has never added a feature analogous to
 nullable reference types that's gated behind the SDK-style project system — per the VB team's own
 "consumption-only" evolution strategy (confirmed via Microsoft Learn during design), VB.NET rarely
 adds new *syntax* at all; most of its recent version deltas are about *consuming* APIs built on newer
@@ -197,10 +190,10 @@ language-level change gets no folder. For VB.NET, the pre-15 range collapses to 
 folder (no per-version attribution, per the sourcing gap above); normal per-version folders resume
 at `Vb15/`.
 
-Example (`CSharpNet10Latest`):
+Example (canonical C# net10 sources):
 
 ```
-examples/language-features/CSharpNet10Latest/
+examples/language-features/CSharp/dotnet/10/latest/library/
   CSharp1/ClassesStructsEnums/, Delegates/, Preprocessor/, ...
   CSharp2/Generics/, Iterators/, PartialTypes/, ...
   ...
@@ -209,10 +202,10 @@ examples/language-features/CSharpNet10Latest/
   CSharp14/ExtensionMembers/, FieldKeyword/, ...
 ```
 
-Example (`VbNetNet10Latest`):
+Example (canonical VB net10 sources):
 
 ```
-examples/language-features/VbNetNet10Latest/
+examples/language-features/VB.NET/dotnet/Net10/
   Baseline/ClassesModulesInterfaces/, Linq/, XmlLiterals/, Lambdas/, AsyncAwait/, ...
   Vb15/Tuples/, BinaryLiterals/, ...
   Vb15_3/NamedTupleInference/
@@ -261,8 +254,8 @@ A feature is included in a given project if and only if:
 If (2) fails, the feature is excluded from that project, recorded in `MANIFEST.md` with a one-line
 reason (e.g. "CS8703: default interface members require runtime support absent on net48"), and
 picked up in the next project up the chain where it does compile. This rule is what produced the
-default-interface-members/ranges-and-indexes exclusion in project 2 (Section: Project matrix), and it
-applies uniformly to all seven projects — including the two VB.NET ones, where (unlike C#, whose
+default-interface-members/ranges-and-indexes exclusion in the net48 C# 8.0 project, and it applies
+uniformly to every project — including the VB.NET projects, where (unlike C#, whose
 default `LangVersion` is TFM-gated by a known mapping table) the actual net48-vs-net10 applicability
 gap, if any, is discovered empirically during research rather than assumed up front.
 
@@ -328,13 +321,12 @@ Corpus evidence has three layers:
 
 These layers are complementary. A successful project build cannot establish a historical feature
 boundary or prove a comment about runtime behavior. Every project build still requires **0 errors
-and 0 warnings**. Six of the seven projects build with `dotnet build` on any host;
-`CSharpFw48Cs73` (legacy XML, non-SDK) needs Windows, and specifically needs Visual Studio's
-`MSBuild.exe`:
+and 0 warnings**. The executable SDK-style C# library matrix currently discovers 11 projects. The
+legacy `CSharp_v7.0` project needs Windows and Visual Studio's `MSBuild.exe`:
 
 ```
 "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" \
-  examples/language-features/CSharpFw48Cs73/CSharpFw48Cs73.csproj -t:Restore;Build
+  examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj -t:Restore;Build
 ```
 
 Two distinct toolchain gaps sit behind that, and only the first is about the host OS:
@@ -354,14 +346,14 @@ that costs the most time to diagnose is `Microsoft.CSharp`: without it the C# 4.
 with `CS0656` (missing `RuntimeBinder` members) at the *emit* stage. Emit-stage errors appear only
 once binding succeeds, so any earlier unresolved-type error in the project hides them completely —
 a probe that is missing some other reference will report a clean-looking absence of `CS0656` and
-then produce it as soon as the unrelated error is fixed. `CSharpFw48Cs80` needs the same explicit
-reference despite being SDK-style; the SDK does not add it implicitly on net48.
+then produce it as soon as the unrelated error is fixed. Applicable SDK-style net48 projects need
+the same explicit reference; the SDK does not add it implicitly on net48.
 
 Manifest completeness is satisfied when:
 
 - `MANIFEST.md` has no unaccounted-for row (every feature is either included in a named project, or
   excluded with a reason), and
-- every one of the 7 projects builds with 0 errors.
+- every project in the current on-disk matrix builds with 0 errors and 0 warnings.
 
 That establishes authored coverage, not the stronger compilation-boundary or runtime layers.
 Checked-in cases under `tests/DotNetKnowledge.Corpus.Tests/TestCases/` supply those layers for the
@@ -374,11 +366,15 @@ targeting `net5.0` uses SDK 10's compiler against the `net5.0` reference pack. S
 `TargetFramework`, `LangVersion`, and runtime execution remain independent coordinates in every
 case.
 
-Any new source comment that asserts observable runtime behavior must carry this marker in its
-canonical authored source:
+Any new source comment that asserts observable runtime behavior must carry the
+language-appropriate marker in its canonical authored source:
 
 ```csharp
 // Runtime verification: <case-id>
+```
+
+```vb
+' Runtime verification: <case-id>
 ```
 
 The case with that exact ID must contain at least one runtime expectation, and every runtime case

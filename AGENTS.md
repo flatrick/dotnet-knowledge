@@ -60,10 +60,12 @@ deleted project roots; do not run it against this tree. Scope edits to the proje
 task. When a task requires an authored sample to remain identical across cumulative project pins,
 propagate it explicitly and verify byte equality.
 
-**Building the corpus.** Six of the seven projects build with `dotnet build`. `CSharpFw48Cs73` is
-legacy non-SDK XML and needs Visual Studio's `MSBuild.exe` on Windows — `dotnet build` restores its
-`PackageReference` items and then resolves none of them, failing with `CS0246` on `Span` and
-`ValueTask` while saying nothing about the toolchain.
+**Building the corpus.** `CorpusProjectBuildTests` discovers and builds the current 11 SDK-style C#
+library projects. The legacy
+`examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj` needs Visual
+Studio's `MSBuild.exe` on Windows — `dotnet build` restores its `PackageReference` items and then
+resolves none of them, failing with `CS0246` on `Span` and `ValueTask` while saying nothing about
+the toolchain.
 
 **Corpus verification has three layers.**
 
@@ -82,10 +84,10 @@ test command. An older TFM under SDK 10 uses SDK 10's compiler against the older
 does not emulate or select that TFM's historical compiler. Keep SDK, TFM, `LangVersion`, and runtime
 execution independent in every case.
 
-Any new comment that asserts observable runtime behavior must include
-`// Runtime verification: <case-id>` in the canonical authored source. The ID must name exactly one
-case with a nonempty `runtimes` array. Compilation cannot check claims such as "this is a view" or
-"this rounds to even."
+Any new comment that asserts observable runtime behavior must include the language-appropriate
+marker in the canonical authored source: `// Runtime verification: <case-id>` in C# or
+`' Runtime verification: <case-id>` in VB. The ID must name exactly one case with a nonempty
+`runtimes` array. Compilation cannot check claims such as "this is a view" or "this rounds to even."
 
 **A pinned `<LangVersion>` does not prove it either.** Roslyn holds a construct to a language
 version only where its binder calls `CheckFeatureAvailability`. Syntax-driven features all got that

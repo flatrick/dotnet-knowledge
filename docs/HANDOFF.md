@@ -18,7 +18,7 @@ synchronization between the two — the extraction is one-way and final.
 
 | Thing | State |
 |---|---|
-| `examples/language-features/` | Complete corpus, 449 example files across 7 projects. Copied verbatim. |
+| `examples/language-features/` | Complete authored corpus. The executable SDK-style C# library matrix currently discovers 11 projects; special and legacy projects remain explicit. |
 | `src/DotNetKnowledge.Mcp/` | Builds at 0 errors / 0 warnings. Serves `list_sources` over stdio. |
 | `sources.json` | Five upstream sources with the commits `dotnet-mcp` had pinned. |
 | `scripts/api-docs-query.cs` | The working XML-doc query logic, still in CLI form. Port it, don't rewrite it. |
@@ -71,13 +71,14 @@ These are correctness obligations, not preferences. The reasoning is in
 - **The per-`<LangVersion>` trees are hand-authored probes.** The on-disk tree is current truth.
   `scripts/generate-net48-examples.cs` targets deleted project roots and is not a validation command
   for the current corpus.
-- **`CSharpFw48Cs73` needs Visual Studio's `MSBuild.exe`.** `dotnet build` restores its
-  `PackageReference` items and resolves none of them, because a non-SDK project consumes package
-  assets through NuGet targets that ship with VS, not with the SDK. It fails with `CS0246` on `Span`
-  and `ValueTask` and says nothing about the toolchain.
-- **Both net48 C# projects need an explicit `Microsoft.CSharp` reference** for the C# 4.0 `dynamic`
-  row. That failure is `CS0656` at *emit*, so any earlier binding error in the project hides it
-  entirely — a probe missing an unrelated reference will report it as absent.
+- **The legacy `CSharp_v7.0` project needs Visual Studio's `MSBuild.exe`.** Its current path is
+  `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj`.
+  `dotnet build` restores its `PackageReference` items and resolves none of them, because a non-SDK
+  project consumes package assets through NuGet targets that ship with VS, not with the SDK. It
+  fails with `CS0246` on `Span` and `ValueTask` and says nothing about the toolchain.
+- **Applicable net48 C# projects need an explicit `Microsoft.CSharp` reference** for the C# 4.0
+  `dynamic` row. That failure is `CS0656` at *emit*, so any earlier binding error in the project
+  hides it entirely — a probe missing an unrelated reference will report it as absent.
 - **Probe constructs in isolation.** A whole-project VB build reported 2 errors where per-folder
   builds reported 5. Neither compiler announces that it stopped early.
 - **Pinning an SDK-style project to `ISO-1`/`ISO-2`** always fails on the SDK's generated
@@ -91,7 +92,8 @@ These are correctness obligations, not preferences. The reasoning is in
   10's compiler against the older reference pack. SDK, TFM, `LangVersion`, and runtime execution
   are independent case inputs.
 - **Runtime-behavior claims require a canonical source marker.** Add
-  `// Runtime verification: <case-id>` and give that exact case a nonempty `runtimes` array.
+  `// Runtime verification: <case-id>` in C# or `' Runtime verification: <case-id>` in VB, and give
+  that exact case a nonempty `runtimes` array.
 
 ## Open decisions
 

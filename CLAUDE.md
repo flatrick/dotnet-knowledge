@@ -96,8 +96,9 @@ the applicability rule and the rest of the reasoning.
   10's compiler against the older reference pack. Keep SDK, TFM, `LangVersion`, and runtime
   execution as separate case inputs.
 - **Every new runtime-behavior claim needs a source marker.** Add
-  `// Runtime verification: <case-id>` to the canonical authored source, and give that exact case a
-  nonempty `runtimes` array. Compilation cannot check "this is a view" or "this rounds to even".
+  `// Runtime verification: <case-id>` in C# or `' Runtime verification: <case-id>` in VB to the
+  canonical authored source, and give that exact case a nonempty `runtimes` array. Compilation
+  cannot check "this is a view" or "this rounds to even".
 - **A pinned `<LangVersion>` does not prove it either.** Roslyn enforces a version only where the
   binder calls `CheckFeatureAvailability`; syntax-driven features got that call, semantic and
   attribute-driven ones did not. `GeneralizedAsyncReturnTypes` (C# 7.0) compiles at

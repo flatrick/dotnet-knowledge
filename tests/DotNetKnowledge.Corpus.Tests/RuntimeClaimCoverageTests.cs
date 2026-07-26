@@ -6,7 +6,8 @@ namespace DotNetKnowledge.Corpus.Tests;
 [TestCategory("Unit")]
 public sealed class RuntimeClaimCoverageTests
 {
-    private const string MarkerPrefix = "// Runtime verification: ";
+    private const string CSharpMarkerPrefix = "// Runtime verification: ";
+    private const string VisualBasicMarkerPrefix = "' Runtime verification: ";
 
     [TestMethod]
     public void RuntimeCasesAndCanonicalSourceMarkersAreBijective()
@@ -39,6 +40,54 @@ public sealed class RuntimeClaimCoverageTests
         Assert.HasCount(1, errors);
         StringAssert.Contains(errors[0], "examples/language-features/First.cs:3");
         StringAssert.Contains(errors[0], "examples/language-features/Second.cs:7");
+    }
+
+    [TestMethod]
+    public void CanonicalMarkerDiscoveryRecognizesVisualBasicCommentSyntax()
+    {
+        var repositoryRoot = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-{Guid.NewGuid():N}");
+        var csharpRoot = Path.Combine(
+            repositoryRoot,
+            "examples",
+            "language-features",
+            "CSharp",
+            "dotnet",
+            "10",
+            "latest");
+        var visualBasicRoot = Path.Combine(
+            repositoryRoot,
+            "examples",
+            "language-features",
+            "VB.NET",
+            "dotnet",
+            "Net10");
+        Directory.CreateDirectory(csharpRoot);
+        Directory.CreateDirectory(visualBasicRoot);
+
+        try
+        {
+            var sourcePath = Path.Combine(visualBasicRoot, "RuntimeClaim.vb");
+            File.WriteAllText(
+                sourcePath,
+                """
+                Namespace RuntimeClaims
+                    ' Runtime verification: Vb17_13.RuntimeClaim
+                End Namespace
+                """);
+
+            var markers = FindCanonicalMarkers(repositoryRoot);
+
+            Assert.HasCount(1, markers);
+            Assert.AreEqual("Vb17_13.RuntimeClaim", markers[0].Id);
+            Assert.AreEqual(
+                "examples/language-features/VB.NET/dotnet/Net10/RuntimeClaim.vb",
+                markers[0].Path);
+            Assert.AreEqual(2, markers[0].LineNumber);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+        }
     }
 
     private static CaseDocument[] LoadCases()
@@ -79,18 +128,24 @@ public sealed class RuntimeClaimCoverageTests
                          .Where(path => Path.GetExtension(path) is ".cs" or ".vb")
                          .OrderBy(path => path, StringComparer.Ordinal))
             {
+                var markerPrefix = Path.GetExtension(path) switch
+                {
+                    ".cs" => CSharpMarkerPrefix,
+                    ".vb" => VisualBasicMarkerPrefix,
+                    _ => throw new InvalidOperationException($"Unsupported canonical source type: {path}.")
+                };
                 var lineNumber = 0;
                 foreach (var line in File.ReadLines(path))
                 {
                     lineNumber++;
                     var trimmed = line.Trim();
-                    if (!trimmed.StartsWith(MarkerPrefix, StringComparison.Ordinal))
+                    if (!trimmed.StartsWith(markerPrefix, StringComparison.Ordinal))
                     {
                         continue;
                     }
 
                     markers.Add(new RuntimeMarker(
-                        trimmed[MarkerPrefix.Length..].Trim(),
+                        trimmed[markerPrefix.Length..].Trim(),
                         Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'),
                         lineNumber));
                 }
