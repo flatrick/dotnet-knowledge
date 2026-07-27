@@ -140,20 +140,21 @@ foreach (var projectPath in projectFiles)
             {
                 filesChecked++;
                 var sourceRelative = Relative(corpusRoot, source);
-                var declared = FirstNamespaceSegment(vbNamespacePattern, source);
-                if (declared is null)
-                {
-                    continue;
-                }
 
-                if (declared.StartsWith("Net10_", StringComparison.Ordinal) ||
-                    declared.StartsWith("Net48_", StringComparison.Ordinal))
+                // Check every namespace declaration in the file, not just the first — the same
+                // mirroring mistake as Rule 3's `.Matches` over `.Match` for C#. A file with a clean
+                // first Namespace block and a project-prefixed second one must not pass silently.
+                foreach (var declared in NamespaceSegments(vbNamespacePattern, source))
                 {
-                    findings.Add(new Finding(
-                        "vb-project-prefixed-namespace",
-                        sourceRelative,
-                        $"declares namespace {declared}, but VB prepends <RootNamespace> itself; this "
-                        + "compiles to a doubled namespace and corrupts every pin sharing this source"));
+                    if (declared.StartsWith("Net10_", StringComparison.Ordinal) ||
+                        declared.StartsWith("Net48_", StringComparison.Ordinal))
+                    {
+                        findings.Add(new Finding(
+                            "vb-project-prefixed-namespace",
+                            sourceRelative,
+                            $"declares namespace {declared}, but VB prepends <RootNamespace> itself; this "
+                            + "compiles to a doubled namespace and corrupts every pin sharing this source"));
+                    }
                 }
             }
         }
@@ -299,11 +300,10 @@ static string? FindFamilySrcRoot(string corpusRoot, string start)
     return null;
 }
 
-static string? FirstNamespaceSegment(Regex pattern, string path)
-{
-    var match = pattern.Match(File.ReadAllText(path));
-    return match.Success ? match.Groups["head"].Value : null;
-}
+static IEnumerable<string> NamespaceSegments(Regex pattern, string path) =>
+    pattern.Matches(File.ReadAllText(path))
+        .Select(match => match.Groups["head"].Value)
+        .Distinct(StringComparer.Ordinal);
 
 static string? FindRepoRoot(string start)
 {

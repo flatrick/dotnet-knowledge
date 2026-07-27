@@ -70,9 +70,10 @@ exactly like version gating.
 
 Exit code is **1** when any group is `MISPLACED` or `NOT-VERSION-SPECIFIC` — the two outcomes that
 mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
-argument, no repo root, a non-Windows host, no Visual Studio MSBuild, no compiler beside it, or a
-`--project` filter matching nothing. Every other outcome is a finding about the toolchain's reach
-and exits 0.
+argument, an unrecognized `--language` value, no repo root, a non-Windows host, no Visual Studio
+MSBuild, no compiler beside it, or one of discovery's three fatal cases — the corpus root itself
+missing, no project of the expected extension under it, or a `--project`/`--language` filter matching
+no project. Every other outcome is a finding about the toolchain's reach and exits 0.
 
 ## How a group is probed
 
@@ -98,7 +99,7 @@ exactly like a feature that was always legal. Only a compiler at a **native ceil
 `NOT-VERSION-SPECIFIC`, which is why only step 3 is allowed to accuse an example.
 
 Step 4 never runs for VB. The in-box `vbc` compilers predate `/langversion` as a meaningful switch —
-`v3.5`'s answers it with `BC2007`, "option 'langversion' is unknown and ignored" — so holding one of
+`v3.5` answers it with `BC2007`, "option 'langversion' is unknown and ignored" — so holding one of
 them to a rung would silently probe its own ceiling instead. VB therefore has step 3 or nothing.
 
 ### A row filed above its project's pin
@@ -133,7 +134,7 @@ record.
 | `MISPLACED` | A row above its project's pin that compiles at its own version but not at the pin. The project file is stale. | yes |
 | `UNPROVEN` | No compiler exists here that can settle the boundary. | |
 | `BASELINE` | A row at the ladder's lowest rung — there is no lower version to test against. | |
-| `INCONCLUSIVE` | The group will not compile standalone, an old compiler could not read the reference set, or a row above its pin failed at both the pin and its own version. | |
+| `INCONCLUSIVE` | The group will not compile standalone, an old compiler could not read the reference set, a row above its pin failed at both the pin and its own version, the group folder holds no source files of the probed language, or the pin or the row's own version has no `/langversion` spelling to compile at. | |
 | `EXEMPT` | A row a floor probe structurally cannot judge. See below. | |
 
 ## Evidence
@@ -145,7 +146,7 @@ claim, and reporting a floor without saying which produced it overstates the wea
 | Evidence | Meaning |
 |---|---|
 | `native-ceiling` | A compiler whose native ceiling is the rung below settled it. Does not drift as SDKs ship, and the only tier that can settle the question in *both* directions. |
-| `legacy-pin` | A pre-Roslyn compiler held to the rung below settled it. One-directional: a rejection proves version dependence, an acceptance proves nothing. C# only. |
+| `legacy-pin` | A compiler that does not top out at the rung below, held there with `/langversion` instead — not always pre-Roslyn, since the C# 6 / VB 14 boundary uses Microsoft.Net.Compilers 1.3.2, itself a Roslyn build. One-directional: a rejection settles it — version dependence proven; an acceptance settles nothing and reports `UNPROVEN`. C# only. |
 | `sdk-pin` | The installed SDK's compiler under `/langversion`, and nothing else. Says what today's toolchain gates — a fact that drifts. |
 | `none` | Nothing compiled here bears on the floor. |
 
@@ -211,11 +212,12 @@ than being silently skipped.
 **Verdicts are cached by content.** The same row is held by several projects, and its floor is a
 property of the files rather than of the project holding them. Each distinct
 `(scope, version, file content)` triple is probed once and the verdict reused, so per-project rows in
-the report can be identical by construction. `scope` keeps rows that share a reference set together:
-C# has one scope, and VB has one per family and project kind, because a net10 reference set and a
-net48 one can disagree about whether a row compiles at all, and the `my/` projects compile with
-`_MyType` defined. The above-pin check is deliberately *outside* the cache — whether a row compiles
-at a given pin is a property of the placement, not of the row.
+the report can be identical by construction. `scope` is meant to keep rows that share a reference set
+together: C# declares one scope for every project, and VB declares one per family and project kind,
+because a net10 reference set and a net48 one can disagree about whether a row compiles at all, and
+the `my/` projects compile with `_MyType` defined. C#'s single scope is a declared value rather than
+a derived one — see the `Scope` limitation below. The above-pin check is deliberately *outside* the
+cache — whether a row compiles at a given pin is a property of the placement, not of the row.
 
 **Scope is the C# net48 tree and the whole VB corpus.** With `--language cs` only
 `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v*` is walked; the C# net10 projects
@@ -227,6 +229,24 @@ minus its `Compile Remove` globs. Reading those items is the only way to learn w
 project actually compiles — honoring `Remove` is what keeps `MyNamespaceHelpers` attributed to the
 `my/` projects alone. A `Compile` glob that does not end in `**/*.vb` throws rather than being
 silently skipped.
+
+**`--json` output is not reproducible run to run.** The `Detail` string for a row can vary between
+runs of unchanged code — `BC30643`, `BC30657`, and `BC36954` have all been observed for the same
+row, all genuine. The root cause is that Roslyn 1.3.2's `vbc` binds method bodies concurrently, so
+which of several real errors the probe encounters first varies per process. `Outcome` and `Evidence`
+are stable; only `Detail` varies, and today it reaches exactly one row. The consequence worth
+stating: **diffing two `--json` runs is not a valid regression technique.** Passing `/parallel-` on
+the probe's response file would settle this, at the cost of changing every compile in both
+languages.
+
+**The `floorCache`'s `Scope` key is a declared claim, not a derived one.** It exists so a row probed
+under one project's reference set is never reused for a project with a different one. For VB it
+holds: `familyName|kind`, and reference sets are props-driven and identical within each family and
+kind. For C# every `CSharp_v*` project declares `Scope: ""`, even though they do not share a
+reference set — `CSharp_v8.0` is SDK-style with different packages, and `CSharp_v1.0-Unsafe` and
+`CSharp_v8.0-Unsafe` declare no explicit references at all. It is safe only because the projects that
+currently author cache entries happen to sit inside the identical group; deriving `Scope` from the
+resolved reference set instead of declaring it would close the gap.
 
 ## Exemptions
 

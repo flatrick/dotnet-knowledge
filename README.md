@@ -5,9 +5,9 @@ Version-pinned reference material about C#, VB.NET and Roslyn, for both people a
 Two halves:
 
 **A language-feature example corpus.** One worked example for every C# and VB.NET language feature,
-at the version that introduced it, across four TFM and project-format combinations — modern SDK-style
-`net10.0`, SDK-style `net48`, legacy non-SDK `net48`, and dedicated `/unsafe` projects. 169 C# rows
-and 58 VB rows, every project building at 0 errors and 0 warnings. Browse it in
+at the version that introduced it, across several TFM and project-format combinations — modern
+SDK-style `net10.0`, SDK-style `net48`, legacy non-SDK `net48`, and dedicated `/unsafe` projects,
+every project building at 0 errors and 0 warnings. Browse it in
 [`examples/language-features/`](examples/language-features/); [`MANIFEST.md`](examples/language-features/MANIFEST.md)
 is the index and says exactly which features are absent from which project and why.
 
@@ -17,10 +17,13 @@ states which revision it came from, so an agent can tell a pinned fact from a mo
 
 ## For readers
 
-The corpus is plain source files, organized `<project>/<version>/<feature>/`. Nothing needs to be
-built or installed to read it. Each example is commented with what the feature does, and — where it
-matters — what it does *not* do; several comments record hazards found by running the code rather
-than by compiling it.
+The corpus is plain source files. C# is organized `<project>/<version>/<feature>/`, one source tree
+per project. VB.NET keeps one shared source tree per family — `<family>/src/<version>/<feature>/` —
+and a project per pinned language version selects rows from it; the pin directories themselves
+(`latest/library/`, `11/my/`, …) hold only the project file. Nothing needs to be built or installed
+to read it. Each example is commented with what the feature does, and — where it matters — what it
+does *not* do; several comments record hazards found by running the code rather than by compiling
+it.
 
 ## For agents
 

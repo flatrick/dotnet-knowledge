@@ -67,8 +67,12 @@
 //   native-ceiling -- a compiler whose native ceiling is the rung below settled it. This does not
 //                     drift as SDKs ship, and it is the only evidence that can settle the question
 //                     in both directions.
-//   legacy-pin     -- a pre-Roslyn compiler held to the rung below settled it. One-directional: a
-//                     rejection proves version dependence, an acceptance proves nothing.
+//   legacy-pin     -- a compiler that does not top out at the rung below, held there instead with
+//                     /langversion. One-directional: a rejection settles it -- the construct is
+//                     version-dependent. An acceptance settles nothing (reported UNPROVEN), because
+//                     the gate can be missing from this compiler for the same reason it is missing
+//                     from the modern one. This gate is not always pre-Roslyn: the C# 6 / VB 14
+//                     boundary uses Microsoft.Net.Compilers 1.3.2, itself a Roslyn build.
 //   sdk-pin        -- the installed SDK's compiler under /langversion, and nothing else. This says
 //                     what the current toolchain gates, which is a fact that drifts.
 //   none           -- nothing compiled here bears on the floor.
@@ -189,7 +193,7 @@ var vbProfile = new LanguageProfile(
     // Every VB ladder value is spelled the same on the command line, unlike C#'s ISO-1 / ISO-2.
     LangVersionArg: version => version,
     // VB has no equivalent of the C# legacy-pin tier. The in-box vbc predates /langversion as a
-    // meaningful switch -- v3.5's answers it with BC2007, "option 'langversion' is unknown and
+    // meaningful switch -- v3.5 answers it with BC2007, "option 'langversion' is unknown and
     // ignored" -- so holding one of them to a rung would silently probe its own ceiling instead.
     LegacyLangVersionArg: _ => null,
     CeilingVersion: VbCeilingVersion,
@@ -519,11 +523,13 @@ static Verdict ProbeFloor(
                 Evidence.NativeCeiling);
     }
 
-    // Step 4 -- no compiler tops out at this rung, so fall back to the pre-Roslyn compiler held to
-    // that setting. This is a second implementation's gate rather than a native ceiling, so the
-    // evidence is one-directional: a rejection proves the construct is version-dependent, but an
-    // acceptance proves nothing, because a gate can be missing in both implementations for the
-    // same reason. Acceptance therefore stays UNPROVEN and never accuses the example.
+    // Step 4 -- no compiler tops out at this rung, so fall back to the nearest higher-ceiling
+    // compiler held to that setting with /langversion. That compiler is not always pre-Roslyn: the
+    // C# 6 / VB 14 boundary uses Microsoft.Net.Compilers 1.3.2, itself a Roslyn build. Either way
+    // this is a second implementation's gate rather than a native ceiling, so the evidence is
+    // one-directional: a rejection proves the construct is version-dependent, but an acceptance
+    // proves nothing, because a gate can be missing in both implementations for the same reason.
+    // Acceptance therefore stays UNPROVEN and never accuses the example.
     var legacyArg = profile.LegacyLangVersionArg(floor);
     var gate = periodCompilers
         .Where(kv => LadderIndex(profile.Ladder, kv.Key) > LadderIndex(profile.Ladder, floor))
@@ -1501,8 +1507,10 @@ static class Evidence
     // A compiler whose native ceiling is the rung below settled it, in either direction.
     public const string NativeCeiling = "native-ceiling";
 
-    // A pre-Roslyn compiler held to the rung below settled it. A rejection proves version
-    // dependence; an acceptance proves nothing, because both implementations can lack the same gate.
+    // A compiler that does not top out at the rung below, held there with /langversion instead --
+    // not always pre-Roslyn, since the C# 6 / VB 14 boundary uses Microsoft.Net.Compilers 1.3.2, a
+    // Roslyn build. A rejection settles it: version dependence proven. An acceptance settles
+    // nothing, because both implementations can lack the same gate; that case reports UNPROVEN.
     public const string LegacyPin = "legacy-pin";
 
     // Only the installed SDK's compiler under /langversion bears on this floor.
