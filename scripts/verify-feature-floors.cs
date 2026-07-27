@@ -27,8 +27,16 @@
 //                     requires its version. This is a defect in the example.
 //      No period compiler for that boundary -> UNPROVEN, reported rather than assumed either way.
 //
-// A group filed in a project whose ceiling is below the group's own version is MISPLACED and is
-// reported without probing.
+// A group may sit in a project whose pin is below the group's own version, and that is the corpus's
+// deliberate model rather than a mistake: a project holds every row that compiles at its pin,
+// including rows filed above it whose feature the compiler turns out not to gate, and the project's
+// green build at the lower pin is what makes the ungatedness a checked fact instead of a note. Such
+// a row is therefore compiled at its project's pin first, before the probe above runs:
+//        rejected  -> MISPLACED. The project claims a row it cannot build, so the project file is
+//                     wrong.
+//        accepted  -> the placement is evidence that the pin does not gate the row. The row then
+//                     goes through the normal probe and reports its usual outcome, with its detail
+//                     recording that it sits above the pin and compiles there anyway.
 //
 // Period compilers, all used at their native ceiling rather than behind a /langversion flag. Both
 // languages ship in the same places, so each row below serves whichever language is being probed:
@@ -248,6 +256,25 @@ foreach (var project in discovery.Projects)
 
     ProjectInputs? inputs = null;
 
+    // Resolving references costs a full MSBuild evaluation, so defer it until a project actually
+    // has work that needs it. False means the project resolved nothing usable and has been skipped.
+    bool EnsureInputs()
+    {
+        if (inputs is not null)
+        {
+            return true;
+        }
+
+        inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
+        if (inputs.References.Length == 0)
+        {
+            skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
+            return false;
+        }
+
+        return true;
+    }
+
     foreach (var row in project.Rows)
     {
         if (row.Files.Length == 0)
@@ -257,12 +284,40 @@ foreach (var project in discovery.Projects)
             continue;
         }
 
+        // A row filed above its project's pin is a claim the project makes: that the row compiles
+        // at the lower pin even though it is filed higher. Check exactly that claim, per (row, pin),
+        // against this project's own reference set. The answer is not a property of the row alone,
+        // so it stays out of the floor cache, which is keyed by row.
+        string? abovePinNote = null;
         if (LadderIndex(profile.Ladder, row.Version) > LadderIndex(profile.Ladder, project.Ceiling))
         {
-            results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "MISPLACED", $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}",
-                Evidence.None));
-            continue;
+            if (!EnsureInputs())
+            {
+                break;
+            }
+
+            var pinArg = profile.LangVersionArg(project.Ceiling);
+            if (pinArg is null)
+            {
+                results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                    "INCONCLUSIVE",
+                    $"{profile.Name} {project.Ceiling} has no /langversion spelling, so the pin this row sits above cannot be compiled at",
+                    Evidence.None));
+                continue;
+            }
+
+            var atPin = Compile(profile, modernCompiler, pinArg, row.Files, inputs!, workRoot);
+            if (!atPin.Succeeded)
+            {
+                results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                    "MISPLACED",
+                    $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}, and it does not compile there ({atPin.FirstError})",
+                    Evidence.None));
+                continue;
+            }
+
+            abovePinNote =
+                $"filed above this project's pin and compiles at /langversion:{pinArg}, so {profile.Name} {project.Ceiling} does not gate it";
         }
 
         // Two shapes of exemption. A group exemption says the probe cannot see the feature at all,
@@ -272,7 +327,7 @@ foreach (var project in discovery.Projects)
         if (exemption is not null)
         {
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", exemption, Evidence.None));
+                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.None));
             continue;
         }
 
@@ -281,28 +336,21 @@ foreach (var project in discovery.Projects)
         var key = project.Scope + "|" + row.Version + "|" + HashFiles(row.Files);
         if (!floorCache.TryGetValue(key, out var verdict))
         {
-            // Resolving references costs a full MSBuild evaluation, so defer it until a
-            // project actually has uncached work to do.
-            if (inputs is null)
+            if (!EnsureInputs())
             {
-                inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
-                if (inputs.References.Length == 0)
-                {
-                    skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
-                    break;
-                }
+                break;
             }
 
             verdict = bucketExemption is not null
-                ? ProbeOwnVersion(profile, row.Version, row.Files, inputs, workRoot, modernCompiler,
+                ? ProbeOwnVersion(profile, row.Version, row.Files, inputs!, workRoot, modernCompiler,
                     bucketExemption)
-                : ProbeFloor(profile, row.Version, row.Files, inputs, workRoot, modernCompiler,
+                : ProbeFloor(profile, row.Version, row.Files, inputs!, workRoot, modernCompiler,
                     periodCompilers);
             floorCache[key] = verdict;
         }
 
         results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-            verdict.Outcome, verdict.Detail, verdict.Evidence));
+            verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote), verdict.Evidence));
     }
 }
 
@@ -312,6 +360,12 @@ var failures = results.Count(r => r.Outcome is "MISPLACED" or "NOT-VERSION-SPECI
 return failures > 0 ? 1 : 0;
 
 // ---------------------------------------------------------------------------------------------
+
+// A verdict is a property of the row, so it is cached and reported unchanged; whether the row sits
+// above the reporting project's pin is a property of the placement. Carry the second alongside the
+// first so an above-pin row never reads as an ordinary at-or-below-pin one.
+static string WithAbovePinNote(string detail, string? abovePinNote) =>
+    abovePinNote is null ? detail : $"{detail} -- {abovePinNote}";
 
 // Step 1 on its own, for buckets whose exemption is about the ladder rather than about the sources.
 // The row still has to compile at the version it claims; what it cannot be asked is what happens
