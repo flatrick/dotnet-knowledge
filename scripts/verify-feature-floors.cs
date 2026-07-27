@@ -61,6 +61,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 var projectFilter = (string?)null;
 var emitJson = false;
@@ -146,6 +147,19 @@ if (csharp6Csc is not null)
     periodCompilers["6.0"] = csharp6Csc;
 }
 
+// The C# probe's identity: how to find its files, spell its language versions on the compiler
+// command line, and walk its version ladder. ProbeFloor and Below take this rather than reaching
+// for Versions.Ladder or the free functions directly, so a second LanguageProfile can be threaded
+// through the same code later.
+var CSharpProfile = new LanguageProfile(
+    Name: "C#",
+    SourceExtension: ".cs",
+    ProjectExtension: ".csproj",
+    Ladder: Versions.Ladder,
+    FolderVersion: ParseFolderVersion,
+    LangVersionArg: LangVersionArg,
+    IsEnvironmentError: IsEnvironmentError);
+
 var corpusRoot = Path.Combine(
     repoRoot, "examples", "language-features", "CSharp", "dotNetFramework", "v4.8");
 if (!Directory.Exists(corpusRoot))
@@ -197,9 +211,9 @@ foreach (var projectDir in projectDirs)
 
     var versionFolders = Directory
         .EnumerateDirectories(projectDir, "CSharp*")
-        .Select(d => (Dir: d, Version: ParseFolderVersion(Path.GetFileName(d))))
+        .Select(d => (Dir: d, Version: CSharpProfile.FolderVersion(Path.GetFileName(d))))
         .Where(x => x.Version is not null)
-        .OrderBy(x => Versions.Ladder.IndexOf(x.Version!))
+        .OrderBy(x => LadderIndex(CSharpProfile.Ladder, x.Version!))
         .ToArray();
 
     if (versionFolders.Length == 0)
@@ -229,7 +243,7 @@ foreach (var projectDir in projectDirs)
                 continue;
             }
 
-            if (Versions.Ladder.IndexOf(featureVersion!) > Versions.Ladder.IndexOf(ceiling))
+            if (LadderIndex(CSharpProfile.Ladder, featureVersion!) > LadderIndex(CSharpProfile.Ladder, ceiling))
             {
                 results.Add(new Result(projectName, ceiling, featureVersion!, group,
                     "MISPLACED", $"C# {featureVersion} group in a project pinned to {ceiling}"));
@@ -259,8 +273,8 @@ foreach (var projectDir in projectDirs)
                     }
                 }
 
-                verdict = ProbeFloor(featureVersion!, files, references, defines, workRoot,
-                    modernCsc, periodCompilers);
+                verdict = ProbeFloor(CSharpProfile, featureVersion!, files, references, defines,
+                    workRoot, modernCsc, periodCompilers);
                 floorCache[key] = verdict;
             }
 
@@ -283,6 +297,7 @@ return failures > 0 ? 1 : 0;
 // ---------------------------------------------------------------------------------------------
 
 static Verdict ProbeFloor(
+    LanguageProfile profile,
     string featureVersion,
     string[] files,
     string[] references,
@@ -293,7 +308,7 @@ static Verdict ProbeFloor(
 {
     // Step 1 -- the group must stand on its own at its own language version, or nothing below
     // this can be interpreted.
-    var ownArg = LangVersionArg(featureVersion);
+    var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
         return new Verdict("UNPROVEN", $"C# {featureVersion} has no /langversion spelling");
@@ -306,14 +321,14 @@ static Verdict ProbeFloor(
             $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})");
     }
 
-    var floor = Below(featureVersion);
+    var floor = Below(featureVersion, profile);
     if (floor is null)
     {
         return new Verdict("BASELINE",
             $"C# {featureVersion} is the oldest rung; there is no lower version to test against");
     }
 
-    var floorArg = LangVersionArg(floor);
+    var floorArg = profile.LangVersionArg(floor);
     if (floorArg is null)
     {
         return new Verdict("UNPROVEN", $"C# {floor} has no /langversion spelling");
@@ -348,7 +363,7 @@ static Verdict ProbeFloor(
                 $"the C# {floor} compiler accepts it, so nothing here requires C# {featureVersion}");
         }
 
-        return IsEnvironmentError(period.FirstError)
+        return profile.IsEnvironmentError(period.FirstError)
             ? new Verdict("INCONCLUSIVE",
                 $"the C# {floor} compiler could not process the group for a non-language reason ({period.FirstError})")
             : new Verdict("UNGATED",
@@ -453,18 +468,27 @@ static CompileResult Compile(
     var stderr = process.StandardError.ReadToEnd();
     process.WaitForExit();
 
+    // Diagnostic severity words are localized; the CSnnnn / BCnnnn code is not. Keying on the code
+    // keeps this correct on a non-English machine, where matching ": error " silently finds nothing
+    // and a failed compile reads as a clean one.
+    var diagnosticCode = new Regex(@"\b(?:CS|BC)\d{4}\b");
     var output = stdout + stderr;
     var firstError = output
         .Split('\n')
         .Select(line => line.Trim())
-        .FirstOrDefault(line => line.Contains(": error ", StringComparison.Ordinal))
+        .FirstOrDefault(line => diagnosticCode.IsMatch(line))
         ?? (process.ExitCode == 0 ? "" : "no diagnostic text");
 
-    // Keep only the code and message; the absolute path in front of it is noise in a report.
-    var marker = firstError.IndexOf(": error ", StringComparison.Ordinal);
-    if (marker >= 0)
+    // Keep only the severity word, code, and message; the absolute path in front is noise in a
+    // report. The compiler's format is "<location>: <severity> <code>: <message>" -- the colon
+    // and space right before the severity word are locale-independent even though the word itself
+    // is not, so anchoring on the nearest ": " before the code keeps the severity word without
+    // hardcoding its spelling.
+    var match = diagnosticCode.Match(firstError);
+    if (match.Success)
     {
-        firstError = firstError[(marker + 2)..];
+        var marker = firstError.LastIndexOf(": ", match.Index, StringComparison.Ordinal);
+        firstError = marker >= 0 ? firstError[(marker + 2)..] : firstError[match.Index..];
     }
 
     return new CompileResult(process.ExitCode == 0, firstError);
@@ -678,9 +702,9 @@ static void Report(
 
 // Walk down to the nearest rung the compiler can actually be held to. C# 1.2 is a corpus row
 // (foreach disposal) with no /langversion spelling of its own, so it is skipped as a floor.
-static string? Below(string version)
+static string? Below(string version, LanguageProfile profile)
 {
-    var index = Versions.Ladder.IndexOf(version);
+    var index = LadderIndex(profile.Ladder, version);
     if (index <= 0)
     {
         return null;
@@ -688,13 +712,27 @@ static string? Below(string version)
 
     for (var i = index - 1; i >= 0; i--)
     {
-        if (LangVersionArg(Versions.Ladder[i]) is not null)
+        if (profile.LangVersionArg(profile.Ladder[i]) is not null)
         {
-            return Versions.Ladder[i];
+            return profile.Ladder[i];
         }
     }
 
     return null;
+}
+
+// IReadOnlyList<T> has no IndexOf; the ladder is short enough that a linear scan costs nothing.
+static int LadderIndex(IReadOnlyList<string> ladder, string version)
+{
+    for (var i = 0; i < ladder.Count; i++)
+    {
+        if (ladder[i] == version)
+        {
+            return i;
+        }
+    }
+
+    return -1;
 }
 
 static string? LangVersionArg(string version) => version switch
@@ -861,6 +899,17 @@ static class Versions
         "8.0", "9.0", "10.0", "11.0", "12.0", "13.0", "14.0",
     };
 }
+
+// A language's identity within this probe: how to find its files, spell its language versions on
+// the compiler command line, and walk its version ladder. C# is the only implementation today.
+record LanguageProfile(
+    string Name,
+    string SourceExtension,
+    string ProjectExtension,
+    IReadOnlyList<string> Ladder,
+    Func<string, string?> FolderVersion,
+    Func<string, string?> LangVersionArg,
+    Func<string, bool> IsEnvironmentError);
 
 record Result(
     string Project,
