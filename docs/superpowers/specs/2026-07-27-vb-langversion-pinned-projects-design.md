@@ -108,26 +108,54 @@ Probing the net10 family establishes the shape:
 | Pin | What the rung adds |
 |---|---|
 | 11 | `Baseline/`, after the two repairs below |
-| 14 | `Vb14/`, plus the ungated higher rows `ConsumingCSharpRefReturnValues`, `PrivateProtectedAccessModifier`, both `Vb16_0` rows, and all three `Vb17_13` rows |
+| 14 | `Vb14/`, plus the higher rows `LangVersion` does not gate — `ConsumingCSharpRefReturnValues`, both `Vb16_0` rows, and all three `Vb17_13` rows |
 | 15 | `Tuples`, `BinaryLiteralsAndDigitSeparators` |
 | 15.3 | `NamedTupleInference` |
-| 15.5 | `LeadingDigitSeparator`, `NonTrailingNamedArguments` |
+| 15.5 | `LeadingDigitSeparator`, `NonTrailingNamedArguments`, `PrivateProtectedAccessModifier` |
 | 16 | nothing — VB 16 gates none of its rows |
 | 16.9 | `ConsumingInitOnlyProperties` |
 | 17.13 | nothing — all three rows are consumption rows |
 | latest | nothing |
 
-Most VB rows above VB 14 are not gated by `LangVersion` at all. That is a finding about the
-language, consistent with what the showcase design doc already says about VB's later releases adding
-recognition rather than syntax, and the ladder records it instead of implying otherwise.
+Many VB rows above VB 14 are not gated by `LangVersion` at all, consistent with what the showcase
+design doc already says about VB's later releases adding recognition rather than syntax. The ladder
+records that instead of implying otherwise.
 
-`PrivateProtectedAccessModifier` compiling below its own version is new; the showcase design doc's
-probe-exempt table does not list it.
+### The table above is provisional, and the method matters
 
-These floors are measured one rung down. The implementation probes each row to the bottom of the
-ladder and treats the probe's output as authoritative — including for net48, which carries an extra
-row and a different `ConsumingCSharpRefReturnValues` subject and is therefore measured independently
-rather than assumed equal to net10.
+The rows above were derived from whole-project builds. `docs/HANDOFF.md` records that a VB
+whole-project build stops early and under-reports — "2 errors where per-folder builds reported 5" —
+and that is exactly what happened: `PrivateProtectedAccessModifier` first appeared to compile at
+`/langversion:14` and does not. Probed in isolation it fails with
+`BC36716: Visual Basic 14.0 does not support Private Protected` and passes at 15.5.
+
+The implementation therefore probes **one row at a time**, never a whole project, and treats the
+probe's output as authoritative over this table. net48 is probed independently of net10, since it
+carries an extra row and a different `ConsumingCSharpRefReturnValues` subject.
+
+### `LangVersion` is an overlay on the compiler, not a substitute for it
+
+A pin restricts a modern compiler where Roslyn's binder calls the feature-availability check. Where
+it does not, the pin admits whatever the installed SDK's compiler can already do. So two different
+claims hide behind one green build:
+
+- **the feature existed at that version**, and
+- **the installed compiler does not gate it**.
+
+Only the second is observable from `/langversion:` alone. Distinguishing them requires a compiler
+whose *native* ceiling is the version in question.
+
+`UnmanagedConstraintRecognition` shows why this is not academic. It compiles on
+`Microsoft.Net.Compilers` 1.3.2 — a native VB 14 compiler from 2016, predating the `unmanaged`
+constraint entirely. That compiler does not reject the row; it ignores the constraint. VB 17.13 added
+no syntax, only the honoring of metadata that was always readable. No `LangVersion` value can gate
+that, because there is nothing to gate — only the compiler binary differs.
+
+This is why the escalation in the tooling section is load-bearing rather than a refinement. A floor
+recorded from `/langversion:` alone means "the current SDK does not gate this here", which is a fact
+about the installed toolchain and will drift as SDKs change. A floor confirmed against a native
+ceiling means "this feature genuinely was not available then". The manifest's floor column records
+which of the two a row's floor rests on, so a reader is never left to assume the stronger claim.
 
 ## Project files and shared props
 
@@ -272,9 +300,10 @@ project's `Compile` items. Without it, a row can be added to the corpus and comp
 
 `MANIFEST.md`'s `Target Projects` column cannot enumerate a project per pin, so `VbFw48` and
 `VbLatest` are redefined to name the two families, and the manifest gains a measured-floor column
-recording the lowest pin at which each row compiles. That column is the ladder's payoff: it turns
-"VB 16.9 feature" into a probed claim, and it is where a result like
-`PrivateProtectedAccessModifier`'s low floor is recorded rather than left as folklore.
+recording the lowest pin at which each row compiles, together with whether that floor was confirmed
+against a native compiler ceiling or only observed under the current SDK. That column is the
+ladder's payoff: it turns "VB 16.9 feature" into a probed claim, and it keeps the two strengths of
+evidence distinguishable rather than collapsing them into one number.
 
 Two prose corrections in the same file. The claim that the two VB projects' sources are
 byte-identical is replaced by a description of the shared tree and the four genuine divergences; the
@@ -306,9 +335,16 @@ VB rows are ungated.
 
 - **net48 floors are measured, not inherited.** The probe table above is net10. net48 carries an
   extra row and a different ref-return subject.
-- **The in-box `vbc` compilers reading net48 reference assemblies is unverified.** The C# path
-  established that old `csc` does this without complaint; VB is expected to match but has not been
-  shown.
+- **Whole-project probing under-reports.** It already produced one wrong floor in this spec. The
+  probe must compile one row at a time, and a result derived any other way is not evidence.
+- **A floor from `/langversion:` alone is a fact about the installed SDK.** It will drift as SDKs
+  ship. Only floors confirmed against a native compiler ceiling are stable, and the escalation
+  reaches native ceilings at VB 14, 11, 9 and 8 — not at 10, 12, or anywhere above 14.
+- **The in-box `vbc` compilers reading net48 reference assemblies is partly shown.** The native
+  VB 14 compiler compiled a corpus row against net48 reference assemblies during design. The older
+  in-box compilers have not been exercised, and assembling a correct reference set for them is
+  itself fiddly — an incomplete set yields ordinary `BC30002`/`BC30451` errors that read like
+  gating but are not.
 - **Linux buildability is unverified from the authoring machine.** The reference-assemblies package
   is the known prerequisite; whether `MyType=Windows` survives there is open, with the fallback
   above.
