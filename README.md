@@ -44,6 +44,22 @@ dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
 The example corpus is bundled and needs no setup. Upstream documentation is fetched explicitly —
 call `list_sources` to see what is available and where it is cached.
 
+## Verifying the corpus
+
+The unit-only test subset needs Windows and SDK 10 only; its process tests invoke `cmd`:
+
+```powershell
+dotnet test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --filter "TestCategory=Unit"
+```
+
+The complete suite requires exact SDK versions 5.0.408, 7.0.410, and 10.0.302, plus runtime bands
+5.0, 7.0, and 10.0. Its preflight fails if any requirement is absent. Use `dotnet --list-sdks` and
+`dotnet --list-runtimes` to see what a host exposes.
+
+Targeting `net5.0` under SDK 10 selects net5.0 reference APIs; it does not select the SDK 5
+compiler. Use `dotnet scripts/install-corpus-test-sdks.cs` to install or check the reusable private
+toolchains, then run the [full suite through the private host](scripts/install-corpus-test-sdks.md).
+
 ## Status
 
 The corpus is complete. The server is early: `list_sources` works; `sync_source`, the API-doc

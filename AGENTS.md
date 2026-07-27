@@ -54,34 +54,41 @@ earned their place, not out of habit.
 
 ## Working on the corpus
 
-**The net48 projects are derived, not hand-written.** `CSharpFw48Cs73`, `CSharpFw48Cs80` and
-`VbNetFw48` are generated from `CSharpNet10Latest` and `VbNetNet10Latest` by
-`dotnet scripts/generate-net48-examples.cs`. Fix a shared sample in the net10 project and
-regenerate; never edit a generated file.
+**The per-`<LangVersion>` trees are hand-authored probes.** They replace the older derived-project
+layout, and the tracked tree is current truth. `scripts/generate-net48-examples.cs` still targets
+deleted project roots; do not run it against this tree. Scope edits to the projects named by the
+task. When a task requires an authored sample to remain identical across cumulative project pins,
+propagate it explicitly and verify byte equality.
 
-```bash
-dotnet scripts/generate-net48-examples.cs             # regenerate
-dotnet scripts/generate-net48-examples.cs -- --check  # fail on drift
-```
+**Building the corpus.** `CorpusProjectBuildTests` discovers and builds the current 11 SDK-style C#
+library projects. The legacy
+`examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj` needs Visual
+Studio's `MSBuild.exe` on Windows — `dotnet build` restores its `PackageReference` items and then
+resolves none of them, failing with `CS0246` on `Span` and `ValueTask` while saying nothing about
+the toolchain.
 
-Two `VbNetFw48` rows are hand-authored and exempt from the drift check — `MyNamespaceHelpers` (no
-net10 counterpart) and `ConsumingCSharpRefReturnValues` (its net48 subject differs). Anything else
-diverging from its source is drift, not a variant.
+**Corpus verification has three layers.**
 
-**Building the corpus.** Six of the seven projects build with `dotnet build`. `CSharpFw48Cs73` is
-legacy non-SDK XML and needs Visual Studio's `MSBuild.exe` on Windows — `dotnet build` restores its
-`PackageReference` items and then resolves none of them, failing with `CS0246` on `Span` and
-`ValueTask` while saying nothing about the toolchain.
+1. Project builds prove validity at a declared SDK, TFM, and language-version coordinate.
+2. Isolated compilation cases prove positive and negative feature boundaries.
+3. Runtime cases prove comments that assert observable behavior.
 
-**The completion gate is 0 errors and 0 warnings**, and it is the *only* gate — no test in this
-repository observes the corpus. `TreatWarningsAsErrors` is inherited so the gate is mechanical.
-Never add a `#pragma warning disable` to get past a warning.
+Every project build still requires 0 errors and 0 warnings. `TreatWarningsAsErrors` is inherited so
+that layer is mechanical; never add a `#pragma warning disable` to get past a warning. A clean build
+does not prove a sample demonstrates its feature, because cumulative projects can accept constructs
+outside the row's intended boundary.
 
-**A clean build does not prove a sample demonstrates its feature.** Every project compiles at
-`LangVersion=latest`, so a sample that reaches forward to a newer construct still builds. Run both
-era probes described in `docs/design/language-feature-showcase-design.md`, and verify by
-**execution** any comment that claims runtime behavior — compilation cannot check "this is a view"
-or "this rounds to even". That check has already caught claims that passed every other gate.
+Install or verify the exact test SDKs with `dotnet scripts/install-corpus-test-sdks.cs`; see
+[`scripts/install-corpus-test-sdks.md`](scripts/install-corpus-test-sdks.md) for the private-host
+test command. An older TFM under SDK 10 uses SDK 10's compiler against the older reference pack; it
+does not emulate or select that TFM's historical compiler. Keep SDK, TFM, `LangVersion`, and runtime
+execution independent in every case.
+
+Any new comment that asserts observable runtime behavior must include the language-appropriate
+marker in the canonical authored source: `// Runtime verification: <case-id>` in C# or
+`' Runtime verification: <case-id>` in VB. The ID must name exactly one case with a nonempty
+`runtimes` array, and the marker must occur in the canonical source path named by that case.
+Compilation cannot check claims such as "this is a view" or "this rounds to even."
 
 **A pinned `<LangVersion>` does not prove it either.** Roslyn holds a construct to a language
 version only where its binder calls `CheckFeatureAvailability`. Syntax-driven features all got that

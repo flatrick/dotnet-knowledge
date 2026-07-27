@@ -4,7 +4,7 @@
 
 **Goal:** Build an automated test harness that proves corpus claims across SDK/compiler versions, target frameworks, language pins, and runtime execution, beginning with the `NumericIntPtr` and “C# 10 targeting net5.0” findings.
 
-**Architecture:** Add one `net10.0` MSTest project whose fast unit tests validate case files and harness logic, while integration tests create isolated temporary projects and invoke an explicitly selected installed SDK through a generated `global.json`. Each checked-in case states its source, SDK band, TFM, language pin, expected build result and diagnostics, plus optional executable output; no test infers one axis from another or treats a successful build as runtime evidence.
+**Architecture:** Add one `net10.0` MSTest project whose fast unit tests validate case files and harness logic, while integration tests create isolated temporary projects and invoke an explicitly selected installed SDK through a generated `global.json`. Each checked-in case states its source, SDK band, TFM, language pin, expected build result and diagnostics, plus optional executable output; each SDK band maps to one required exact patch version, and no test infers one axis from another or treats a successful build as runtime evidence.
 
 **Tech Stack:** C# 14, .NET 10, `MSTest.Sdk/4.3.2`, `System.Text.Json`, `System.Diagnostics.Process`, MSBuild, `dotnet test`
 
@@ -188,11 +188,11 @@ Microsoft.NETCore.App 7.0.20 [C:\Program Files\dotnet\shared\Microsoft.NETCore.A
 Microsoft.NETCore.App 10.0.10 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
 ```
 
-Assert that `ResolveSdk("7.0")` returns `7.0.410`, resolution is exact by major/minor rather than
-roll-forward, and an absent `6.0` throws:
+Assert that `ResolveSdk("7.0")` returns `7.0.410` even when another 7.0 patch is installed, and an
+unconfigured `6.0` throws:
 
 ```text
-Required .NET SDK band 6.0 is not installed. Installed bands: 5.0, 7.0, 10.0.
+SDK band 6.0 has no configured exact version. Configured SDKs: 5.0.408, 7.0.410, 10.0.302.
 ```
 
 - [ ] **Step 2: Run the parser tests and verify they fail**
@@ -208,9 +208,9 @@ Expected: build failure because `ToolchainInventory` is absent.
 - [ ] **Step 3: Implement inventory parsing and resolution**
 
 Parse `dotnet --list-sdks` and `dotnet --list-runtimes` without assuming `C:\Program Files\dotnet`.
-Reject malformed nonblank lines instead of dropping them. Select the highest installed patch in
-the requested major/minor band and retain the exact resolved version for generated `global.json`
-files and failure messages.
+Reject malformed nonblank lines instead of dropping them. Map bands 5.0, 7.0, and 10.0 to required
+versions 5.0.408, 7.0.410, and 10.0.302 respectively, then retain the exact resolved version for
+generated `global.json` files and failure messages.
 
 - [ ] **Step 4: Add the integration preflight**
 
@@ -219,9 +219,9 @@ runtime versions. It must fail once with the complete missing set, for example:
 
 ```text
 Missing required toolchains:
-- .NET SDK 5.0
+- Required .NET SDK 5.0.408 for band 5.0 is not installed.
 - Microsoft.NETCore.App runtime 5.0
-- .NET SDK 7.0
+- Required .NET SDK 7.0.410 for band 7.0 is not installed.
 - Microsoft.NETCore.App runtime 7.0
 ```
 
@@ -236,7 +236,7 @@ Run:
 dotnet test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --filter "TestCategory=Unit" --nologo
 ```
 
-Expected: all unit tests pass on a machine with only SDK 10 installed.
+Expected: all unit tests pass on Windows with only SDK 10 installed.
 
 - [ ] **Step 6: Commit**
 
@@ -817,9 +817,9 @@ Upload the TRX file with `actions/upload-artifact@v4` under the name `corpus-tes
 
 Add a concise README section that says:
 
-- `dotnet test ... --filter "TestCategory=Unit"` needs only SDK 10;
-- the complete suite requires SDK/runtime bands 5.0, 7.0, and 10.0 and fails preflight if any are
-  absent;
+- `dotnet test ... --filter "TestCategory=Unit"` needs Windows and only SDK 10;
+- the complete suite requires exact SDK versions 5.0.408, 7.0.410, and 10.0.302 plus runtime bands
+  5.0, 7.0, and 10.0, and fails preflight if any are absent;
 - `dotnet --list-sdks` and `dotnet --list-runtimes` show what is installed;
 - targeting `net5.0` under SDK 10 does not select the SDK 5 compiler.
 
