@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp1.ClassesStructsEnums
+namespace Net5_CSharp10.CSharp1.ClassesStructsEnums
 {
     public enum TrafficLight
     {

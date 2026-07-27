@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet6_10.CSharp7_3.BackingFieldAttributes
+namespace Net5_CSharp10.CSharp7_3.BackingFieldAttributes
 {
     [Serializable]
     public class Model

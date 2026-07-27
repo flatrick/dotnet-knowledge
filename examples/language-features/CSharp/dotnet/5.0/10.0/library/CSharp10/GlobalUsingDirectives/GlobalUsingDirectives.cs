@@ -8,7 +8,7 @@
 // worth being careful with.
 global using System.Text;
 
-namespace CSharpNet6_10.CSharp10.GlobalUsingDirectives
+namespace Net5_CSharp10.CSharp10.GlobalUsingDirectives
 {
     public class Builders
     {

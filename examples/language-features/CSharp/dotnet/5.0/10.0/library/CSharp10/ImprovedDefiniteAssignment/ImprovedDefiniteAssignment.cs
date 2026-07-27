@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp10.ImprovedDefiniteAssignment
+namespace Net5_CSharp10.CSharp10.ImprovedDefiniteAssignment
 {
     public class Source
     {
