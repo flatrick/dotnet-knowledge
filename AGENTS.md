@@ -30,6 +30,7 @@ human browsing — structured payloads, no ASCII tables, no decorative formattin
 | `docs/design/language-feature-showcase-design.md` | Why the corpus is shaped the way it is: era probes, applicability rule, the derivation model. |
 | `docs/design/ci.md` | What CI runs and when, why every version is pinned, and the runbook to activate the merge gate. |
 | `docs/domain/csharplang-map.md`, `docs/domain/vblang-map.md` | Quick-find maps for the upstream language-design repos. |
+| `docs/backlog/` | Known issues and deferred decisions, one file each. Read before assuming a rough edge is undiscovered. |
 | `sources.json` | The upstream sources, their pinned commits, and their sparse-checkout paths. |
 | `scripts/*.cs` | Dev tooling, as single-file C# programs — `dotnet scripts/foo.cs -- <args>`. |
 
