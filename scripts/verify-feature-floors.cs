@@ -32,11 +32,16 @@
 // including rows filed above it whose feature the compiler turns out not to gate, and the project's
 // green build at the lower pin is what makes the ungatedness a checked fact instead of a note. Such
 // a row is therefore compiled at its project's pin first, before the probe above runs:
-//        rejected  -> MISPLACED. The project claims a row it cannot build, so the project file is
-//                     wrong.
 //        accepted  -> the placement is evidence that the pin does not gate the row. The row then
 //                     goes through the normal probe and reports its usual outcome, with its detail
-//                     recording that it sits above the pin and compiles there anyway.
+//                     recording that it sits above the pin and compiles there anyway, and sdk-pin
+//                     evidence where the probe itself found none.
+//        rejected  -> retry at the row's own version, because this isolated compile is not the
+//                     project build and a row the harness simply cannot build fails at every
+//                     version alike.
+//                       accepted there -> MISPLACED. The pin rejects a row that otherwise stands
+//                                         up, so the project claims a row it cannot build.
+//                       rejected there -> INCONCLUSIVE. The failure is the harness's, not the pin's.
 //
 // Period compilers, all used at their native ceiling rather than behind a /langversion flag. Both
 // languages ship in the same places, so each row below serves whichever language is being probed:
@@ -268,6 +273,9 @@ foreach (var project in discovery.Projects)
         inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
         if (inputs.References.Length == 0)
         {
+            // Clear it again, so a later call re-reads the same failure instead of short-circuiting
+            // on a non-null field that was just declared unusable.
+            inputs = null;
             skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
             return false;
         }
@@ -309,9 +317,37 @@ foreach (var project in discovery.Projects)
             var atPin = Compile(profile, modernCompiler, pinArg, row.Files, inputs!, workRoot);
             if (!atPin.Succeeded)
             {
+                // This isolated compile is not the project build, so a failure is not on its own
+                // the project's fault. A row that needs sibling sources, needs /link rather than
+                // /reference, or trips over anything else the harness cannot reproduce fails at
+                // every language version alike. Retry at the row's own version to tell the two
+                // apart: only a row that stands up there and falls over at the pin is misplaced.
+                var ownArg = profile.LangVersionArg(row.Version);
+                var atOwn = ownArg is null
+                    ? null
+                    : Compile(profile, modernCompiler, ownArg, row.Files, inputs!, workRoot);
+
+                if (ownArg is null)
+                {
+                    results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                        "INCONCLUSIVE",
+                        $"{profile.Name} {row.Version} has no /langversion spelling, so its failure at this project's pin of {profile.Name} {project.Ceiling} ({atPin.FirstError}) cannot be attributed to the pin",
+                        Evidence.None));
+                    continue;
+                }
+
+                if (!atOwn!.Succeeded)
+                {
+                    results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                        "INCONCLUSIVE",
+                        $"does not compile standalone at /langversion:{ownArg} ({atOwn.FirstError}), so its failure at this project's pin of {profile.Name} {project.Ceiling} says nothing about the placement",
+                        Evidence.None));
+                    continue;
+                }
+
                 results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
                     "MISPLACED",
-                    $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}, and it does not compile there ({atPin.FirstError})",
+                    $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}: it compiles at /langversion:{ownArg} but not at the pin ({atPin.FirstError})",
                     Evidence.None));
                 continue;
             }
@@ -327,7 +363,8 @@ foreach (var project in discovery.Projects)
         if (exemption is not null)
         {
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.None));
+                "EXEMPT", WithAbovePinNote(exemption, abovePinNote),
+                WithAbovePinEvidence(Evidence.None, abovePinNote)));
             continue;
         }
 
@@ -350,7 +387,8 @@ foreach (var project in discovery.Projects)
         }
 
         results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-            verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote), verdict.Evidence));
+            verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote),
+            WithAbovePinEvidence(verdict.Evidence, abovePinNote)));
     }
 }
 
@@ -366,6 +404,14 @@ return failures > 0 ? 1 : 0;
 // first so an above-pin row never reads as an ordinary at-or-below-pin one.
 static string WithAbovePinNote(string detail, string? abovePinNote) =>
     abovePinNote is null ? detail : $"{detail} -- {abovePinNote}";
+
+// The at-the-pin compile is the installed SDK's compiler under a /langversion pin, so it is exactly
+// sdk-pin evidence. Record it wherever the row's own verdict rests on nothing, or a consumer
+// filtering out "none" throws away the only compile some of these rows ever get -- C# 1.2 rows have
+// no /langversion spelling of their own, so the pin compile is all they have. A verdict that already
+// rests on a stronger tier keeps it; this never downgrades one.
+static string WithAbovePinEvidence(string evidence, string? abovePinNote) =>
+    abovePinNote is not null && evidence == Evidence.None ? Evidence.SdkPin : evidence;
 
 // Step 1 on its own, for buckets whose exemption is about the ladder rather than about the sources.
 // The row still has to compile at the version it claims; what it cannot be asked is what happens
@@ -1112,13 +1158,17 @@ static void Report(
 
         if (outcome == "EXEMPT")
         {
-            // One line per distinct row; the reason is the point, not the project copies.
+            // One line per distinct (group, reason); the reason is the point, not the project
+            // copies. Count copies on the same pair the lines are grouped by: a group whose detail
+            // varies across projects -- an above-pin placement annotates it -- otherwise prints one
+            // line per detail with every line claiming the whole group's copy count.
             foreach (var exemption in rows
                          .Select(r => (r.Group, r.Detail))
                          .Distinct()
-                         .OrderBy(x => x.Group, StringComparer.Ordinal))
+                         .OrderBy(x => x.Group, StringComparer.Ordinal)
+                         .ThenBy(x => x.Detail, StringComparer.Ordinal))
             {
-                var copies = rows.Count(r => r.Group == exemption.Group);
+                var copies = rows.Count(r => r.Group == exemption.Group && r.Detail == exemption.Detail);
                 Console.WriteLine($"  {exemption.Group} ({copies} project copies)");
                 Console.WriteLine($"      {exemption.Detail}");
             }
