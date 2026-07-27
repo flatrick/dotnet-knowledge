@@ -30,11 +30,12 @@
 // A group filed in a project whose ceiling is below the group's own version is MISPLACED and is
 // reported without probing.
 //
-// Period compilers, all used at their native ceiling rather than behind a /langversion flag:
-//   C# 6 -- Microsoft.Net.Compilers 1.3.2, downloaded to .artifacts/ on first run
-//   C# 5 -- the in-box compiler at %WINDIR%\Microsoft.NET\Framework64\v4.0.30319
-//   C# 3 -- the in-box compiler at ...\v3.5
-//   C# 2 -- the in-box compiler at ...\v2.0.50727
+// Period compilers, all used at their native ceiling rather than behind a /langversion flag. Both
+// languages ship in the same places, so each row below serves whichever language is being probed:
+//   C# 6 / VB 14 -- Microsoft.Net.Compilers 1.3.2, downloaded to .artifacts/ on first run
+//   C# 5 / VB 11 -- the in-box compiler at %WINDIR%\Microsoft.NET\Framework64\v4.0.30319
+//   C# 3 / VB 9  -- the in-box compiler at ...\v3.5
+//   C# 2         -- the in-box compiler at ...\v2.0.50727
 //
 // There is no C# 4 compiler and no C# 1.x compiler. .NET 4.5 upgraded v4.0.30319's csc in place
 // from C# 4 to C# 5, so the C# 4 binary is gone from any machine carrying .NET 4.5 or later, and
@@ -43,8 +44,21 @@
 // compilers read net48 reference assemblies without complaint, so no era-specific projects are
 // needed to use them.
 //
-// The VB ladder has no period compilers here, so every VB row the modern compiler accepts one rung
-// down reports UNPROVEN rather than UNGATED.
+// VB's gaps are VB 10 and VB 12, reported UNPROVEN for the same reason. The v2.0.50727 vbc tops out
+// at VB 8, below the ladder's first rung, so it is never a floor and is not registered. VB 14 is the
+// highest native VB ceiling that exists, so every VB floor above it rests on the modern compiler
+// under a /langversion pin alone.
+//
+// Every verdict therefore also records what kind of evidence it rests on, because a pinned modern
+// compiler and a period compiler are not the same claim:
+//   native-ceiling -- a compiler whose native ceiling is the rung below settled it. This does not
+//                     drift as SDKs ship, and it is the only evidence that can settle the question
+//                     in both directions.
+//   legacy-pin     -- a pre-Roslyn compiler held to the rung below settled it. One-directional: a
+//                     rejection proves version dependence, an acceptance proves nothing.
+//   sdk-pin        -- the installed SDK's compiler under /langversion, and nothing else. This says
+//                     what the current toolchain gates, which is a fact that drifts.
+//   none           -- nothing compiled here bears on the floor.
 //
 // The two corpora are shaped differently and are discovered differently:
 //   C# -- each CSharp_v* project directory holds its own version folders, one group folder deep.
@@ -139,10 +153,14 @@ var csharpProfile = new LanguageProfile(
     ProjectExtension: ".csproj",
     CompilerFileName: "csc.exe",
     Ladder: Versions.Ladder,
+    InBoxCompilers: [("2.0", "v2.0.50727"), ("3.0", "v3.5"), ("5.0", "v4.0.30319")],
+    PackagedCompilerCeiling: "6.0",
     FolderVersion: ParseFolderVersion,
     LangVersionArg: LangVersionArg,
+    LegacyLangVersionArg: LegacyLangVersionArg,
     CeilingVersion: CSharpCeilingVersion,
-    IsEnvironmentError: IsEnvironmentError);
+    IsEnvironmentError: IsEnvironmentError,
+    ControlSource: "internal class ReferenceSetControl { }\n");
 
 var vbProfile = new LanguageProfile(
     Name: "VB",
@@ -150,11 +168,20 @@ var vbProfile = new LanguageProfile(
     ProjectExtension: ".vbproj",
     CompilerFileName: "vbc.exe",
     Ladder: Versions.VbLadder,
+    // No v2.0.50727 entry: that vbc tops out at VB 8, which is below the ladder, so no row can ever
+    // have it as a floor.
+    InBoxCompilers: [("9", "v3.5"), ("11", "v4.0.30319")],
+    PackagedCompilerCeiling: "14",
     FolderVersion: VbFolderVersion,
     // Every VB ladder value is spelled the same on the command line, unlike C#'s ISO-1 / ISO-2.
     LangVersionArg: version => version,
+    // VB has no equivalent of the C# legacy-pin tier. The in-box vbc predates /langversion as a
+    // meaningful switch -- v3.5's answers it with BC2007, "option 'langversion' is unknown and
+    // ignored" -- so holding one of them to a rung would silently probe its own ceiling instead.
+    LegacyLangVersionArg: _ => null,
     CeilingVersion: VbCeilingVersion,
-    IsEnvironmentError: IsVbEnvironmentError);
+    IsEnvironmentError: IsVbEnvironmentError,
+    ControlSource: "Friend Class ReferenceSetControl\nEnd Class\n");
 
 var profile = language == "vb" ? vbProfile : csharpProfile;
 
@@ -165,38 +192,31 @@ if (!File.Exists(modernCompiler))
     return 2;
 }
 
-// Period compilers, keyed by the language version each one natively tops out at. Only the C# ladder
-// has any; every VB boundary is settled by the modern compiler alone.
+// Period compilers, keyed by the language version each one natively tops out at.
 var periodCompilers = new Dictionary<string, string>();
 
-if (profile.Name == "C#")
+// The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
+// fixed. The C# list deliberately has no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in
+// place from C# 4 to C# 5, so no C# 4 compiler survives on a modern machine. C# 4 is therefore the
+// one floor in that range that cannot be settled by a native ceiling.
+var frameworkRoot = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64");
+
+foreach (var (version, directory) in profile.InBoxCompilers)
 {
-    // The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
-    // fixed. There is deliberately no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in place
-    // from C# 4 to C# 5, so no C# 4 compiler survives on a modern machine. C# 4 is therefore the one
-    // floor in this range that cannot be settled by a native ceiling.
-    var frameworkRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64");
-
-    foreach (var (version, directory) in new[]
-             {
-                 ("2.0", "v2.0.50727"),
-                 ("3.0", "v3.5"),
-                 ("5.0", "v4.0.30319"),
-             })
+    var candidate = Path.Combine(frameworkRoot, directory, profile.CompilerFileName);
+    if (File.Exists(candidate))
     {
-        var candidate = Path.Combine(frameworkRoot, directory, "csc.exe");
-        if (File.Exists(candidate))
-        {
-            periodCompilers[version] = candidate;
-        }
+        periodCompilers[version] = candidate;
     }
+}
 
-    var csharp6Csc = await AcquireCSharp6CompilerAsync(repoRoot, offline);
-    if (csharp6Csc is not null)
-    {
-        periodCompilers["6.0"] = csharp6Csc;
-    }
+// Microsoft.Net.Compilers 1.3.2 carries both compilers, so one download serves the C# 6 boundary
+// and the VB 14 one.
+var packagedCompiler = await AcquirePackagedCompilerAsync(repoRoot, offline, profile);
+if (packagedCompiler is not null)
+{
+    periodCompilers[profile.PackagedCompilerCeiling] = packagedCompiler;
 }
 
 var skippedProjects = new List<string>();
@@ -233,14 +253,15 @@ foreach (var project in discovery.Projects)
         if (row.Files.Length == 0)
         {
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "INCONCLUSIVE", $"group folder holds no {profile.SourceExtension} files"));
+                "INCONCLUSIVE", $"group folder holds no {profile.SourceExtension} files", Evidence.None));
             continue;
         }
 
         if (LadderIndex(profile.Ladder, row.Version) > LadderIndex(profile.Ladder, project.Ceiling))
         {
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "MISPLACED", $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}"));
+                "MISPLACED", $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}",
+                Evidence.None));
             continue;
         }
 
@@ -251,7 +272,7 @@ foreach (var project in discovery.Projects)
         if (exemption is not null)
         {
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", exemption));
+                "EXEMPT", exemption, Evidence.None));
             continue;
         }
 
@@ -281,7 +302,7 @@ foreach (var project in discovery.Projects)
         }
 
         results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-            verdict.Outcome, verdict.Detail));
+            verdict.Outcome, verdict.Detail, verdict.Evidence));
     }
 }
 
@@ -307,14 +328,15 @@ static Verdict ProbeOwnVersion(
     var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
-        return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling");
+        return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling",
+            Evidence.None);
     }
 
     var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
     return own.Succeeded
-        ? new Verdict("EXEMPT", exemption)
+        ? new Verdict("EXEMPT", exemption, Evidence.None)
         : new Verdict("INCONCLUSIVE",
-            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})");
+            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None);
 }
 
 static Verdict ProbeFloor(
@@ -331,34 +353,37 @@ static Verdict ProbeFloor(
     var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
-        return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling");
+        return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling",
+            Evidence.None);
     }
 
     var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
     if (!own.Succeeded)
     {
         return new Verdict("INCONCLUSIVE",
-            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})");
+            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None);
     }
 
     var floor = Below(featureVersion, profile);
     if (floor is null)
     {
         return new Verdict("BASELINE",
-            $"{profile.Name} {featureVersion} is the oldest rung; there is no lower version to test against");
+            $"{profile.Name} {featureVersion} is the oldest rung; there is no lower version to test against",
+            Evidence.None);
     }
 
     var floorArg = profile.LangVersionArg(floor);
     if (floorArg is null)
     {
-        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling");
+        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling", Evidence.None);
     }
 
     // Step 2 -- the modern compiler, held down to the rung below.
     var gated = Compile(profile, modernCompiler, floorArg, files, inputs, workRoot);
     if (!gated.Succeeded)
     {
-        return new Verdict("GATED", $"rejected at /langversion:{floorArg} ({gated.FirstError})");
+        return new Verdict("GATED", $"rejected at /langversion:{floorArg} ({gated.FirstError})",
+            Evidence.SdkPin);
     }
 
     // Step 3 -- a compiler whose native ceiling is the rung below. Only this tier can settle the
@@ -368,26 +393,30 @@ static Verdict ProbeFloor(
     {
         // Environment control. A compiler this old may simply be unable to read the resolved
         // reference set, and that failure says nothing about the language.
-        var control = Compile(profile, periodCsc, langVersion: null, [TrivialSource(workRoot)], inputs,
-            workRoot);
+        var control = Compile(profile, periodCsc, langVersion: null, [TrivialSource(profile, workRoot)],
+            inputs, workRoot);
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
-                $"the {profile.Name} {floor} compiler cannot read this project's reference set ({control.FirstError})");
+                $"the {profile.Name} {floor} compiler cannot read this project's reference set ({control.FirstError})",
+                Evidence.None);
         }
 
         var period = Compile(profile, periodCsc, langVersion: null, files, inputs, workRoot);
         if (period.Succeeded)
         {
             return new Verdict("NOT-VERSION-SPECIFIC",
-                $"the {profile.Name} {floor} compiler accepts it, so nothing here requires {profile.Name} {featureVersion}");
+                $"the {profile.Name} {floor} compiler accepts it, so nothing here requires {profile.Name} {featureVersion}",
+                Evidence.NativeCeiling);
         }
 
         return profile.IsEnvironmentError(period.FirstError)
             ? new Verdict("INCONCLUSIVE",
-                $"the {profile.Name} {floor} compiler could not process the group for a non-language reason ({period.FirstError})")
+                $"the {profile.Name} {floor} compiler could not process the group for a non-language reason ({period.FirstError})",
+                Evidence.None)
             : new Verdict("UNGATED",
-                $"accepted at /langversion:{floorArg} but rejected by the {profile.Name} {floor} compiler ({period.FirstError})");
+                $"accepted at /langversion:{floorArg} but rejected by the {profile.Name} {floor} compiler ({period.FirstError})",
+                Evidence.NativeCeiling);
     }
 
     // Step 4 -- no compiler tops out at this rung, so fall back to the pre-Roslyn compiler held to
@@ -395,7 +424,7 @@ static Verdict ProbeFloor(
     // evidence is one-directional: a rejection proves the construct is version-dependent, but an
     // acceptance proves nothing, because a gate can be missing in both implementations for the
     // same reason. Acceptance therefore stays UNPROVEN and never accuses the example.
-    var legacyArg = LegacyLangVersionArg(floor);
+    var legacyArg = profile.LegacyLangVersionArg(floor);
     var gate = periodCompilers
         .Where(kv => LadderIndex(profile.Ladder, kv.Key) > LadderIndex(profile.Ladder, floor))
         .OrderBy(kv => LadderIndex(profile.Ladder, kv.Key))
@@ -410,30 +439,35 @@ static Verdict ProbeFloor(
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
-                $"the {profile.Name} {gate.Ceiling} compiler cannot process the group even at its own ceiling ({control.FirstError})");
+                $"the {profile.Name} {gate.Ceiling} compiler cannot process the group even at its own ceiling ({control.FirstError})",
+                Evidence.None);
         }
 
         var legacy = Compile(profile, gate.Path, legacyArg, files, inputs, workRoot);
         if (!legacy.Succeeded)
         {
             return new Verdict("UNGATED",
-                $"accepted at /langversion:{floorArg} by the modern compiler but rejected by the {profile.Name} {gate.Ceiling} compiler held to the same setting ({legacy.FirstError})");
+                $"accepted at /langversion:{floorArg} by the modern compiler but rejected by the {profile.Name} {gate.Ceiling} compiler held to the same setting ({legacy.FirstError})",
+                Evidence.LegacyPin);
         }
 
         return new Verdict("UNPROVEN",
-            $"accepted at {profile.Name} {floor} by the modern compiler and by the {profile.Name} {gate.Ceiling} compiler held there, and no compiler topping out at {profile.Name} {floor} exists to settle it");
+            $"accepted at {profile.Name} {floor} by the modern compiler and by the {profile.Name} {gate.Ceiling} compiler held there, and no compiler topping out at {profile.Name} {floor} exists to settle it",
+            Evidence.LegacyPin);
     }
 
     return new Verdict("UNPROVEN",
-        $"accepted at /langversion:{floorArg}, and no compiler for {profile.Name} {floor} is available");
+        $"accepted at /langversion:{floorArg}, and no compiler for {profile.Name} {floor} is available",
+        Evidence.SdkPin);
 }
 
 // A compile that exercises only the reference set, used to tell a metadata problem apart from a
-// language rejection.
-static string TrivialSource(string workRoot)
+// language rejection. It has to be written in the language being probed: handing a .cs file to vbc
+// fails the control run every time and turns every VB escalation into a false INCONCLUSIVE.
+static string TrivialSource(LanguageProfile profile, string workRoot)
 {
-    var path = Path.Combine(workRoot, "control.cs");
-    File.WriteAllText(path, "internal class ReferenceSetControl { }\n");
+    var path = Path.Combine(workRoot, "control" + profile.SourceExtension);
+    File.WriteAllText(path, profile.ControlSource);
     return path;
 }
 
@@ -932,20 +966,21 @@ static string Run(string exe, string arguments)
     return stdout;
 }
 
-static async Task<string?> AcquireCSharp6CompilerAsync(string repoRoot, bool offline)
+static async Task<string?> AcquirePackagedCompilerAsync(string repoRoot, bool offline, LanguageProfile profile)
 {
+    var boundary = $"{profile.Name} {profile.PackagedCompilerCeiling}";
     var dir = Path.Combine(repoRoot, ".artifacts", "period-compilers",
         $"microsoft.net.compilers.{Versions.CompilerPackage}");
-    var csc = Path.Combine(dir, "tools", "csc.exe");
-    if (File.Exists(csc))
+    var compiler = Path.Combine(dir, "tools", profile.CompilerFileName);
+    if (File.Exists(compiler))
     {
-        return csc;
+        return compiler;
     }
 
     if (offline)
     {
         Console.Error.WriteLine(
-            "verify-feature-floors: --offline and no cached C# 6 compiler; boundaries at C# 6 will report UNPROVEN.");
+            $"verify-feature-floors: --offline and no cached {boundary} compiler; boundaries at {boundary} will report UNPROVEN.");
         return null;
     }
 
@@ -970,11 +1005,11 @@ static async Task<string?> AcquireCSharp6CompilerAsync(string repoRoot, bool off
     catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException)
     {
         Console.Error.WriteLine(
-            $"verify-feature-floors: could not fetch the C# 6 compiler ({ex.Message}); boundaries at C# 6 will report UNPROVEN.");
+            $"verify-feature-floors: could not fetch the {boundary} compiler ({ex.Message}); boundaries at {boundary} will report UNPROVEN.");
         return null;
     }
 
-    return File.Exists(csc) ? csc : null;
+    return File.Exists(compiler) ? compiler : null;
 }
 
 static void Report(
@@ -984,11 +1019,17 @@ static void Report(
     Dictionary<string, string> periodCompilers,
     bool emitJson)
 {
+    // Ladder order, not string order: VB's rungs are bare numbers, and sorting them as text puts 11
+    // and 14 ahead of 9.
+    var ceilings = periodCompilers.Keys
+        .OrderBy(k => LadderIndex(profile.Ladder, k))
+        .ToArray();
+
     if (emitJson)
     {
         var payload = new
         {
-            periodCompilers = periodCompilers.Keys.OrderBy(k => k).ToArray(),
+            periodCompilers = ceilings,
             skippedProjects,
             results,
         };
@@ -1064,9 +1105,9 @@ static void Report(
         }
     }
 
-    var available = periodCompilers.Count == 0
+    var available = ceilings.Length == 0
         ? "none"
-        : string.Join(", ", periodCompilers.Keys.OrderBy(k => k).Select(k => $"{profile.Name} {k}"));
+        : string.Join(", ", ceilings.Select(k => $"{profile.Name} {k}"));
 
     Console.WriteLine();
     Console.WriteLine($"Period compilers available: {available}");
@@ -1162,9 +1203,11 @@ static bool IsEnvironmentError(string diagnostic)
     return codes.Any(code => diagnostic.Contains(code, StringComparison.Ordinal));
 }
 
-// The VB equivalent. BC30002 and BC30451 are here deliberately: they are ordinary "missing type"
-// and "missing name" errors, and against a correctly resolved reference set they cannot appear, so
-// reading one as a broken reference set is safer than reading it as evidence of version gating.
+// The VB equivalent. BC30002, BC30451 and BC30209 are here deliberately: they are ordinary "missing
+// type", "missing name" and "Option Strict On requires an As clause" errors, none of which is ever
+// version-gated. Against a correctly resolved reference set with the project's Option settings
+// carried over they cannot appear at all, so reading one as a broken environment is safer than
+// reading it as evidence of version gating.
 static bool IsVbEnvironmentError(string diagnostic)
 {
     string[] codes =
@@ -1173,6 +1216,7 @@ static bool IsVbEnvironmentError(string diagnostic)
         "BC2001",  // file could not be found
         "BC2008",  // no input sources specified
         "BC30002", // type is not defined
+        "BC30209", // Option Strict On requires all variable declarations to have an As clause
         "BC30451", // name is not declared
         "BC31091", // import of type from assembly failed
     ];
@@ -1344,6 +1388,26 @@ static class Versions
     };
 }
 
+// What a verdict rests on. A floor settled by a compiler that natively tops out at the rung below is
+// a fact about the language; one settled by the installed SDK under a /langversion pin is a fact
+// about today's toolchain and drifts as SDKs ship. Reporting a number without saying which of the
+// two produced it overstates the weaker case.
+static class Evidence
+{
+    // A compiler whose native ceiling is the rung below settled it, in either direction.
+    public const string NativeCeiling = "native-ceiling";
+
+    // A pre-Roslyn compiler held to the rung below settled it. A rejection proves version
+    // dependence; an acceptance proves nothing, because both implementations can lack the same gate.
+    public const string LegacyPin = "legacy-pin";
+
+    // Only the installed SDK's compiler under /langversion bears on this floor.
+    public const string SdkPin = "sdk-pin";
+
+    // Nothing compiled here bears on the floor.
+    public const string None = "none";
+}
+
 // A language's identity within this probe: how to find its files, spell its language versions on
 // the compiler command line, and walk its version ladder.
 record LanguageProfile(
@@ -1352,10 +1416,14 @@ record LanguageProfile(
     string ProjectExtension,
     string CompilerFileName,
     IReadOnlyList<string> Ladder,
+    IReadOnlyList<(string Version, string Directory)> InBoxCompilers,
+    string PackagedCompilerCeiling,
     Func<string, string?> FolderVersion,
     Func<string, string?> LangVersionArg,
+    Func<string, string?> LegacyLangVersionArg,
     Func<string, string?> CeilingVersion,
-    Func<string, bool> IsEnvironmentError);
+    Func<string, bool> IsEnvironmentError,
+    string ControlSource);
 
 // One feature group folder as a project compiles it. VersionFolder is kept alongside the version it
 // resolves to because a bucket exemption is keyed on the folder name, not on the group.
@@ -1381,8 +1449,9 @@ record Result(
     string FeatureVersion,
     string Group,
     string Outcome,
-    string Detail);
+    string Detail,
+    string Evidence);
 
-record Verdict(string Outcome, string Detail);
+record Verdict(string Outcome, string Detail, string Evidence);
 
 record CompileResult(bool Succeeded, string FirstError);
