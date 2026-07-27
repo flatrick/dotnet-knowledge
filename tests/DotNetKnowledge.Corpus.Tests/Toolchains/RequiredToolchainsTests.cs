@@ -1,5 +1,4 @@
 using DotNetKnowledge.Corpus.Tests.Cases;
-using DotNetKnowledge.Corpus.Tests.Execution;
 
 namespace DotNetKnowledge.Corpus.Tests.Toolchains;
 
@@ -11,7 +10,7 @@ public sealed class RequiredToolchainsTests
     public async Task EveryCheckedInCaseHasItsRequiredToolchains()
     {
         var cases = LoadCases();
-        var inventory = await ToolchainInventory.DiscoverCurrent(new ProcessRunner());
+        var inventory = await ToolchainInventory.Current;
         var missing = new List<string>();
 
         foreach (var sdkBand in cases
@@ -20,9 +19,10 @@ public sealed class RequiredToolchainsTests
                      .Distinct(StringComparer.Ordinal)
                      .OrderBy(ParseBand))
         {
-            if (!TryResolveSdk(inventory, sdkBand))
+            var missingSdk = MissingSdk(inventory, sdkBand);
+            if (missingSdk is not null)
             {
-                missing.Add($".NET SDK {sdkBand}");
+                missing.Add(missingSdk);
             }
         }
 
@@ -52,22 +52,34 @@ public sealed class RequiredToolchainsTests
             throw new InvalidOperationException($"Corpus case directory does not exist: {caseDirectory}.");
         }
 
-        return Directory.GetFiles(caseDirectory, "*.json", SearchOption.AllDirectories)
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .Select(CorpusCaseLoader.Load)
+        var casePaths = Directory.GetFiles(caseDirectory, "*.json", SearchOption.AllDirectories);
+        return CorpusCaseLoader.LoadValidated(casePaths, RepositoryRoot())
+            .Select(document => document.Case)
             .ToArray();
     }
 
-    private static bool TryResolveSdk(ToolchainInventory inventory, string sdkBand)
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "sources.json")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName
+            ?? throw new InvalidOperationException("Could not locate the repository root.");
+    }
+
+    private static string? MissingSdk(ToolchainInventory inventory, string sdkBand)
     {
         try
         {
             _ = inventory.ResolveSdk(sdkBand);
-            return true;
+            return null;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
-            return false;
+            return exception.Message;
         }
     }
 

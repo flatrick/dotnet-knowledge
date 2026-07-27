@@ -5,7 +5,21 @@ namespace DotNetKnowledge.Corpus.Tests.Toolchains;
 public sealed class ToolchainInventoryTests
 {
     [TestMethod]
-    public void FromListingsResolvesHighestPatchInExactSdkBand()
+    public async Task CurrentDiscoveryIsSharedAcrossConcurrentCallers()
+    {
+        var callers = Enumerable.Range(0, 16)
+            .Select(_ => Task.Run(() => (object)ToolchainInventory.Current))
+            .ToArray();
+
+        var discoveries = await Task.WhenAll(callers);
+
+        Assert.IsTrue(discoveries.All(discovery => ReferenceEquals(discoveries[0], discovery)));
+        var inventories = await Task.WhenAll(discoveries.Cast<Task<ToolchainInventory>>());
+        Assert.IsTrue(inventories.All(inventory => ReferenceEquals(inventories[0], inventory)));
+    }
+
+    [TestMethod]
+    public void FromListingsResolvesRequiredExactSdkVersion()
     {
         var inventory = ToolchainInventory.FromListings(
             """
@@ -22,12 +36,12 @@ public sealed class ToolchainInventoryTests
 
         var sdk = inventory.ResolveSdk("7.0");
 
-        Assert.AreEqual(new Version(7, 0, 412), sdk.Version);
+        Assert.AreEqual(new Version(7, 0, 410), sdk.Version);
         Assert.AreEqual(@"C:\Program Files\dotnet\sdk", sdk.Directory);
     }
 
     [TestMethod]
-    public void FromListingsReportsInstalledBandsWhenRequestedSdkBandIsAbsent()
+    public void FromListingsReportsConfiguredVersionsWhenRequestedSdkBandIsUnknown()
     {
         var inventory = ToolchainInventory.FromListings(
             """
@@ -39,7 +53,40 @@ public sealed class ToolchainInventoryTests
 
         var exception = Assert.ThrowsExactly<InvalidOperationException>(() => inventory.ResolveSdk("6.0"));
 
-        Assert.AreEqual("Required .NET SDK band 6.0 is not installed. Installed bands: 5.0, 7.0, 10.0.", exception.Message);
+        Assert.AreEqual(
+            "SDK band 6.0 has no configured exact version. Configured SDKs: 5.0.408, 7.0.410, 10.0.302.",
+            exception.Message);
+    }
+
+    [TestMethod]
+    public void FromListingsReportsRequiredAndInstalledVersionsWhenExactSdkIsAbsent()
+    {
+        var inventory = ToolchainInventory.FromListings(
+            """
+            5.0.408 [C:\Program Files\dotnet\sdk]
+            7.0.412 [C:\Program Files\dotnet\sdk]
+            10.0.302 [C:\Program Files\dotnet\sdk]
+            """,
+            "");
+
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(() => inventory.ResolveSdk("7.0"));
+
+        Assert.AreEqual(
+            "Required .NET SDK 7.0.410 for band 7.0 is not installed. " +
+            "Installed SDKs: 5.0.408, 7.0.412, 10.0.302.",
+            exception.Message);
+    }
+
+    [TestMethod]
+    public void FromListingsReportsWhenNoSdksAreInstalled()
+    {
+        var inventory = ToolchainInventory.FromListings("", "");
+
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(() => inventory.ResolveSdk("7.0"));
+
+        Assert.AreEqual(
+            "Required .NET SDK 7.0.410 for band 7.0 is not installed. Installed SDKs: (none).",
+            exception.Message);
     }
 
     [TestMethod]

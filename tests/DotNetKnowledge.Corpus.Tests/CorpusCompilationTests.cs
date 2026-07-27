@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using DotNetKnowledge.Corpus.Tests.Cases;
-using DotNetKnowledge.Corpus.Tests.Execution;
 using DotNetKnowledge.Corpus.Tests.Probes;
 using DotNetKnowledge.Corpus.Tests.Toolchains;
 
@@ -26,7 +25,7 @@ public sealed class CorpusCompilationTests
     {
         var testCase = CorpusCaseLoader.Load(casePath);
         var expectation = testCase.Compilations[compilationIndex];
-        var inventory = await ToolchainInventory.DiscoverCurrent(new ProcessRunner());
+        var inventory = await ToolchainInventory.Current;
 
         InstalledSdk sdk;
         try
@@ -70,14 +69,12 @@ public sealed class CorpusCompilationTests
 
     public static IEnumerable<object[]> CompilationCoordinates()
     {
-        var inventory = ToolchainInventory
-            .DiscoverCurrent(new ProcessRunner())
-            .GetAwaiter()
-            .GetResult();
+        var inventory = ToolchainInventory.Current.GetAwaiter().GetResult();
 
-        foreach (var casePath in CasePaths())
+        foreach (var document in CorpusCaseLoader.LoadValidated(CasePaths(), RepositoryRoot()))
         {
-            var testCase = CorpusCaseLoader.Load(casePath);
+            var casePath = document.Path;
+            var testCase = document.Case;
             for (var index = 0; index < testCase.Compilations.Count; index++)
             {
                 var expectation = testCase.Compilations[index];
@@ -107,6 +104,18 @@ public sealed class CorpusCompilationTests
 
         return Directory.GetFiles(caseDirectory, "*.json", SearchOption.AllDirectories)
             .OrderBy(path => path, StringComparer.Ordinal);
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "sources.json")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName
+            ?? throw new InvalidOperationException("Could not locate the repository root.");
     }
 
     private static string ResolveVersion(ToolchainInventory inventory, string sdkBand)

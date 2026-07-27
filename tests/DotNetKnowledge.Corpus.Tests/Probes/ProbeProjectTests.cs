@@ -1,6 +1,5 @@
 using System.Text.Json;
 using DotNetKnowledge.Corpus.Tests.Cases;
-using DotNetKnowledge.Corpus.Tests.Execution;
 using DotNetKnowledge.Corpus.Tests.Toolchains;
 
 namespace DotNetKnowledge.Corpus.Tests.Probes;
@@ -9,12 +8,15 @@ namespace DotNetKnowledge.Corpus.Tests.Probes;
 [TestCategory("Integration")]
 public sealed class ProbeProjectTests
 {
-    private static readonly InstalledSdk Sdk10 = new(
-        new Version(10, 0, 302),
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "dotnet",
-            "sdk"));
+    private static InstalledSdk sdk10 = null!;
+
+    [ClassInitialize]
+    public static async Task ResolveSdk10FromConfiguredHost(TestContext testContext)
+    {
+        _ = testContext;
+        var inventory = await ToolchainInventory.Current;
+        sdk10 = inventory.ResolveSdk("10.0");
+    }
 
     [TestMethod]
     public async Task BuildWritesExactSdkAndCompilationProperties()
@@ -23,7 +25,7 @@ public sealed class ProbeProjectTests
         var sourcePath = "tests/DotNetKnowledge.Corpus.Tests/Fixtures/FileScopedNamespace.cs";
 
         var result = await ProbeProject.BuildAsync(
-            Sdk10,
+            sdk10,
             expectation,
             sourcePath,
             harnessPath: null,
@@ -60,7 +62,7 @@ public sealed class ProbeProjectTests
     public async Task AlwaysValidSourceBuildsWithSdk10Net10AndCSharp14()
     {
         using var result = await ProbeProject.BuildAsync(
-            Sdk10,
+            sdk10,
             SuccessfulCompilation("net10.0", "14.0"),
             "tests/DotNetKnowledge.Corpus.Tests/Fixtures/AlwaysValid.cs",
             harnessPath: null,
@@ -73,7 +75,7 @@ public sealed class ProbeProjectTests
     public async Task FileScopedNamespaceFailsWithCSharp9Diagnostic()
     {
         using var result = await ProbeProject.BuildAsync(
-            Sdk10,
+            sdk10,
             FailedCompilation("net5.0", "9.0", "CS8773"),
             "tests/DotNetKnowledge.Corpus.Tests/Fixtures/FileScopedNamespace.cs",
             harnessPath: null,
@@ -88,7 +90,7 @@ public sealed class ProbeProjectTests
     public async Task FileScopedNamespaceBuildsWithCSharp10OnNet5()
     {
         using var result = await ProbeProject.BuildAsync(
-            Sdk10,
+            sdk10,
             SuccessfulCompilation("net5.0", "10.0"),
             "tests/DotNetKnowledge.Corpus.Tests/Fixtures/FileScopedNamespace.cs",
             harnessPath: null,

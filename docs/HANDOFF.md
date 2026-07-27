@@ -93,7 +93,8 @@ These are correctness obligations, not preferences. The reasoning is in
   are independent case inputs.
 - **Runtime-behavior claims require a canonical source marker.** Add
   `// Runtime verification: <case-id>` in C# or `' Runtime verification: <case-id>` in VB, and give
-  that exact case a nonempty `runtimes` array.
+  that exact case a nonempty `runtimes` array. The marker must occur in the canonical source path
+  named by the case.
 
 ## Open decisions
 

@@ -87,7 +87,8 @@ execution independent in every case.
 Any new comment that asserts observable runtime behavior must include the language-appropriate
 marker in the canonical authored source: `// Runtime verification: <case-id>` in C# or
 `' Runtime verification: <case-id>` in VB. The ID must name exactly one case with a nonempty
-`runtimes` array. Compilation cannot check claims such as "this is a view" or "this rounds to even."
+`runtimes` array, and the marker must occur in the canonical source path named by that case.
+Compilation cannot check claims such as "this is a view" or "this rounds to even."
 
 **A pinned `<LangVersion>` does not prove it either.** Roslyn holds a construct to a language
 version only where its binder calls `CheckFeatureAvailability`. Syntax-driven features all got that

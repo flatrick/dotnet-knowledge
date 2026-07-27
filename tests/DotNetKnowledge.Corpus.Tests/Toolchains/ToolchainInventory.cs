@@ -5,6 +5,9 @@ namespace DotNetKnowledge.Corpus.Tests.Toolchains;
 
 internal sealed partial class ToolchainInventory
 {
+    private static readonly Lazy<Task<ToolchainInventory>> CurrentDiscovery = new(
+        () => DiscoverCurrent(new ProcessRunner()));
+
     private readonly IReadOnlyList<InstalledSdk> installedSdks;
     private readonly IReadOnlyList<InstalledRuntime> installedRuntimes;
 
@@ -36,6 +39,8 @@ internal sealed partial class ToolchainInventory
         return Discover(string.IsNullOrWhiteSpace(hostPath) ? "dotnet" : hostPath, runner);
     }
 
+    public static Task<ToolchainInventory> Current => CurrentDiscovery.Value;
+
     internal static ToolchainInventory FromListings(string sdkListing, string runtimeListing)
     {
         ArgumentNullException.ThrowIfNull(sdkListing);
@@ -46,25 +51,39 @@ internal sealed partial class ToolchainInventory
 
     public InstalledSdk ResolveSdk(string band)
     {
-        var (major, minor) = ParseBand(band);
+        var requiredVersion = RequiredSdkVersion(band);
         var candidate = installedSdks
-            .Where(sdk => sdk.Version.Major == major && sdk.Version.Minor == minor)
-            .OrderByDescending(sdk => sdk.Version)
+            .Where(sdk => sdk.Version == requiredVersion)
             .FirstOrDefault();
         if (candidate is not null)
         {
             return candidate;
         }
 
-        var installedBands = installedSdks
-            .Select(sdk => (sdk.Version.Major, sdk.Version.Minor))
-            .Distinct()
-            .OrderBy(version => version.Major)
-            .ThenBy(version => version.Minor)
-            .Select(version => $"{version.Major}.{version.Minor}")
+        var installedVersions = installedSdks
+            .OrderBy(sdk => sdk.Version)
+            .Select(sdk => sdk.Version.ToString())
             .ToArray();
+        var installedVersionList = installedVersions.Length == 0
+            ? "(none)"
+            : string.Join(", ", installedVersions);
         throw new InvalidOperationException(
-            $"Required .NET SDK band {band} is not installed. Installed bands: {string.Join(", ", installedBands)}.");
+            $"Required .NET SDK {requiredVersion} for band {band} is not installed. " +
+            $"Installed SDKs: {installedVersionList}.");
+    }
+
+    public static Version RequiredSdkVersion(string band)
+    {
+        var parsedBand = ParseBand(band);
+        return parsedBand switch
+        {
+            (5, 0) => new Version(5, 0, 408),
+            (7, 0) => new Version(7, 0, 410),
+            (10, 0) => new Version(10, 0, 302),
+            _ => throw new InvalidOperationException(
+                $"SDK band {band} has no configured exact version. " +
+                "Configured SDKs: 5.0.408, 7.0.410, 10.0.302.")
+        };
     }
 
     public bool HasRuntime(string majorMinor)

@@ -57,6 +57,97 @@ public sealed class CorpusCaseLoaderTests
         CollectionAssert.AreEqual(new[] { expectedError }, errors.ToArray());
     }
 
+    [TestMethod]
+    public void LoadValidatedAggregatesErrorsFromEveryCaseDocument()
+    {
+        var caseDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-knowledge-case-validation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(caseDirectory);
+
+        try
+        {
+            var duplicatePath = Path.Combine(caseDirectory, "duplicate.case.json");
+            File.WriteAllText(
+                duplicatePath,
+                """
+                {
+                  "id": "Harness.Duplicate",
+                  "source": "Fixtures/valid-case.json",
+                  "compilations": [
+                    {
+                      "sdkBand": "10.0",
+                      "targetFramework": "net10.0",
+                      "languageVersion": "14.0",
+                      "outcome": "failure",
+                      "diagnostics": []
+                    },
+                    {
+                      "sdkBand": "10.0",
+                      "targetFramework": "net10.0",
+                      "languageVersion": "14.0",
+                      "outcome": "failure",
+                      "diagnostics": ["CS0001"]
+                    }
+                  ],
+                  "runtimes": []
+                }
+                """);
+            var runtimePath = Path.Combine(caseDirectory, "runtime.case.json");
+            File.WriteAllText(
+                runtimePath,
+                """
+                {
+                  "id": "Harness.Runtime",
+                  "source": "Fixtures/valid-case.json",
+                  "compilations": [],
+                  "runtimes": [
+                    {
+                      "harness": "Fixtures/valid-case.json",
+                      "sdkBand": "10.0",
+                      "targetFramework": "net10.0",
+                      "languageVersion": "14.0",
+                      "exitCode": 0,
+                      "standardOutput": []
+                    }
+                  ]
+                }
+                """);
+
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                CorpusCaseLoader.LoadValidated(
+                    [runtimePath, duplicatePath],
+                    AppContext.BaseDirectory));
+
+            StringAssert.Contains(exception.Message, "duplicate.case.json");
+            StringAssert.Contains(
+                exception.Message,
+                "Failure compilation 10.0|net10.0|14.0 must name at least one diagnostic.");
+            StringAssert.Contains(
+                exception.Message,
+                "Duplicate compilation coordinate: 10.0|net10.0|14.0.");
+            StringAssert.Contains(exception.Message, "runtime.case.json");
+            StringAssert.Contains(
+                exception.Message,
+                "Runtime coordinate 10.0|net10.0|14.0 must have a successful compilation expectation.");
+        }
+        finally
+        {
+            Directory.Delete(caseDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void EveryCheckedInCasePassesSchemaValidation()
+    {
+        var caseDirectory = Path.Combine(AppContext.BaseDirectory, "TestCases");
+        var casePaths = Directory.GetFiles(caseDirectory, "*.json", SearchOption.AllDirectories);
+
+        var cases = CorpusCaseLoader.LoadValidated(casePaths, RepositoryRoot());
+
+        Assert.HasCount(casePaths.Length, cases);
+    }
+
     private static CorpusCase CreateCase(
         string id = "Harness.Valid",
         string source = "Fixtures/valid-case.json",
@@ -66,4 +157,16 @@ public sealed class CorpusCaseLoaderTests
 
     private static CompilationExpectation SuccessfulCompilation() =>
         new("10.0", "net10.0", "14.0", BuildOutcome.Success, []);
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "sources.json")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName
+            ?? throw new InvalidOperationException("Could not locate the repository root.");
+    }
 }

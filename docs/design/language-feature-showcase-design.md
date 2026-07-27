@@ -377,10 +377,11 @@ language-appropriate marker in its canonical authored source:
 ' Runtime verification: <case-id>
 ```
 
-The case with that exact ID must contain at least one runtime expectation, and every runtime case
-whose source is in the corpus must have exactly one canonical marker. Toolchain-only cases whose
-source lives under `tests/` are marker-exempt. This contract establishes a mechanical link for
-declared runtime claims; it does not classify every corpus row as runtime-verifiable.
+The case with that exact ID must contain at least one runtime expectation, and the marker must occur
+in the canonical source path named by the case. Every runtime case whose source is in the corpus
+must have exactly one canonical marker. Toolchain-only cases whose source lives under `tests/` are
+marker-exempt. This contract establishes a mechanical link for declared runtime claims; it does not
+classify every corpus row as runtime-verifiable.
 
 ### A project build cannot tell whether a sample demonstrates its feature
 

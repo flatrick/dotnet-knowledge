@@ -39,7 +39,7 @@ dotnet scripts/verify-feature-floors.cs -- --offline             # skip the NuGe
 `dotnet <file>.cs` silently claims some flags for itself, which is why every script takes its
 arguments after `--`.
 
-The corpus test suite is `tests/DotNetKnowledge.Corpus.Tests/`. Its exact SDK bands live in a
+The corpus test suite is `tests/DotNetKnowledge.Corpus.Tests/`. Its exact SDK versions live in a
 repository-private host. Install or verify them with
 `dotnet scripts/install-corpus-test-sdks.cs`, then use the private-host command documented in
 [`scripts/install-corpus-test-sdks.md`](scripts/install-corpus-test-sdks.md); do not repeat the SDK
@@ -97,8 +97,9 @@ the applicability rule and the rest of the reasoning.
   execution as separate case inputs.
 - **Every new runtime-behavior claim needs a source marker.** Add
   `// Runtime verification: <case-id>` in C# or `' Runtime verification: <case-id>` in VB to the
-  canonical authored source, and give that exact case a nonempty `runtimes` array. Compilation
-  cannot check "this is a view" or "this rounds to even".
+  canonical authored source, and give that exact case a nonempty `runtimes` array. The marker must
+  occur in the canonical source path named by the case. Compilation cannot check "this is a view"
+  or "this rounds to even".
 - **A pinned `<LangVersion>` does not prove it either.** Roslyn enforces a version only where the
   binder calls `CheckFeatureAvailability`; syntax-driven features got that call, semantic and
   attribute-driven ones did not. `GeneralizedAsyncReturnTypes` (C# 7.0) compiles at

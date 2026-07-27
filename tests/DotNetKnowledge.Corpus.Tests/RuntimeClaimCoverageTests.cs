@@ -43,6 +43,30 @@ public sealed class RuntimeClaimCoverageTests
     }
 
     [TestMethod]
+    public void MarkerOnAnotherCanonicalSourceDoesNotSatisfyRuntimeCase()
+    {
+        const string expectedSource =
+            "examples/language-features/CSharp/dotnet/10/latest/library/CSharp11/NumericIntPtr/NumericIntPtr.cs";
+        var testCase = new CorpusCase(
+            "CSharp11.NumericIntPtr",
+            expectedSource,
+            [],
+            [new RuntimeExpectation("harness.cs", "10.0", "net10.0", "11.0", 0, [])]);
+        var marker = new RuntimeMarker(
+            "CSharp11.NumericIntPtr",
+            "examples/language-features/CSharp/dotnet/10/latest/library/Unrelated.cs",
+            4);
+
+        var errors = FindCoverageErrors(
+            [new CaseDocument("NumericIntPtr.case.json", testCase)],
+            [marker]);
+
+        Assert.HasCount(1, errors);
+        StringAssert.Contains(errors[0], "examples/language-features/CSharp/dotnet/10/latest/library/Unrelated.cs:4");
+        StringAssert.Contains(errors[0], expectedSource);
+    }
+
+    [TestMethod]
     public void CanonicalMarkerDiscoveryRecognizesVisualBasicCommentSyntax()
     {
         var repositoryRoot = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-{Guid.NewGuid():N}");
@@ -98,9 +122,9 @@ public sealed class RuntimeClaimCoverageTests
             throw new InvalidOperationException($"Corpus case directory does not exist: {caseDirectory}.");
         }
 
-        return Directory.EnumerateFiles(caseDirectory, "*.json", SearchOption.AllDirectories)
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .Select(path => new CaseDocument(path, CorpusCaseLoader.Load(path)))
+        var casePaths = Directory.GetFiles(caseDirectory, "*.json", SearchOption.AllDirectories);
+        return CorpusCaseLoader.LoadValidated(casePaths, RepositoryRoot())
+            .Select(document => new CaseDocument(document.Path, document.Case))
             .ToArray();
     }
 
@@ -197,6 +221,25 @@ public sealed class RuntimeClaimCoverageTests
                 errors.Add(
                     $"Runtime verification marker '{markerGroup.Key}' matches a case without runtime expectations: " +
                     $"{Locations(markerGroup.Value)}.");
+                continue;
+            }
+
+            if (markerGroup.Value.Length != 1)
+            {
+                continue;
+            }
+
+            var expectedSource = NormalizeRepositoryPath(matchingCases[0].Case.Source);
+            var markerPaths = markerGroup.Value
+                .Select(marker => NormalizeRepositoryPath(marker.Path))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (markerPaths.Length != 1 ||
+                !string.Equals(markerPaths[0], expectedSource, StringComparison.Ordinal))
+            {
+                errors.Add(
+                    $"Runtime verification marker '{markerGroup.Key}' does not belong to its case source " +
+                    $"'{expectedSource}': {Locations(markerGroup.Value)}.");
             }
         }
 
@@ -234,6 +277,28 @@ public sealed class RuntimeClaimCoverageTests
     private static bool IsCorpusSource(string path) =>
         path.Replace('\\', '/')
             .StartsWith("examples/language-features/", StringComparison.Ordinal);
+
+    private static string NormalizeRepositoryPath(string path)
+    {
+        var segments = new List<string>();
+        foreach (var segment in path.Replace('\\', '/').Split('/'))
+        {
+            if (segment.Length == 0 || segment == ".")
+            {
+                continue;
+            }
+
+            if (segment == ".." && segments.Count > 0 && segments[^1] != "..")
+            {
+                segments.RemoveAt(segments.Count - 1);
+                continue;
+            }
+
+            segments.Add(segment);
+        }
+
+        return string.Join('/', segments);
+    }
 
     private static string Locations(IEnumerable<RuntimeMarker> markers) =>
         string.Join(
