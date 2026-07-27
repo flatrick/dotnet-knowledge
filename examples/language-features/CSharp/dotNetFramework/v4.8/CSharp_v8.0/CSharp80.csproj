@@ -10,6 +10,9 @@
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Supplies the net48 reference assemblies so this project builds without a machine-installed
+         .NET Framework targeting pack. PrivateAssets keeps it out of the compile surface. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <PackageReference Include="System.Memory" Version="4.5.5" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
   </ItemGroup>

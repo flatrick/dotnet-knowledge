@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Net48_Vb11_Library</RootNamespace>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>11</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Baseline/**/*.vb" LinkBase="Baseline" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- MyType=Windows is a per-compilation switch, so the MyNamespaceHelpers row lives in the
+         my/ projects instead. Excluding it here keeps this project free of that setting. -->
+    <Compile Remove="../../src/Baseline/MyNamespaceHelpers/**/*.vb" />
+  </ItemGroup>
+</Project>

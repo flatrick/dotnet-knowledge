@@ -43,7 +43,19 @@ public sealed class CorpusProjectDiscoveryTests
         CorpusProject[] expected =
         [
             // dotNetFramework sorts before dotnet: 'N' (U+004E) precedes 'n' (U+006E) ordinally.
-            new("examples/language-features/VB.NET/dotNetFramework/v4.8/VbNetFw48.vbproj", "net48", "latest"),
+            // Within v4.8, '.' (U+002E) sorts before '/' (U+002F), so 15.3 and 15.5 sort before 15,
+            // and 16.9 before 16; within a pin, library/ sorts before my/.
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/11/library/library.vbproj", "net48", "11"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/11/my/my.vbproj", "net48", "11"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/14/library/library.vbproj", "net48", "14"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/15.3/library/library.vbproj", "net48", "15.3"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/15.5/library/library.vbproj", "net48", "15.5"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/15/library/library.vbproj", "net48", "15"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/16.9/library/library.vbproj", "net48", "16.9"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/16/library/library.vbproj", "net48", "16"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/17.13/library/library.vbproj", "net48", "17.13"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/latest/library/library.vbproj", "net48", "latest"),
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/latest/my/my.vbproj", "net48", "latest"),
             new("examples/language-features/VB.NET/dotnet/Net10/11/library/library.vbproj", "net10.0", "11"),
             new("examples/language-features/VB.NET/dotnet/Net10/14/library/library.vbproj", "net10.0", "14"),
             new("examples/language-features/VB.NET/dotnet/Net10/15.3/library/library.vbproj", "net10.0", "15.3"),
