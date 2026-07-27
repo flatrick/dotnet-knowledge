@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    MSBuild's automatic discovery stops at the first Directory.Build.props found walking up from
+    a project, which is this file. The corpus's zero-warning gate depends on TreatWarningsAsErrors
+    arriving from the repository root, so the chain has to be continued explicitly.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- Row sources live under src/ and are selected per pin, so the SDK's default globbing has
+         nothing to contribute and is turned off rather than left to find an empty project cone. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+</Project>

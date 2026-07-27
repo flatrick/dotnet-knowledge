@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Net10_VbLatest_Library</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Baseline/**/*.vb" LinkBase="Baseline" />
+    <Compile Include="../../src/Vb14/**/*.vb" LinkBase="Vb14" />
+    <Compile Include="../../src/Vb15/**/*.vb" LinkBase="Vb15" />
+    <Compile Include="../../src/Vb15_3/**/*.vb" LinkBase="Vb15_3" />
+    <Compile Include="../../src/Vb15_5/**/*.vb" LinkBase="Vb15_5" />
+    <Compile Include="../../src/Vb16_0/**/*.vb" LinkBase="Vb16_0" />
+    <Compile Include="../../src/Vb16_9/**/*.vb" LinkBase="Vb16_9" />
+    <Compile Include="../../src/Vb17_13/**/*.vb" LinkBase="Vb17_13" />
+  </ItemGroup>
+</Project>

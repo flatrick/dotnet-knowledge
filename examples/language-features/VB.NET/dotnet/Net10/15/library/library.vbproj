@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Net10_Vb15_Library</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>15</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Baseline/**/*.vb" LinkBase="Baseline" />
+    <Compile Include="../../src/Vb14/**/*.vb" LinkBase="Vb14" />
+    <Compile Include="../../src/Vb15/**/*.vb" LinkBase="Vb15" />
+  </ItemGroup>
+</Project>

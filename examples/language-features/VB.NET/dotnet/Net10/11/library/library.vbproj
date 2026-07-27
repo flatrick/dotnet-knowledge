@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Net10_Vb11_Library</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>11</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Baseline/**/*.vb" LinkBase="Baseline" />
+  </ItemGroup>
+</Project>
