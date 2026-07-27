@@ -11,11 +11,19 @@ Namespace Baseline.Attributes
     Public Class AuditedAttribute
         Inherits Attribute
 
+        Private ReadOnly _reason As String
+
         Public Sub New(reason As String)
-            Me.Reason = reason
+            _reason = reason
         End Sub
 
+        ' A ReadOnly property over an explicit backing field. A ReadOnly
+        ' *auto*-implemented property is VB 14, above this row's era.
         Public ReadOnly Property Reason As String
+            Get
+                Return _reason
+            End Get
+        End Property
 
         ' A named argument is set with := at the use site.
         Public Property Severity As Integer

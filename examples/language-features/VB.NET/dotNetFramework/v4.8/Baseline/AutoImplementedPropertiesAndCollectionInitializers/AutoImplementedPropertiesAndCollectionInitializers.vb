@@ -15,11 +15,19 @@ Namespace Baseline.AutoImplementedPropertiesAndCollectionInitializers
         ' An auto-property may carry an initializer.
         Public Property Region As String = "global"
 
-        ' ...and a ReadOnly one may still be assigned from a constructor.
+        ' A read-only value assigned from the constructor, written the pre-VB14
+        ' way: an explicit backing field behind a ReadOnly property. A ReadOnly
+        ' *auto*-implemented property is VB 14, above this row's era.
+        Private ReadOnly _id As String
+
         Public ReadOnly Property Id As String
+            Get
+                Return _id
+            End Get
+        End Property
 
         Public Sub New(id As String)
-            _Id = id
+            _id = id
             Name = String.Empty
         End Sub
 
