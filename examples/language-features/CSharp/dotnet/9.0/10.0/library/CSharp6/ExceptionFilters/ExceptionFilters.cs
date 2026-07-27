@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet7_10.CSharp6.ExceptionFilters
+namespace Net9_CSharp10.CSharp6.ExceptionFilters
 {
     public class Filters
     {

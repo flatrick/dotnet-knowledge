@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet7_10.CSharp11.NumericIntPtr
+namespace Net9_CSharp10.CSharp11.NumericIntPtr
 {
     // This row demonstrates numeric IntPtr behavior as it is available when
     // compiling against net10.0. It cannot demonstrate a C# 10-to-11 boundary

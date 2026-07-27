@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 
-namespace CSharpNet7_10.CSharp7.GeneralizedAsyncReturnTypes
+namespace Net9_CSharp10.CSharp7.GeneralizedAsyncReturnTypes
 {
     public class ValueTaskSamples
     {

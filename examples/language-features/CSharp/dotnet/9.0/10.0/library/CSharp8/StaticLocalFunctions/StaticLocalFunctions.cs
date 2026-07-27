@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp8.StaticLocalFunctions
+namespace Net9_CSharp10.CSharp8.StaticLocalFunctions
 {
     public class StaticLocals
     {

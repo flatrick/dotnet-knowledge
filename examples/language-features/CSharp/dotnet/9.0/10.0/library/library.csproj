@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>CSharpNet9_10</RootNamespace>
+    <RootNamespace>Net9_CSharp10</RootNamespace>
     <TargetFramework>net9.0</TargetFramework>
     <LangVersion>10.0</LangVersion>
   </PropertyGroup>

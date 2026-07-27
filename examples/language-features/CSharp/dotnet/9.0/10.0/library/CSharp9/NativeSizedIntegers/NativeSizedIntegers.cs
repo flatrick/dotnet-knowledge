@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp9.NativeSizedIntegers
+namespace Net9_CSharp10.CSharp9.NativeSizedIntegers
 {
     public class NativeIntegers
     {
