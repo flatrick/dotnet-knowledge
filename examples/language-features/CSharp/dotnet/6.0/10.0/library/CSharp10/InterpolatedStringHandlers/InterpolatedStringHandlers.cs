@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace CSharpNet6_10.CSharp10.InterpolatedStringHandlers
+namespace Net6_CSharp10.CSharp10.InterpolatedStringHandlers
 {
     // A handler intercepts an interpolated string before it becomes a string.
     // The compiler rewrites the literal into calls on this type — one

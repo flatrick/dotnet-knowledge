@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp2.PropertyAccessorAccessibility
+namespace Net6_CSharp10.CSharp2.PropertyAccessorAccessibility
 {
     public class Document
     {

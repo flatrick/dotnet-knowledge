@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpNet6_10.CSharp5.ForeachLoopVariableScope
+namespace Net6_CSharp10.CSharp5.ForeachLoopVariableScope
 {
     public class LoopCapture
     {

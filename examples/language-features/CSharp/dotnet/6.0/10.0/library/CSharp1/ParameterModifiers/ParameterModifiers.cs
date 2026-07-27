@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp1.ParameterModifiers
+namespace Net6_CSharp10.CSharp1.ParameterModifiers
 {
     public class Statistics
     {

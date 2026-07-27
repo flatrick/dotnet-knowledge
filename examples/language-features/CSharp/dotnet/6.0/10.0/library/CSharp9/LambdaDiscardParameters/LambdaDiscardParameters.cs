@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet6_10.CSharp9.LambdaDiscardParameters
+namespace Net6_CSharp10.CSharp9.LambdaDiscardParameters
 {
     public class DiscardParameters
     {

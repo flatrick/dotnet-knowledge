@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp2.StaticClasses
+namespace Net6_CSharp10.CSharp2.StaticClasses
 {
     // A static class cannot be instantiated, inherited from, or used as a type
     // argument; the compiler enforces that every member is static.
