@@ -37,6 +37,32 @@ public sealed class CorpusProjectDiscoveryTests
     }
 
     [TestMethod]
+    public void FindSdkStyleVbProjectsReturnsTheCompleteSortedVbMatrix()
+    {
+        var repositoryRoot = RepositoryRoot();
+        CorpusProject[] expected =
+        [
+            // dotNetFramework sorts before dotnet: 'N' (U+004E) precedes 'n' (U+006E) ordinally.
+            new("examples/language-features/VB.NET/dotNetFramework/v4.8/VbNetFw48.vbproj", "net48", "latest"),
+            new("examples/language-features/VB.NET/dotnet/Net10/11/library/library.vbproj", "net10.0", "11"),
+            new("examples/language-features/VB.NET/dotnet/Net10/14/library/library.vbproj", "net10.0", "14"),
+            new("examples/language-features/VB.NET/dotnet/Net10/15.3/library/library.vbproj", "net10.0", "15.3"),
+            new("examples/language-features/VB.NET/dotnet/Net10/15.5/library/library.vbproj", "net10.0", "15.5"),
+            new("examples/language-features/VB.NET/dotnet/Net10/15/library/library.vbproj", "net10.0", "15"),
+            new("examples/language-features/VB.NET/dotnet/Net10/16.9/library/library.vbproj", "net10.0", "16.9"),
+            new("examples/language-features/VB.NET/dotnet/Net10/16/library/library.vbproj", "net10.0", "16"),
+            new("examples/language-features/VB.NET/dotnet/Net10/17.13/library/library.vbproj", "net10.0", "17.13"),
+            new("examples/language-features/VB.NET/dotnet/Net10/latest/library/library.vbproj", "net10.0", "latest")
+        ];
+
+        var actual = CorpusProjectDiscovery.FindSdkStyleVbProjects(repositoryRoot).ToArray();
+
+        CollectionAssert.AreEqual(expected, actual);
+        Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/bin/", StringComparison.Ordinal)));
+        Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/obj/", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public void FindSdkStyleLibrariesUsesProjectPropertiesInsteadOfFolderNames()
     {
         var repositoryRoot = CreateRepository();
