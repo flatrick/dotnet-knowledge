@@ -295,12 +295,21 @@ coverage" checkable rather than asserted. One table per language, columns:
 | Version | Feature | Group folder | Included in project(s) | Excluded from project(s) (reason) | Source doc |
 |---|---|---|---|---|---|
 
-The VB tables carry one column more: **Measured floor (evidence)**, the lowest pin at which the row
-compiles together with the `verify-feature-floors.cs` evidence tier that floor rests on
-(`native-ceiling`, `sdk-pin`, `none`). Keeping the two strengths of evidence distinguishable is the
-column's point — collapsing them into a bare number would present a fact about the installed SDK as a
-fact about the language. The C# tables have no such column: the C# `Target project(s)` column names
-ceiling projects and has not been extended to the per-`<LangVersion>` probe projects.
+That sketch is the minimum. The three tables as authored extend it differently:
+
+| Table | Columns beyond the sketch |
+|---|---|
+| C# | `Note` |
+| VB baseline bucket | `Measured floor (evidence)` |
+| VB itemized per-version | `Measured floor (evidence)`, `Note` |
+
+`Note` carries whatever a row's placement or subject needs explaining. **Measured floor (evidence)**
+is the lowest pin at which the row compiles, together with the `verify-feature-floors.cs` evidence
+tier that floor rests on (`native-ceiling`, `sdk-pin`, `none`). Keeping the two strengths of evidence
+distinguishable is that column's point — collapsing them into a bare number would present a fact
+about the installed SDK as a fact about the language. The C# table has no floor column: its
+`Target project(s)` column names ceiling projects and has not been extended to the
+per-`<LangVersion>` probe projects.
 
 Every row is sourced from `Language-Version-History.md` (C#) or the Learn page + local spec (VB.NET).
 Every feature that ships must end up with a folder in at least one project, or an explicit
@@ -401,11 +410,13 @@ Two distinct toolchain gaps sit behind that, and only the first is about the hos
 
 - **No net48 reference assemblies off Windows.** `dotnet build` against a net48 project on a Linux
   host fails with `MSB3644: reference assemblies for .NETFramework,Version=v4.8 were not found` —
-  already precedented by `CSharpFwLegacy` in `testData/`, and not a defect in this corpus. The
-  SDK-style net48 projects close this themselves: the VB net48 family's `Directory.Build.props` and
+  already precedented by `CSharpFwLegacy` in `testData/`, and not a defect in this corpus. Two
+  places in the tree close it for themselves: the VB net48 family's `Directory.Build.props` and
   `CSharp_v8.0` carry `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
-  assemblies from a package. A legacy non-SDK project cannot use it, because it consumes no package
-  assets under `dotnet build` at all — which is the second gap.
+  assemblies from a package. That is the whole set — `CSharp_v1.0-Unsafe` and `CSharp_v8.0-Unsafe`
+  are SDK-style net48 as well and carry nothing, and a legacy non-SDK project cannot consume the
+  package at all, because it consumes no package assets under `dotnet build` — which is the second
+  gap.
 - **`dotnet build` cannot resolve `PackageReference` for a non-SDK project, even on Windows.** The
   SDK's MSBuild restores the project's packages and writes `project.assets.json`, then resolves none
   of them into references, because a non-SDK project consumes package assets through NuGet targets
@@ -541,8 +552,10 @@ VB 15 binary literal pinned to 14 fails with `BC36716`. Four VB-specific caution
 
 **The escalation to a native compiler ceiling barely reaches VB, and the manifest says so.** In
 principle VB's story is better than C#'s: native ceilings exist at VB 14 (`Microsoft.Net.Compilers`
-1.3.2, already cached for the C# 6 boundary), VB 11 (`v4.0.30319`) and VB 9 (`v3.5`), and only VB 10
-and VB 12 have none. In practice the escalation settles exactly **one** distinct row of this corpus,
+1.3.2, already cached for the C# 6 boundary), VB 11 (`v4.0.30319`) and VB 9 (`v3.5`). Below VB 14 the
+only gaps are VB 10 and VB 12; above it there is no native ceiling at all, because VB 14 is the
+highest one that exists. In practice the escalation settles exactly **one** distinct row of this
+corpus,
 `ConsumingCSharpRefReturnValues` — reported `UNGATED` at `native-ceiling`, because the VB 14 compiler
 rejects it with `BC30657`/`BC30643` while the modern compiler accepts it at `/langversion:14`. The
 reason the reach is that small is arithmetic, not a defect: a floor is probed against the rung

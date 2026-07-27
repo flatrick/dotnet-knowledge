@@ -42,8 +42,9 @@ projects from the pin its **Measured floor** cell names upward.
 **`MyType=Windows` lives only in the `my/` projects.** It is a per-compilation switch, structurally
 the same constraint as `AllowUnsafeBlocks` and `OutputType` on the C# side, so the
 `MyNamespaceHelpers` row is housed apart instead of imposing the setting on every mainline project.
-Every mainline `library.vbproj` `Compile Remove`s that row. The `my/` kind exists at the `11` and
-`latest` rungs of the net48 family only.
+The `my/` kind exists at the `11` and `latest` rungs of the net48 family only, and each of that
+family's nine `library.vbproj` files `Compile Remove`s the row. The net10 family needs no such
+`Remove`: the row is absent from its `src/` tree entirely.
 
 **The net48 VB family and `CSharp_v8.0` carry `Microsoft.NETFramework.ReferenceAssemblies`**, so
 they build without a machine-installed .NET Framework targeting pack. The net48 VB family

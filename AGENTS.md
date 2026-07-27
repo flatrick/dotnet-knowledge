@@ -76,8 +76,11 @@ projects under `examples/language-features/CSharp/dotnet/` and every VB project 
 `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj` needs Visual
 Studio's `MSBuild.exe` on Windows — `dotnet build` restores its `PackageReference` items and then
 resolves none of them, failing with `CS0246` on `Span` and `ValueTask` while saying nothing about
-the toolchain. The net48 SDK-style projects — the whole VB net48 family and `CSharp_v8.0` — carry
-`Microsoft.NETFramework.ReferenceAssemblies`, so they need no machine-installed targeting pack.
+the toolchain. `CSharp_v8.0` and the eleven net48 VB projects — the latter through their family's
+`Directory.Build.props` — carry `Microsoft.NETFramework.ReferenceAssemblies` and so need no
+machine-installed targeting pack. No other net48 project does: the two SDK-style `*-Unsafe` net48
+projects have no props above them supplying it, and a legacy non-SDK project cannot consume the
+package at all.
 
 **Corpus verification has three layers.**
 

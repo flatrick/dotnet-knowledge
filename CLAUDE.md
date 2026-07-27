@@ -121,14 +121,17 @@ Separate `*-Unsafe` and `exe` projects exist because `AllowUnsafeBlocks` and `Ou
 per-compilation switches that cannot be scoped to a folder; the mainline projects stay on default
 compilation and those rows are housed apart. **VB's `MyType=Windows` is the same kind of switch and
 gets the same treatment:** it lives only in the net48 family's `my/` projects, at the `11` and
-`latest` rungs, and every mainline `library.vbproj` `Compile Remove`s the `MyNamespaceHelpers` row.
+`latest` rungs, and each of that family's nine `library.vbproj` files `Compile Remove`s the
+`MyNamespaceHelpers` row. The net10 family's `src/` does not hold the row at all, so nothing there
+needs removing.
 `docs/design/language-feature-showcase-design.md` has the applicability rule and the rest of the
 reasoning.
 
-**The net48 VB family and `CSharp_v8.0` carry `Microsoft.NETFramework.ReferenceAssemblies`.** Those
-projects therefore build with no machine-installed .NET Framework targeting pack. The net48 VB
-family project-references `CSharp_v8.0` for its ref-return subject, so both halves need it. This is
-the known prerequisite for building the net48 SDK-style projects off Windows; the legacy non-SDK C#
+**`CSharp_v8.0` and the eleven net48 VB projects carry `Microsoft.NETFramework.ReferenceAssemblies`**
+— the VB ones through their family's `Directory.Build.props`. Those projects, and only those, build
+with no machine-installed .NET Framework targeting pack. The net48 VB family project-references
+`CSharp_v8.0` for its ref-return subject, which is why both halves need it. `CSharp_v1.0-Unsafe` and
+`CSharp_v8.0-Unsafe` are SDK-style net48 too and carry nothing of the kind; the legacy non-SDK C#
 net48 projects stay Windows-only regardless, because they need Visual Studio's `MSBuild.exe`.
 
 ### Rules that are load-bearing
