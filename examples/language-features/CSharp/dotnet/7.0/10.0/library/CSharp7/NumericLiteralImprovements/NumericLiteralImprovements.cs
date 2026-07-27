@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp7.NumericLiteralImprovements
+namespace Net7_CSharp10.CSharp7.NumericLiteralImprovements
 {
     public class NumericLiterals
     {

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet7_10.CSharp9.ExtensionGetEnumerator
+namespace Net7_CSharp10.CSharp9.ExtensionGetEnumerator
 {
     public class Bag
     {

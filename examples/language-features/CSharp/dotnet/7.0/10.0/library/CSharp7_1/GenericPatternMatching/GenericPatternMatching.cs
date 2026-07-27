@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp7_1.GenericPatternMatching
+namespace Net7_CSharp10.CSharp7_1.GenericPatternMatching
 {
     public class GenericPatterns
     {

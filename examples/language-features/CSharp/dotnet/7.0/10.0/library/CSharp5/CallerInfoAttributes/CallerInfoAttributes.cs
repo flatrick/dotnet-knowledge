@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace CSharpNet7_10.CSharp5.CallerInfoAttributes
+namespace Net7_CSharp10.CSharp5.CallerInfoAttributes
 {
     public class Diagnostics
     {

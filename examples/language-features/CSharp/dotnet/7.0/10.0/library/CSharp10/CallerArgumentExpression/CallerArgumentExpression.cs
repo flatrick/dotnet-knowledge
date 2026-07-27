@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace CSharpNet7_10.CSharp10.CallerArgumentExpression
+namespace Net7_CSharp10.CSharp10.CallerArgumentExpression
 {
     public class Guards
     {
