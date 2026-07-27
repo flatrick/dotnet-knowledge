@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet7_10.CSharp6.DictionaryInitializer
+namespace Net8_CSharp10.CSharp6.DictionaryInitializer
 {
     public class Slots
     {

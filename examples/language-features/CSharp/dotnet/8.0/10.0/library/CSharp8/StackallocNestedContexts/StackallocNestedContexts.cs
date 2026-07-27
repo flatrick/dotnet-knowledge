@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet7_10.CSharp8.StackallocNestedContexts
+namespace Net8_CSharp10.CSharp8.StackallocNestedContexts
 {
     public class NestedStackalloc
     {

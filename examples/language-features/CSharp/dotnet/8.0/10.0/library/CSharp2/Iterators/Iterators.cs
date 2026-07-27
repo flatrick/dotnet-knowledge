@@ -1,7 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 
-namespace CSharpNet7_10.CSharp2.Iterators
+namespace Net8_CSharp10.CSharp2.Iterators
 {
     // yield return makes the compiler generate the enumerator state machine.
     public class NumberSequence : IEnumerable<int>

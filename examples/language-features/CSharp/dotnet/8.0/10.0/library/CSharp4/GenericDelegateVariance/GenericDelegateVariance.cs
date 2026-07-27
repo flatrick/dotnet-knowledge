@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet7_10.CSharp4.GenericDelegateVariance
+namespace Net8_CSharp10.CSharp4.GenericDelegateVariance
 {
     public class Animal
     {

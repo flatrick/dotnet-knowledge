@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp6.ExpressionBodiedMembers
+namespace Net8_CSharp10.CSharp6.ExpressionBodiedMembers
 {
     // C# 6.0 allows an expression body on methods, read-only properties,
     // indexers, and operators. Constructors and property accessors had to wait

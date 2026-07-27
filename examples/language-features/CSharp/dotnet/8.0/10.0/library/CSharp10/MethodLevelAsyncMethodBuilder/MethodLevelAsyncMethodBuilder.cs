@@ -2,7 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
-namespace CSharpNet7_10.CSharp10.MethodLevelAsyncMethodBuilder
+namespace Net8_CSharp10.CSharp10.MethodLevelAsyncMethodBuilder
 {
     // C# 7.0 let a TYPE opt into a custom async method builder, which applied
     // to every async method returning it. C# 10.0 allows the attribute on a
