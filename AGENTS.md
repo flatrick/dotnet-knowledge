@@ -27,6 +27,7 @@ human browsing — structured payloads, no ASCII tables, no decorative formattin
 | `docs/HANDOFF.md` | **Start here.** Current build state, next steps, and open decisions. |
 | `docs/design/mcp-tool-surface.md` | The server's tool surface, provenance envelope, and sync model. |
 | `docs/design/language-feature-showcase-design.md` | Why the corpus is shaped the way it is: era probes, applicability rule, the derivation model. |
+| `docs/design/ci.md` | What CI runs and when, why every version is pinned, and the runbook to activate the merge gate. |
 | `docs/domain/csharplang-map.md`, `docs/domain/vblang-map.md` | Quick-find maps for the upstream language-design repos. |
 | `sources.json` | The upstream sources, their pinned commits, and their sparse-checkout paths. |
 | `scripts/*.cs` | Dev tooling, as single-file C# programs — `dotnet scripts/foo.cs -- <args>`. |
@@ -117,3 +118,12 @@ install on a current Windows. Floors at those versions report `UNPROVEN` rather 
 floor probe structurally cannot judge — `LockStatement` (filed under C# 3.0 to mirror the source
 document, though `lock` is C# 1.0) and `EmbeddedInteropTypes` (NoPIA lives in the reference, not the
 source). Windows and Visual Studio's MSBuild only.
+
+## Continuous integration
+
+**A green CI run does not mean a commit was gated.** `.github/workflows/corpus-tests.yml` runs on
+every pull request to `main`, but nothing blocks a merge on its result and nothing blocks a direct
+push to `main` — required status checks need a ruleset, which GitHub withholds while this
+repository is private on the Free plan. Do not infer from a commit's presence on `main` that
+verification passed for it; read the run. [`docs/design/ci.md`](docs/design/ci.md) has the
+reasoning and the runbook to activate the gate once the repository is public.
