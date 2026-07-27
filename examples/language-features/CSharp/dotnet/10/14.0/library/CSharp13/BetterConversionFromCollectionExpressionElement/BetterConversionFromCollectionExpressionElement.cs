@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp13.BetterConversionFromCollectionExpressionElement
+namespace Net10_CSharp14_Library.CSharp13.BetterConversionFromCollectionExpressionElement
 {
     public class Conversions
     {

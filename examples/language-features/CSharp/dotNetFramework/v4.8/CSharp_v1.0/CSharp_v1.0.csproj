@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <RootNamespace>CSharp10</RootNamespace>
+    <RootNamespace>Net48_CSharp1_Library</RootNamespace>
     <ProjectGuid>{7B1A2C3D-4E5F-4061-8A9B-0C1D2E3F4A51}</ProjectGuid>
     <OutputType>Library</OutputType>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
@@ -62,7 +62,6 @@
       on ordinary compilation. SetTargetFramework picks the net48 half of the multi-targeted
       support assembly, which a non-SDK project cannot negotiate on its own.
     -->
-    <ProjectReference Include="..\CSharpComTypeLib\CSharpComTypeLib.csproj" EmbedInteropTypes="true" SetTargetFramework="TargetFramework=net48" />
   </ItemGroup>
   <ItemGroup>
     <!-- This project is non-SDK XML and has no globbing, so every file needs an explicit item. -->

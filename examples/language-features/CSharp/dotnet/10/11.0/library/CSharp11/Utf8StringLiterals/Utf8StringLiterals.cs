@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp11.Utf8StringLiterals
+namespace Net10_CSharp11_Library.CSharp11.Utf8StringLiterals
 {
     public class Utf8Literals
     {

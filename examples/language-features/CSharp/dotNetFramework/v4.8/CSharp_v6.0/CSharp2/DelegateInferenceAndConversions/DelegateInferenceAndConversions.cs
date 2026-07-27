@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs73.CSharp2.DelegateInferenceAndConversions
+namespace Net48_CSharp6_Library.CSharp2.DelegateInferenceAndConversions
 {
     public class DelegateConversions
     {

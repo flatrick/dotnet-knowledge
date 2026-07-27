@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace CSharpNet10Latest.CSharp13.OverloadResolutionPriority
+namespace Net10_CSharpLatest_Library.CSharp13.OverloadResolutionPriority
 {
     public class Writer
     {

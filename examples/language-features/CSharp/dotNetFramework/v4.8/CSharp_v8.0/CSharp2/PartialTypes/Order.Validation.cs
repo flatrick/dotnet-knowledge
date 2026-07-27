@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp2.PartialTypes
+namespace Net48_CSharp8_Library.CSharp2.PartialTypes
 {
     // The second half reaches the first half's private fields directly:
     // after merging there is only one class.

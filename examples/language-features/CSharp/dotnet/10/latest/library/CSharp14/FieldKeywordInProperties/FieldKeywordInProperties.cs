@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp14.FieldKeywordInProperties
+namespace Net10_CSharpLatest_Library.CSharp14.FieldKeywordInProperties
 {
     public class Person
     {

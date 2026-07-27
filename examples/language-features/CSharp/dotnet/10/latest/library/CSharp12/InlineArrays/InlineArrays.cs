@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace CSharpNet10Latest.CSharp12.InlineArrays
+namespace Net10_CSharpLatest_Library.CSharp12.InlineArrays
 {
     // An inline array is a struct holding a fixed number of contiguous
     // elements. It is the safe successor to a fixed-size buffer: unlike

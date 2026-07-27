@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp8.EnhancedUsingDeclarations
+namespace Net10_CSharp10_Library.CSharp8.EnhancedUsingDeclarations
 {
     public class Resource : IDisposable
     {

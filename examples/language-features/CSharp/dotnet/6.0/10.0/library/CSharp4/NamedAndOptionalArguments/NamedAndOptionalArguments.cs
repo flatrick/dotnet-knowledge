@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp4.NamedAndOptionalArguments
+namespace Net6_CSharp10_Library.CSharp4.NamedAndOptionalArguments
 {
     public class Formatter
     {

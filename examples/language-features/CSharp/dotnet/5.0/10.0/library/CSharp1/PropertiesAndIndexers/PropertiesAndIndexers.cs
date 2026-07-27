@@ -1,4 +1,4 @@
-namespace CSharpNet6_10.CSharp1.PropertiesAndIndexers
+namespace Net5_CSharp10_Library.CSharp1.PropertiesAndIndexers
 {
     public class Matrix
     {

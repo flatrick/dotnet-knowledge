@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp7_2.InParametersReadonlyReferences
+namespace Net10_CSharp10_Library.CSharp7_2.InParametersReadonlyReferences
 {
     public readonly struct Vector3
     {

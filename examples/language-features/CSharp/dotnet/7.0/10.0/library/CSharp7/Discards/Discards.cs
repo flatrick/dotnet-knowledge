@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp7.Discards
+namespace Net7_CSharp10_Library.CSharp7.Discards
 {
     public class Measurement
     {

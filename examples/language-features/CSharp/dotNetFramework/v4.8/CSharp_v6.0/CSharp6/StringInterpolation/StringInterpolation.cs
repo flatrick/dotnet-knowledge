@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp6.StringInterpolation
+namespace Net48_CSharp6_Library.CSharp6.StringInterpolation
 {
     public class Interpolation
     {

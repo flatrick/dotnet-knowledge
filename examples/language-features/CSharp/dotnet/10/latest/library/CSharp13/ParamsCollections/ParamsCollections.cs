@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp13.ParamsCollections
+namespace Net10_CSharpLatest_Library.CSharp13.ParamsCollections
 {
     public class ParamsSamples
     {

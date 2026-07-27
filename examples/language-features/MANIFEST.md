@@ -10,11 +10,63 @@ file(s) exist under that project's matching version/group folder and the project
 errors and 0 warnings; until then, that row is simply not yet authored there — not a placeholder,
 the accurate current state of an in-progress corpus.
 
-**Project codes:** `Fw73` = CSharpFw48Cs73, `Fw80` = CSharpFw48Cs80, `Latest` = CSharpNet10Latest,
-`Fw80Unsafe` = CSharpFw48Cs80Unsafe, `Net10Unsafe` = CSharpNet10Unsafe, `Net10Exe` = CSharpNet10Exe,
-`VbFw48` = VbNetFw48, `VbLatest` = VbNetNet10Latest.
+**Project codes:** `Fw73` = Net48_CSharp7_3_Library, `Fw80` = Net48_CSharp8_Library,
+`Latest` = Net10_CSharpLatest_Library, `Fw80Unsafe` = Net48_CSharp8_Unsafe,
+`Net10Unsafe` = Net10_CSharpLatest_Unsafe, `Net10Exe` = Net10_CSharpLatest_Exe,
+`VbFw48` = the net48 VB **family**, `VbLatest` = the net10 VB **family**.
 
-**`CSharpNet10Exe` carries only what needs an entry point.** `OutputType` is a per-project setting
+Every project's `RootNamespace` is its coordinate — runtime, language version, output kind — and
+every C# file under it declares that value as its first namespace segment, so an open file names the
+project it belongs to. `dotnet scripts/verify-project-namespaces.cs` enforces the pairing; C#'s
+`RootNamespace` seeds only new-file templates, so nothing else would.
+
+**The C# codes above name the ceiling projects only.** The corpus also carries a C# project per
+pinned `<LangVersion>` — `Net48_CSharp1_Library` … `Net48_CSharp7_2_Library`,
+`Net10_CSharp10_Library` … `Net10_CSharp14_Library`, and `Net5_CSharp10_Library` …
+`Net9_CSharp10_Library`. The **Target project(s)** column below has not been extended to them.
+
+**The two VB codes name families, not single projects.** A VB family is one shared `src/` tree plus
+a project per pinned `<LangVersion>`:
+
+| Code | Family root | Projects |
+|---|---|---|
+| `VbFw48` | `VB.NET/dotNetFramework/v4.8/` | `src/`, `<pin>/library/` at every pin, plus `11/my/` and `latest/my/` |
+| `VbLatest` | `VB.NET/dotnet/Net10/` | `src/`, `<pin>/library/` at every pin |
+
+The pins are `11, 14, 15, 15.3, 15.5, 16, 16.9, 17.13, latest`. `vbc` rejects `17` and `17.0` with
+`BC2014`, so those rungs do not exist. Each project's `Compile` globs name the rows it holds, and a
+project holds **every** row that compiles at its pin — including rows filed above it whose feature
+`LangVersion` does not gate. A row targeting `VbFw48` or `VbLatest` therefore lives in that family's
+projects from the pin its **Measured floor** cell names upward.
+
+**`MyType=Windows` lives only in the `my/` projects.** It is a per-compilation switch, structurally
+the same constraint as `AllowUnsafeBlocks` and `OutputType` on the C# side, so the
+`MyNamespaceHelpers` row is housed apart instead of imposing the setting on every mainline project.
+The `my/` kind exists at the `11` and `latest` rungs of the net48 family only, and each of that
+family's nine `library.vbproj` files `Compile Remove`s the row. The net10 family needs no such
+`Remove`: the row is absent from its `src/` tree entirely.
+
+**The net48 VB family and `CSharp_v8.0` carry `Microsoft.NETFramework.ReferenceAssemblies`**, so
+they build without a machine-installed .NET Framework targeting pack. The net48 VB family
+project-references `CSharp_v8.0` for its ref-return subject, so both halves need the package.
+
+**The Measured floor column is probed, not asserted.** It names the lowest pin at which the row
+compiles, and in parentheses the kind of evidence that floor rests on, in the vocabulary
+`dotnet scripts/verify-feature-floors.cs -- --language vb` emits:
+
+- `native-ceiling` — a compiler whose native ceiling is the rung below settled it. Stable: it does
+  not drift as SDKs ship.
+- `sdk-pin` — only the installed SDK's compiler under `/langversion` bears on the floor. That is a
+  fact about today's toolchain rather than about the language, and it drifts as SDKs ship.
+- `none` — nothing the probe compiled bears on a floor. Every `Baseline` row is here: the bucket is
+  `EXEMPT` from the floor probe because it spans VS.NET 2002 to VS2012, and `11` is the ladder's
+  lowest rung in any case.
+
+Both families measure the same floor and the same evidence for every row they share, so one column
+serves both. A floor below the row's own version is not a defect — it is the measured statement that
+`LangVersion` does not gate that feature, which the lower project's green build then keeps true.
+
+**`Net10_CSharpLatest_Exe` carries only what needs an entry point.** `OutputType` is a per-project setting
 and cannot be scoped to a folder, in exactly the way `/unsafe` cannot. Top-level statements require
 the compilation to be an executable — a library is rejected outright with `CS8805` — so that row
 lives here rather than forcing every other example in a mainline project to share an entry point.
@@ -55,17 +107,29 @@ consumes package assets only through the NuGet targets that ship with Visual Stu
 build-verification section. Every row naming `Fw73` in "Target project(s)" is subject to that same
 caveat; it is not repeated per row.
 
-**The two net48 C# projects and `VbNetFw48` are derived, not hand-written.**
-`dotnet scripts/generate-net48-examples.cs` writes them from `CSharpNet10Latest` and
-`VbNetNet10Latest`: the C# files differ from their originals only by root namespace, and the VB
-files are byte-identical because VB samples declare version-relative namespaces and take their
-prefix from `RootNamespace`. Fix a shared sample in the net10 project and regenerate; never edit a
-generated file. `dotnet scripts/generate-net48-examples.cs -- --check` re-derives and fails on
-drift, including a stray file hand-added to a derived folder. Two `VbNetFw48` rows are hand-authored
-and exempt from that check — `MyNamespaceHelpers`, which has no net10 counterpart, and
-`ConsumingCSharpRefReturnValues`, whose net48 subject differs (see its Note).
+**Every C# project is hand-authored.** `scripts/generate-net48-examples.cs` targets a project layout
+that no longer exists and must not be run against this tree; the `GENERATED-COMPILE-ITEMS` markers
+inside the net48 csproj files are inherited artifacts that nothing regenerates. Edit the file you
+mean to change, in the project you mean to change it in.
 
-## C# (169 grouped rows across 14 major versions (18 releases))
+**Each VB family holds one copy of every row, under its own `src/` tree.** VB prepends
+`RootNamespace` to every declaration in the compilation, so a VB sample declares a version-relative
+namespace (`Namespace Vb15.Tuples`) and takes its project prefix at compile time — which is why
+every pinned project in a family globs the same files, and why no VB source names a project.
+`dotnet scripts/verify-project-namespaces.cs` enforces the inverse of the C# rule here: a `.vb` file
+under a family's `src/` must **not** begin its namespace with a `Net10_` or `Net48_` prefix, which
+would compile to a doubled namespace in every pin of that family at once.
+
+The two families keep separate `src/` trees because four rows genuinely diverge:
+
+| Row | Divergence |
+|---|---|
+| `MyNamespaceHelpers` | `VbFw48` only, in the `my/` kind. No net10 project can carry it — see its Note. |
+| `ConsumingCSharpRefReturnValues` | In both, over different ref-returning subjects — see its Note. |
+| `CallerArgumentExpressionConsumption` | `VbLatest` only. net48 has no attributed API to consume — see its Note. |
+| `OverloadResolutionPriorityConsumption` | `VbLatest` only. No net48 assembly here can supply a prioritized API — see its Note. |
+
+## C#
 
 | Version | Feature(s) | Group folder | Target project(s) | Excluded from (reason) | Source | Note |
 |---|---|---|---|---|---|---|
@@ -244,7 +308,7 @@ ceiling is 7.3, which covers 7.2/7.3). Those rows build there: `Fw73` declares `
 `Span` and `System.Threading.Tasks.Extensions` for the C# 7.0 generalized-async-return-types row's
 `ValueTask`, which `System.Memory` does not bring in on its own.
 
-## VB.NET (58 grouped rows: 1 baseline bucket of 28 rows + 8 point versions totaling 30 rows)
+## VB.NET
 
 ### Baseline (VB.NET 1.0 through VB 11 / Visual Studio .NET 2002 – 2013)
 
@@ -253,71 +317,71 @@ Sourced from the Microsoft Learn bucket summaries (coarse, non-itemized) plus th
 verified sourcing strategy. All rows live under one `Baseline/` folder (no per-version attribution;
 the "Version" column below is informational provenance only, not a folder split).
 
-| Version (informational) | Feature(s) | Group folder | Target project(s) | Excluded from (reason) | Source |
-|---|---|---|---|---|---|
-| Baseline (VS.NET 2002) | Classes, Structures, Standard Modules, Interfaces, Enumerations | `TypesAndDeclarations` | VbFw48, VbLatest | | vblang/spec/types.md |
-| Baseline (VS.NET 2002) | Methods, Constructors, Events, Constants, Properties, Operators, instance/shared variables | `TypeMembers` | VbFw48, VbLatest | | vblang/spec/type-members.md |
-| Baseline (VS.NET 2002) | Inheritance, Implementation, Polymorphism, Accessibility, generic types/methods | `GeneralConcepts` | VbFw48, VbLatest | | vblang/spec/general-concepts.md |
-| Baseline (VS.NET 2002) | If/Select Case/loop control flow | `ControlFlowStatements` | VbFw48, VbLatest | | vblang/spec/statements.md |
-| Baseline (VS.NET 2002) | `With` statement | `WithStatement` | VbFw48, VbLatest | | vblang/spec/statements.md |
-| Baseline (VS.NET 2002) | `Imports`, namespaces, `Option Strict`/`Explicit`/`Compare`/`Infer` | `ImportsAndNamespaces` | VbFw48, VbLatest | | vblang/spec/source-files-and-namespaces.md |
-| Baseline (VS.NET 2002) | Widening/narrowing/user-defined conversions | `Conversions` | VbFw48, VbLatest | | vblang/spec/conversions.md |
-| Baseline (VS.NET 2002) | Attributes | `Attributes` | VbFw48, VbLatest | | vblang/spec/attributes.md |
-| Baseline (VS.NET 2002) | `#Const`, `#If`, `#Region`, `#ExternalSource` | `PreprocessingDirectives` | VbFw48, VbLatest | | vblang/spec/preprocessing-directives.md |
-| Baseline (VS.NET 2002) | Expression grammar, operator precedence | `ExpressionsAndOperators` | VbFw48, VbLatest | | vblang/spec/expressions.md |
-| Baseline (VS.NET 2002) | Structured (`Try`/`Catch`/`Finally`) and unstructured (`On Error`) exception handling | `ErrorHandling` | VbFw48, VbLatest | | vblang/spec/statements.md |
-| Baseline (VS.NET 2002) | Array declaration and basic collection usage | `ArraysAndCollectionsBasics` | VbFw48, VbLatest | | vblang/spec/types.md |
-| Baseline (VS2005) | `My` namespace and helper types | `MyNamespaceHelpers` | VbFw48 | VbLatest (capability: the SDK passes `_MyType=Empty` for a net10.0 VB class library, so no `My` member exists; setting `MyType=Console` then fails because `Microsoft.VisualBasic.ApplicationServices.*` and `Devices.Computer` are not in the net10.0 shared framework) | Learn whats-new (VS2005 bucket) |
-| Baseline (VS2008) | LINQ (query expressions) | `Linq` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | XML literals | `XmlLiterals` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | Local type inference, object initializers | `LocalTypeInferenceAndObjectInitializers` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | Anonymous types | `AnonymousTypes` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | Extension methods | `ExtensionMethods` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | Lambda expressions | `LambdaExpressions` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | `If` operator, partial methods | `IfOperatorAndPartialMethods` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2008) | Nullable value types | `NullableValueTypes` | VbFw48, VbLatest | | Learn whats-new (VS2008 bucket) |
-| Baseline (VS2010) | Auto-implemented properties, collection initializers | `AutoImplementedPropertiesAndCollectionInitializers` | VbFw48, VbLatest | | Learn whats-new (VS2010 bucket) |
-| Baseline (VS2010) | Implicit line continuation | `ImplicitLineContinuation` | VbFw48, VbLatest | | Learn whats-new (VS2010 bucket) |
-| Baseline (VS2010) | `dynamic` consumption | `DynamicBinding` | VbFw48, VbLatest | | Learn whats-new (VS2010 bucket) |
-| Baseline (VS2010) | Generic co/contravariance | `GenericCoContravariance` | VbFw48, VbLatest | | Learn whats-new (VS2010 bucket) |
-| Baseline (VS2010) | Global namespace access | `GlobalNamespaceAccess` | VbFw48, VbLatest | | Learn whats-new (VS2010 bucket) |
-| Baseline (VS2012) | `Async`/`Await`, iterators | `AsyncAwaitAndIterators` | VbFw48, VbLatest | | Learn whats-new (VS2012 bucket) |
-| Baseline (VS2012) | Caller info attributes | `CallerInfoAttributes` | VbFw48, VbLatest | | Learn whats-new (VS2012 bucket) |
+| Version (informational) | Feature(s) | Group folder | Target project(s) | Measured floor (evidence) | Excluded from (reason) | Source |
+|---|---|---|---|---|---|---|
+| Baseline (VS.NET 2002) | Classes, Structures, Standard Modules, Interfaces, Enumerations | `TypesAndDeclarations` | VbFw48, VbLatest | 11 (none) | | vblang/spec/types.md |
+| Baseline (VS.NET 2002) | Methods, Constructors, Events, Constants, Properties, Operators, instance/shared variables | `TypeMembers` | VbFw48, VbLatest | 11 (none) | | vblang/spec/type-members.md |
+| Baseline (VS.NET 2002) | Inheritance, Implementation, Polymorphism, Accessibility, generic types/methods | `GeneralConcepts` | VbFw48, VbLatest | 11 (none) | | vblang/spec/general-concepts.md |
+| Baseline (VS.NET 2002) | If/Select Case/loop control flow | `ControlFlowStatements` | VbFw48, VbLatest | 11 (none) | | vblang/spec/statements.md |
+| Baseline (VS.NET 2002) | `With` statement | `WithStatement` | VbFw48, VbLatest | 11 (none) | | vblang/spec/statements.md |
+| Baseline (VS.NET 2002) | `Imports`, namespaces, `Option Strict`/`Explicit`/`Compare`/`Infer` | `ImportsAndNamespaces` | VbFw48, VbLatest | 11 (none) | | vblang/spec/source-files-and-namespaces.md |
+| Baseline (VS.NET 2002) | Widening/narrowing/user-defined conversions | `Conversions` | VbFw48, VbLatest | 11 (none) | | vblang/spec/conversions.md |
+| Baseline (VS.NET 2002) | Attributes | `Attributes` | VbFw48, VbLatest | 11 (none) | | vblang/spec/attributes.md |
+| Baseline (VS.NET 2002) | `#Const`, `#If`, `#Region`, `#ExternalSource` | `PreprocessingDirectives` | VbFw48, VbLatest | 11 (none) | | vblang/spec/preprocessing-directives.md |
+| Baseline (VS.NET 2002) | Expression grammar, operator precedence | `ExpressionsAndOperators` | VbFw48, VbLatest | 11 (none) | | vblang/spec/expressions.md |
+| Baseline (VS.NET 2002) | Structured (`Try`/`Catch`/`Finally`) and unstructured (`On Error`) exception handling | `ErrorHandling` | VbFw48, VbLatest | 11 (none) | | vblang/spec/statements.md |
+| Baseline (VS.NET 2002) | Array declaration and basic collection usage | `ArraysAndCollectionsBasics` | VbFw48, VbLatest | 11 (none) | | vblang/spec/types.md |
+| Baseline (VS2005) | `My` namespace and helper types | `MyNamespaceHelpers` | VbFw48 | 11 (none) | VbLatest (capability: the SDK passes `_MyType=Empty` for a net10.0 VB class library, so no `My` member exists; setting `MyType=Console` then fails because `Microsoft.VisualBasic.ApplicationServices.*` and `Devices.Computer` are not in the net10.0 shared framework) | Learn whats-new (VS2005 bucket) |
+| Baseline (VS2008) | LINQ (query expressions) | `Linq` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | XML literals | `XmlLiterals` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | Local type inference, object initializers | `LocalTypeInferenceAndObjectInitializers` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | Anonymous types | `AnonymousTypes` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | Extension methods | `ExtensionMethods` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | Lambda expressions | `LambdaExpressions` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | `If` operator, partial methods | `IfOperatorAndPartialMethods` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2008) | Nullable value types | `NullableValueTypes` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2008 bucket) |
+| Baseline (VS2010) | Auto-implemented properties, collection initializers | `AutoImplementedPropertiesAndCollectionInitializers` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2010 bucket) |
+| Baseline (VS2010) | Implicit line continuation | `ImplicitLineContinuation` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2010 bucket) |
+| Baseline (VS2010) | `dynamic` consumption | `DynamicBinding` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2010 bucket) |
+| Baseline (VS2010) | Generic co/contravariance | `GenericCoContravariance` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2010 bucket) |
+| Baseline (VS2010) | Global namespace access | `GlobalNamespaceAccess` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2010 bucket) |
+| Baseline (VS2012) | `Async`/`Await`, iterators | `AsyncAwaitAndIterators` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2012 bucket) |
+| Baseline (VS2012) | Caller info attributes | `CallerInfoAttributes` | VbFw48, VbLatest | 11 (none) | | Learn whats-new (VS2012 bucket) |
 
 ### VB 14 (Visual Studio 2015) onward — itemized per-version deltas
 
-| Version | Feature(s) | Group folder | Target project(s) | Excluded from (reason) | Source |
-|---|---|---|---|---|---|
-| VB 14 | `NameOf` operator | `NameOfOperator` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | String interpolation | `StringInterpolation` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Null-conditional member access/indexing | `NullConditionalOperators` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Multi-line string literals | `MultiLineStringLiterals` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Comment placement improvements | `CommentPlacementImprovements` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Smarter fully-qualified name resolution | `SmarterNameResolution` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Year-first date literals | `YearFirstDateLiterals` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Readonly interface properties | `ReadonlyInterfaceProperties` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | `TypeOf ... IsNot ...` | `TypeOfIsNot` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | `#Disable Warning`/`#Enable Warning` | `DisableEnableWarningDirectives` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | XML doc comment improvements | `XmlDocCommentImprovements` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Partial modules and interfaces | `PartialModulesAndInterfaces` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | `#Region` inside method bodies | `RegionDirectivesInsideMethodBodies` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | `Overrides` implicitly `Overloads` | `OverridesImplicitlyOverloads` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | `CObj` in attribute arguments | `CObjInAttributeArguments` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 14 | Ambiguous interface method resolution | `AmbiguousInterfaceMethodResolution` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
-| VB 15 | Tuples | `Tuples` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 |
-| VB 15 | Binary literals, digit separators | `BinaryLiteralsAndDigitSeparators` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 |
-| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `CSharpFw48Cs80` — this corpus's own C# 7.0 ref-returns row — which suits the row's name at least as well. Both projects carry the same `Span` half. |
-| VB 15.3 | Named tuple inference | `NamedTupleInference` | VbFw48, VbLatest | | Learn whats-new#visual-basic-153 |
-| VB 15.3 | `-refout`/`-refonly` compiler switches | — | | VbFw48, VbLatest (compiler switch, not a source-level construct) | Learn whats-new#visual-basic-153 |
-| VB 15.5 | Non-trailing named arguments | `NonTrailingNamedArguments` | VbFw48, VbLatest | | Language-Version-History.md § VB 15.5 |
-| VB 15.5 | `Private Protected` access modifier | `PrivateProtectedAccessModifier` | VbFw48, VbLatest | | Language-Version-History.md § VB 15.5 |
-| VB 15.5 | Leading hex/binary/octal digit separator | `LeadingDigitSeparator` | VbFw48, VbLatest | | Language-Version-History.md § VB 15.5 |
-| VB 16.0 | Comments allowed in more statement positions | `CommentsInMorePlaces` | VbFw48, VbLatest | | Learn whats-new#visual-basic-160 |
-| VB 16.0 | Optimized floating-point-to-integer conversion | `OptimizedFloatToIntConversion` | VbFw48, VbLatest | | Learn whats-new#visual-basic-160 |
-| VB 16.9 | Consuming init-only properties | `ConsumingInitOnlyProperties` | VbFw48, VbLatest | | Learn whats-new#visual-basic-1713 |
-| VB 17.13 | Consuming `CallerArgumentExpression` | `CallerArgumentExpressionConsumption` | VbLatest | VbFw48 (capability: `CallerArgumentExpressionAttribute` is .NET 5+ and has no official net48 backport package, so net48 has no attributed API to consume) | Learn whats-new#visual-basic-1713 | There is no VB 17.0 language version: the compiler rejects both `17` and `17.0` with `BC2014`, and its accepted values step from `16.9` straight to `17.13`. This row is filed at 17.13, matching the section of the source document it is drawn from. |
-| VB 17.13 | `unmanaged` constraint recognition | `UnmanagedConstraintRecognition` | VbFw48, VbLatest | | Language-Version-History.md § VB 17.13 |
-| VB 17.13 | Consuming `OverloadResolutionPriorityAttribute` | `OverloadResolutionPriorityConsumption` | VbLatest | VbFw48 (capability: the attribute is .NET 9+ with no net48 backport; *applying* it also needs C# 13, above every net48 C# project's ceiling — CS8400 confirmed via probe — so no net48 assembly here can supply a prioritized API) | Language-Version-History.md § VB 17.13 |
+| Version | Feature(s) | Group folder | Target project(s) | Measured floor (evidence) | Excluded from (reason) | Source | Note |
+|---|---|---|---|---|---|---|---|
+| VB 14 | `NameOf` operator | `NameOfOperator` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | String interpolation | `StringInterpolation` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Null-conditional member access/indexing | `NullConditionalOperators` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Multi-line string literals | `MultiLineStringLiterals` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Comment placement improvements | `CommentPlacementImprovements` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Smarter fully-qualified name resolution | `SmarterNameResolution` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Year-first date literals | `YearFirstDateLiterals` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Readonly interface properties | `ReadonlyInterfaceProperties` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | `TypeOf ... IsNot ...` | `TypeOfIsNot` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | `#Disable Warning`/`#Enable Warning` | `DisableEnableWarningDirectives` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | XML doc comment improvements | `XmlDocCommentImprovements` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Partial modules and interfaces | `PartialModulesAndInterfaces` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | `#Region` inside method bodies | `RegionDirectivesInsideMethodBodies` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | `Overrides` implicitly `Overloads` | `OverridesImplicitlyOverloads` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | `CObj` in attribute arguments | `CObjInAttributeArguments` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 14 | Ambiguous interface method resolution | `AmbiguousInterfaceMethodResolution` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
+| VB 15 | Tuples | `Tuples` | VbFw48, VbLatest | 15 (sdk-pin) | | Learn whats-new#visual-basic-15 | |
+| VB 15 | Binary literals, digit separators | `BinaryLiteralsAndDigitSeparators` | VbFw48, VbLatest | 15 (sdk-pin) | | Learn whats-new#visual-basic-15 | |
+| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | 11 (native-ceiling) | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `Net48_CSharp8_Library` — this corpus's own C# 7.0 ref-returns row — which suits the row's name at least as well. Both projects carry the same `Span` half. The `11 (native-ceiling)` floor and the `native-ceiling` tier disagree in direction: the `11` is the lowest pin an SDK-pin compile accepts; the native-ceiling evidence comes from a different measurement — the native VB 14 compiler rejecting the row with `BC30657` (net48) / `BC30643` (net10) at the 14→15 boundary. No period compiler accepts this row at any version; the row is genuinely version-dependent, just not gated by `LangVersion`. |
+| VB 15.3 | Named tuple inference | `NamedTupleInference` | VbFw48, VbLatest | 15.3 (sdk-pin) | | Learn whats-new#visual-basic-153 | |
+| VB 15.3 | `-refout`/`-refonly` compiler switches | — | | — | VbFw48, VbLatest (compiler switch, not a source-level construct) | Learn whats-new#visual-basic-153 | |
+| VB 15.5 | Non-trailing named arguments | `NonTrailingNamedArguments` | VbFw48, VbLatest | 15.5 (sdk-pin) | | Language-Version-History.md § VB 15.5 | |
+| VB 15.5 | `Private Protected` access modifier | `PrivateProtectedAccessModifier` | VbFw48, VbLatest | 15.5 (sdk-pin) | | Language-Version-History.md § VB 15.5 | |
+| VB 15.5 | Leading hex/binary/octal digit separator | `LeadingDigitSeparator` | VbFw48, VbLatest | 15.5 (sdk-pin) | | Language-Version-History.md § VB 15.5 | |
+| VB 16.0 | Comments allowed in more statement positions | `CommentsInMorePlaces` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-160 | |
+| VB 16.0 | Optimized floating-point-to-integer conversion | `OptimizedFloatToIntConversion` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-160 | |
+| VB 16.9 | Consuming init-only properties | `ConsumingInitOnlyProperties` | VbFw48, VbLatest | 16.9 (sdk-pin) | | Learn whats-new#visual-basic-1713 | |
+| VB 17.13 | Consuming `CallerArgumentExpression` | `CallerArgumentExpressionConsumption` | VbLatest | 14 (sdk-pin) | VbFw48 (capability: `CallerArgumentExpressionAttribute` is .NET 5+ and has no official net48 backport package, so net48 has no attributed API to consume) | Learn whats-new#visual-basic-1713 | There is no VB 17.0 language version: the compiler rejects both `17` and `17.0` with `BC2014`, and its accepted values step from `16.9` straight to `17.13`. This row is filed at 17.13, matching the section of the source document it is drawn from. |
+| VB 17.13 | `unmanaged` constraint recognition | `UnmanagedConstraintRecognition` | VbFw48, VbLatest | 11 (sdk-pin) | | Language-Version-History.md § VB 17.13 | |
+| VB 17.13 | Consuming `OverloadResolutionPriorityAttribute` | `OverloadResolutionPriorityConsumption` | VbLatest | 11 (sdk-pin) | VbFw48 (capability: the attribute is .NET 9+ with no net48 backport; *applying* it also needs C# 13, above every net48 C# project's ceiling — CS8400 confirmed via probe — so no net48 assembly here can supply a prioritized API) | Language-Version-History.md § VB 17.13 | |
 
 ## Authoring status
 
@@ -327,15 +391,22 @@ warnings.
 
 | Project | Authored | Not yet authored |
 |---|---|---|
-| `CSharpNet10Latest` | C# 1.0 → 14.0 — 159 group folders under `CSharp1/` … `CSharp14/` — **complete** | — |
-| `CSharpFw48Cs80Unsafe` | `UnsafeCodeAndPointers` (C# 1.0), `FixedBufferIndexing` and `CustomFixedStatement` (C# 7.3) | — |
-| `CSharpNet10Unsafe` | all 6 unsafe rows (C# 1.0, 7.3 ×2, 9.0 ×2, 13.0) — **complete** | — |
-| `CSharpNet10Exe` | `TopLevelStatements` (C# 9.0) | — |
+| `Net10_CSharpLatest_Library` | C# 1.0 → 14.0 — 159 group folders under `CSharp1/` … `CSharp14/` — **complete** | — |
+| `Net48_CSharp8_Unsafe` | `UnsafeCodeAndPointers` (C# 1.0), `FixedBufferIndexing` and `CustomFixedStatement` (C# 7.3) | — |
+| `Net10_CSharpLatest_Unsafe` | all 6 unsafe rows (C# 1.0, 7.3 ×2, 9.0 ×2, 13.0) — **complete** | — |
+| `Net10_CSharpLatest_Exe` | `TopLevelStatements` (C# 9.0) | — |
 | `CSharpComTypeLib` | support assembly (no feature rows) | — |
-| `CSharpFw48Cs73` | C# 1.0 → 7.3 — 75 group folders under `CSharp1/` … `CSharp7_3/` — **complete** | — |
-| `CSharpFw48Cs80` | C# 1.0 → 8.0 — 87 group folders under `CSharp1/` … `CSharp8/` — **complete** | — |
-| `VbNetFw48` | VB baseline → 17.13 — 55 group folders under `Baseline/` … `Vb17_13/`, including `MyNamespaceHelpers`, which no other project can carry — **complete** | — |
-| `VbNetNet10Latest` | VB baseline → 17.13 — 56 group folders under `Baseline/` … `Vb17_13/` — **complete** | — |
+| `Net48_CSharp7_3_Library` | C# 1.0 → 7.3 — 75 group folders under `CSharp1/` … `CSharp7_3/` — **complete** | — |
+| `Net48_CSharp8_Library` | C# 1.0 → 8.0 — 87 group folders under `CSharp1/` … `CSharp8/` — **complete** | — |
+| `VbFw48` | VB baseline → 17.13 — every group folder under `src/Baseline/` … `src/Vb17_13/`, including `MyNamespaceHelpers`, which lives in the `my/` projects and which no net10 project can carry — **complete** | — |
+| `VbLatest` | VB baseline → 17.13 — every group folder under `src/Baseline/` … `src/Vb17_13/` — **complete** | — |
+
+A VB family is authored once, under `src/`. Which of its pinned projects compile a given row is the
+**Measured floor** column's subject, not this table's; `VbSourceCoverageTests` is what proves no row
+under `src/` is compiled by nothing.
+
+The per-`<LangVersion>` C# probe projects listed under **Project codes** are not enumerated here;
+their authoring status has not been audited against this manifest.
 
 No row is a placeholder: each names a real, sourced feature, a real group-folder name, and a real
 project assignment (or a real, verified exclusion reason).

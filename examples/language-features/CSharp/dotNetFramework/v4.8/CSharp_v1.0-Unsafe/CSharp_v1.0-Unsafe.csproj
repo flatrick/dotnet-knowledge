@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>CSharp10Unsafe</RootNamespace>
+    <RootNamespace>Net48_CSharp1_Unsafe</RootNamespace>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>1</LangVersion>
     <!--

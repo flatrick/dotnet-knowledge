@@ -7,7 +7,7 @@ using Coordinate = (int X, int Y);
 using Matrix = int[][];
 using Lookup = System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>;
 
-namespace CSharpNet10Latest.CSharp12.UsingAliasesForAnyType
+namespace Net10_CSharp12_Library.CSharp12.UsingAliasesForAnyType
 {
     public class Aliases
     {

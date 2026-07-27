@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpFw48Cs80.CSharp3.ExtensionMethods
+namespace Net48_CSharp8_Library.CSharp3.ExtensionMethods
 {
     // An extension method lives in a non-generic static class and marks its
     // first parameter with this.

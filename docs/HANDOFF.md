@@ -18,7 +18,7 @@ synchronization between the two — the extraction is one-way and final.
 
 | Thing | State |
 |---|---|
-| `examples/language-features/` | Complete authored corpus. The executable SDK-style C# library matrix currently discovers 11 projects; special and legacy projects remain explicit. |
+| `examples/language-features/` | Complete authored corpus. The build matrix discovers every SDK-style C# library project under `CSharp/dotnet/` and every VB project under `VB.NET/`; `CorpusProjectDiscoveryTests` holds the exact expected list, and special and legacy projects remain explicit. |
 | `src/DotNetKnowledge.Mcp/` | Builds at 0 errors / 0 warnings. Serves `list_sources` over stdio. |
 | `sources.json` | Five upstream sources with the commits `dotnet-mcp` had pinned. |
 | `scripts/api-docs-query.cs` | The working XML-doc query logic, still in CLI form. Port it, don't rewrite it. |
@@ -80,7 +80,17 @@ These are correctness obligations, not preferences. The reasoning is in
   `dynamic` row. That failure is `CS0656` at *emit*, so any earlier binding error in the project
   hides it entirely — a probe missing an unrelated reference will report it as absent.
 - **Probe constructs in isolation.** A whole-project VB build reported 2 errors where per-folder
-  builds reported 5. Neither compiler announces that it stopped early.
+  builds reported 5. Neither compiler announces that it stopped early. This is why
+  `scripts/verify-feature-floors.cs` compiles one row at a time, and why a VB floor derived from a
+  whole-project build is not evidence.
+- **Each VB family is one `src/` tree plus a project per pinned `<LangVersion>`.** VB prepends
+  `RootNamespace` to every declaration, so every pinned project globs the same files and no VB
+  source names a project. Edit under `src/`; there is no second copy. `MyType=Windows` is
+  per-compilation and lives only in the net48 family's `my/` projects.
+- **`MANIFEST.md`'s VB tables carry a Measured floor column**, giving the lowest pin at which each
+  row compiles and the `verify-feature-floors.cs` evidence tier that floor rests on. Whatever
+  generates the build-time example index must carry the column through rather than collapse it: a
+  floor recorded from `sdk-pin` alone is a fact about the installed SDK and drifts.
 - **Pinning an SDK-style project to `ISO-1`/`ISO-2`** always fails on the SDK's generated
   `AssemblyAttributes.cs`, whose `TargetFramework` attribute uses `global::`. Set
   `GenerateTargetFrameworkAttribute=false` or every C# 1.x era probe reports a phantom failure.

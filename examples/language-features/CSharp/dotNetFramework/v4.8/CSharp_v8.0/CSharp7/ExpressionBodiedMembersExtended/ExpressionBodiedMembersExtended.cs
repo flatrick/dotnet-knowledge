@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpFw48Cs80.CSharp7.ExpressionBodiedMembersExtended
+namespace Net48_CSharp8_Library.CSharp7.ExpressionBodiedMembersExtended
 {
     // C# 7.0 extended expression bodies to the members C# 6.0 had left out:
     // constructors, finalizers, and individual property and indexer accessors.

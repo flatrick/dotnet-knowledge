@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp7_2.NonTrailingNamedArguments
+namespace Net48_CSharp8_Library.CSharp7_2.NonTrailingNamedArguments
 {
     public class Formatter
     {

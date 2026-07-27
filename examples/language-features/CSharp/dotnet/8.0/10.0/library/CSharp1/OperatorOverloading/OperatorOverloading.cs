@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp1.OperatorOverloading
+namespace Net8_CSharp10_Library.CSharp1.OperatorOverloading
 {
     public struct Money
     {

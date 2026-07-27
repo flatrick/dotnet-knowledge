@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp14.ExtensionMethodsAndProperties
+namespace Net10_CSharpLatest_Library.CSharp14.ExtensionMethodsAndProperties
 {
     // C# 3.0 extension methods put `this` on the first parameter, which allowed
     // methods only. C# 14.0 introduces an extension BLOCK, which names the

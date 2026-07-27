@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs80.CSharp7_3.OverloadResolutionImprovements73
+namespace Net48_CSharp8_Library.CSharp7_3.OverloadResolutionImprovements73
 {
     public class OverloadImprovements
     {

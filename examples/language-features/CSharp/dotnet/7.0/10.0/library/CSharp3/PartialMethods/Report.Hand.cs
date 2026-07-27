@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp3.PartialMethods
+namespace Net7_CSharp10_Library.CSharp3.PartialMethods
 {
     // The implementing half — the hand-written file. Supplying a body here is
     // what makes the calls in Report.Generated.cs real.

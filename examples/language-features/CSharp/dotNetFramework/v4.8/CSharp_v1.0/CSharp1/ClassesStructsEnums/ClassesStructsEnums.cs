@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp1.ClassesStructsEnums
+namespace Net48_CSharp1_Library.CSharp1.ClassesStructsEnums
 {
     public enum TrafficLight
     {

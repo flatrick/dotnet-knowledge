@@ -1,4 +1,4 @@
-namespace CSharpNet10Unsafe.CSharp1.UnsafeCodeAndPointers
+namespace Net10_CSharpLatest_Unsafe.CSharp1.UnsafeCodeAndPointers
 {
     // This project sets <AllowUnsafeBlocks>true</AllowUnsafeBlocks>; the mainline
     // projects deliberately do not, which is why this row lives here. Without the

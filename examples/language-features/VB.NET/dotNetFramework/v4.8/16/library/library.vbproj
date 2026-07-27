@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Net48_Vb16_Library</RootNamespace>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>16</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Baseline/**/*.vb" LinkBase="Baseline" />
+    <Compile Include="../../src/Vb14/**/*.vb" LinkBase="Vb14" />
+    <Compile Include="../../src/Vb15/**/*.vb" LinkBase="Vb15" />
+    <Compile Include="../../src/Vb15_3/**/*.vb" LinkBase="Vb15_3" />
+    <Compile Include="../../src/Vb15_5/**/*.vb" LinkBase="Vb15_5" />
+    <Compile Include="../../src/Vb16_0/**/*.vb" LinkBase="Vb16_0" />
+    <!-- Rows above this pin that LangVersion does not gate; the green build is the evidence. -->
+    <Compile Include="../../src/Vb17_13/UnmanagedConstraintRecognition/**/*.vb" LinkBase="Vb17_13/UnmanagedConstraintRecognition" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- MyType=Windows is a per-compilation switch, so the MyNamespaceHelpers row lives in the
+         my/ projects instead. Excluding it here keeps this project free of that setting. -->
+    <Compile Remove="../../src/Baseline/MyNamespaceHelpers/**/*.vb" />
+  </ItemGroup>
+</Project>

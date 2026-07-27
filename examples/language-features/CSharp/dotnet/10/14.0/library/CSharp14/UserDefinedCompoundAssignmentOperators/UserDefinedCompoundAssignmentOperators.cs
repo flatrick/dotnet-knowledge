@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp14.UserDefinedCompoundAssignmentOperators
+namespace Net10_CSharp14_Library.CSharp14.UserDefinedCompoundAssignmentOperators
 {
     // A compound assignment used to be defined entirely by its binary operator:
     // `x += y` meant `x = x + y`, allocating a new instance every time. C# 14.0

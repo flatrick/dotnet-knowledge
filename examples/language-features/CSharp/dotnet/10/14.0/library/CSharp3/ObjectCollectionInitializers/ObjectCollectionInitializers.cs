@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp3.ObjectCollectionInitializers
+namespace Net10_CSharp14_Library.CSharp3.ObjectCollectionInitializers
 {
     public class Point
     {

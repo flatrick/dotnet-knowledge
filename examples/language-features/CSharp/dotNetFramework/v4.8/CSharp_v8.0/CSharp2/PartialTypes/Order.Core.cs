@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp2.PartialTypes
+namespace Net48_CSharp8_Library.CSharp2.PartialTypes
 {
     // One half of the type. The other half is in Order.Validation.cs, and the
     // compiler merges both into a single class.

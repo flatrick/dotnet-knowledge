@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <RootNamespace>CSharp71asyncMain</RootNamespace>
+    <RootNamespace>Net48_CSharp7_1_Exe</RootNamespace>
     <ProjectGuid>{7B1A2C3D-4E5F-4061-8A9B-0C1D2E3F4A51}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
@@ -32,7 +32,7 @@
     <AssemblyName>CSharp71-async_main</AssemblyName>
   </PropertyGroup>
   <PropertyGroup>
-    <StartupObject>CSharp71.Program</StartupObject>
+    <StartupObject>Net48_CSharp7_1_Exe.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />

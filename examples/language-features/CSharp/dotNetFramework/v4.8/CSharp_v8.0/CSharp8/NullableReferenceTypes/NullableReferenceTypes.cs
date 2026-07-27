@@ -1,6 +1,6 @@
 #nullable enable
 
-namespace CSharpFw48Cs80.CSharp8.NullableReferenceTypes
+namespace Net48_CSharp8_Library.CSharp8.NullableReferenceTypes
 {
     // The corpus disables nullable reference types tree-wide, because they are
     // themselves a C# 8.0 feature and would otherwise be retrofitted onto every

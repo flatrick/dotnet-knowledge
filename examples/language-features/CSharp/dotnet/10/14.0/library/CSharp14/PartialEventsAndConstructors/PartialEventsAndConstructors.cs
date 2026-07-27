@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp14.PartialEventsAndConstructors
+namespace Net10_CSharp14_Library.CSharp14.PartialEventsAndConstructors
 {
     // Partial members have been extended one version at a time: methods in
     // C# 3.0, methods with results in C# 9.0, properties and indexers in

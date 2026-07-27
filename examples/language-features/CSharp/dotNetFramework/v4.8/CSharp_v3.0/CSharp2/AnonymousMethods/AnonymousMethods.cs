@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpFw48Cs73.CSharp2.AnonymousMethods
+namespace Net48_CSharp3_Library.CSharp2.AnonymousMethods
 {
     public class AnonymousMethodSamples
     {

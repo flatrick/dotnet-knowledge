@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp1.LiteralsAndExpressions
+namespace Net10_CSharpLatest_Library.CSharp1.LiteralsAndExpressions
 {
     public class Literals
     {

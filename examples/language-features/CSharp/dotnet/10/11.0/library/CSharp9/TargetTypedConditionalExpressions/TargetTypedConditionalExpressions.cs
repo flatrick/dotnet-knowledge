@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp9.TargetTypedConditionalExpressions
+namespace Net10_CSharp11_Library.CSharp9.TargetTypedConditionalExpressions
 {
     public class Animal
     {

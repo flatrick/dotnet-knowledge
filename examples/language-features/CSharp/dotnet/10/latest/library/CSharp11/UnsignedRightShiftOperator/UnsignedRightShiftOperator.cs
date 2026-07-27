@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.UnsignedRightShiftOperator
+namespace Net10_CSharpLatest_Library.CSharp11.UnsignedRightShiftOperator
 {
     public class UnsignedShift
     {

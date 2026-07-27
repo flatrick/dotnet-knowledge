@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp7.PatternMatching70
+namespace Net48_CSharp8_Library.CSharp7.PatternMatching70
 {
     public class PatternMatchingSamples
     {

@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp7_3.ExtendedGenericConstraints
+namespace Net10_CSharpLatest_Library.CSharp7_3.ExtendedGenericConstraints
 {
     public enum Level
     {

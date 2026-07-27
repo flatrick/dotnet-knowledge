@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp8.UnmanagedGenericStructs
+namespace Net48_CSharp8_Library.CSharp8.UnmanagedGenericStructs
 {
     // Before C# 8.0 a constructed generic struct was never considered
     // unmanaged, even when its type argument was. Now Pair<int> satisfies an

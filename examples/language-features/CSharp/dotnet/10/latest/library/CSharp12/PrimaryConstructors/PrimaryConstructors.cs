@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp12.PrimaryConstructors
+namespace Net10_CSharpLatest_Library.CSharp12.PrimaryConstructors
 {
     // C# 9.0 gave records a primary constructor. C# 12.0 extends it to every
     // class and struct — but without the record behavior: no properties are

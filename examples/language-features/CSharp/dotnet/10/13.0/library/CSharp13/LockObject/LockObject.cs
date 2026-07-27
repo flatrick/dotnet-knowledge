@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace CSharpNet10Latest.CSharp13.LockObject
+namespace Net10_CSharp13_Library.CSharp13.LockObject
 {
     public class Counter
     {

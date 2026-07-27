@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.FileLocalTypes
+namespace Net10_CSharpLatest_Library.CSharp11.FileLocalTypes
 {
     // A file-local type is visible only inside its own file, so a generator can
     // emit a helper without risking a name collision anywhere else in the

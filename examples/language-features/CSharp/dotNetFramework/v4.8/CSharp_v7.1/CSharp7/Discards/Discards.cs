@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp7.Discards
+namespace Net48_CSharp7_1_Library.CSharp7.Discards
 {
     public class Measurement
     {

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace CSharpNet7_10.CSharp7_3.ExpressionVariablesInInitializers
+namespace Net7_CSharp10_Library.CSharp7_3.ExpressionVariablesInInitializers
 {
     public class Parsed
     {

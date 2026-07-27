@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace CSharpFw48Cs73.CSharp5.AsyncAwait
+namespace Net48_CSharp7_1_Library.CSharp5.AsyncAwait
 {
     public class AsyncSamples
     {

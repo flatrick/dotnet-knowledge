@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp11.CheckedUserDefinedOperators
+namespace Net10_CSharpLatest_Library.CSharp11.CheckedUserDefinedOperators
 {
     // A user-defined operator may now come in a checked variant, so a type can
     // overflow-check the way the built-in numeric types do. The checked form is

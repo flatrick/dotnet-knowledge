@@ -32,12 +32,22 @@ dotnet scripts/verify-no-vendored-content.cs                     # licensing gua
 dotnet scripts/verify-no-vendored-content.cs -- --history        # same checks against every commit
 dotnet scripts/verify-feature-floors.cs                          # classify every CSharp_v* group folder
 dotnet scripts/verify-feature-floors.cs -- --project CSharp_v7.0 # one project
+dotnet scripts/verify-feature-floors.cs -- --language vb         # the VB ladder, both families
+dotnet scripts/verify-feature-floors.cs -- --language vb --project dotnet/Net10/15.5/library
+dotnet scripts/verify-feature-floors.cs -- --language vb --project dotNetFramework/v4.8/latest/my
 dotnet scripts/verify-feature-floors.cs -- --json                # machine-readable
 dotnet scripts/verify-feature-floors.cs -- --offline             # skip the NuGet download
+dotnet scripts/verify-project-namespaces.cs                      # namespace vs. RootNamespace drift
+dotnet scripts/verify-project-namespaces.cs -- --json            # machine-readable
 ```
 
 `dotnet <file>.cs` silently claims some flags for itself, which is why every script takes its
 arguments after `--`.
+
+`--project` is spelled differently per language, because the two corpora are shaped differently.
+C# takes a project directory name (`CSharp_v7.0`). VB takes the project directory's path relative to
+`examples/language-features/VB.NET`, forward slashes, `<family>/<pin>/<kind>` —
+`dotnet/Net10/15.5/library`, `dotNetFramework/v4.8/latest/my`.
 
 The corpus test suite is `tests/DotNetKnowledge.Corpus.Tests/`. Its exact SDK versions live in a
 repository-private host. Install or verify them with
@@ -67,21 +77,62 @@ reads as a broken sample.
 
 ## The corpus
 
-Layout is `<language>/<runtime>/<version>/<project>/<version-folder>/<feature-group>/`:
+C# layout is `<language>/<runtime>/<version>/<project>/<version-folder>/<feature-group>/`; VB's is
+`<language>/<runtime>/<version>/src/<version-folder>/<feature-group>/` with projects beside `src/`:
 
 ```
 examples/language-features/
   CSharp/dotnet/10/latest/{exe,library,unsafe}/        # SDK-style net10.0
   CSharp/dotNetFramework/v4.8/CSharp_v1.0 … CSharp_v8.0   # non-SDK net48, one pinned <LangVersion> each
   CSharp/CSharpComTypeLib/                            # support assembly for the NoPIA row, not a corpus project
-  VB.NET/dotnet/Net10/, VB.NET/dotNetFramework/v4.8/   # Baseline/ + Vb15/ … Vb17_13/
+  VB.NET/dotnet/Net10/                                # src/ + a project per pin
+  VB.NET/dotNetFramework/v4.8/                        # src/ + a project per pin, plus the my/ kind
   MANIFEST.md                                         # the index and completion oracle
 ```
 
+**The VB half is laid out differently from the C# half.** Each VB family keeps one copy of every row
+under `src/<version folder>/<group>/`, and a project per pinned `<LangVersion>` selects rows out of
+it with explicit `Compile` globs:
+
+```
+examples/language-features/VB.NET/dotnet/Net10/
+  Directory.Build.props
+  src/Baseline/ src/Vb14/ src/Vb15/ src/Vb15_3/ src/Vb15_5/ src/Vb16_0/ src/Vb16_9/ src/Vb17_13/
+  11/library/ 14/library/ 15/library/ 15.3/library/ 15.5/library/
+  16/library/ 16.9/library/ 17.13/library/ latest/library/
+examples/language-features/VB.NET/dotNetFramework/v4.8/
+  Directory.Build.props
+  src/…
+  11/library/ … latest/library/
+  11/my/  latest/my/
+```
+
+The pins are `11, 14, 15, 15.3, 15.5, 16, 16.9, 17.13, latest`. `vbc` rejects `17` and `17.0` with
+`BC2014`, so those rungs do not exist. A project holds every row that compiles at its pin, including
+rows filed above it whose feature `LangVersion` does not gate — the green build is what makes that
+ungatedness a checked fact. Version folders under `src/` keep the `Vb15_3/` spelling because they
+are namespace segments; project directories use the `15.3` spelling `vbc` accepts.
+
+`src/` is per-family, not shared, because four rows genuinely diverge: `MyNamespaceHelpers` (net48
+only), `ConsumingCSharpRefReturnValues` (both, different subject), and
+`CallerArgumentExpressionConsumption` plus `OverloadResolutionPriorityConsumption` (net10 only).
+
 Separate `*-Unsafe` and `exe` projects exist because `AllowUnsafeBlocks` and `OutputType` are
 per-compilation switches that cannot be scoped to a folder; the mainline projects stay on default
-compilation and those rows are housed apart. `docs/design/language-feature-showcase-design.md` has
-the applicability rule and the rest of the reasoning.
+compilation and those rows are housed apart. **VB's `MyType=Windows` is the same kind of switch and
+gets the same treatment:** it lives only in the net48 family's `my/` projects, at the `11` and
+`latest` rungs, and each of that family's nine `library.vbproj` files `Compile Remove`s the
+`MyNamespaceHelpers` row. The net10 family's `src/` does not hold the row at all, so nothing there
+needs removing.
+`docs/design/language-feature-showcase-design.md` has the applicability rule and the rest of the
+reasoning.
+
+**`CSharp_v8.0` and the eleven net48 VB projects carry `Microsoft.NETFramework.ReferenceAssemblies`**
+— the VB ones through their family's `Directory.Build.props`. Those projects, and only those, build
+with no machine-installed .NET Framework targeting pack. The net48 VB family project-references
+`CSharp_v8.0` for its ref-return subject, which is why both halves need it. `CSharp_v1.0-Unsafe` and
+`CSharp_v8.0-Unsafe` are SDK-style net48 too and carry nothing of the kind; the legacy non-SDK C#
+net48 projects stay Windows-only regardless, because they need Visual Studio's `MSBuild.exe`.
 
 ### Rules that are load-bearing
 
@@ -108,6 +159,20 @@ the applicability rule and the rest of the reasoning.
   csc for C# 2/3/5, `Microsoft.Net.Compilers` 1.3.2 for C# 6. C# 4 and C# 1.x have no compiler on a
   modern machine, so those floors report `UNPROVEN` rather than a guess. `MISPLACED` and
   `NOT-VERSION-SPECIFIC` fail the run; every other outcome is a finding about the toolchain.
+  Every verdict also carries an `evidence` field — `native-ceiling`, `legacy-pin`, `sdk-pin`, `none`
+  — because a floor settled by the installed SDK under `/langversion` is a fact about today's
+  toolchain and drifts, while one settled at a native ceiling does not.
+- **`MISPLACED` means a stale project file, not a row filed above its pin.** A project deliberately
+  holds every row that compiles at its pin, so sitting above the pin is the corpus's model rather
+  than an error. The probe compiles such a row at the pin first: accepted, it goes through the normal
+  floor probe with a note that it sits above the pin; rejected but accepted at its own version, it is
+  `MISPLACED` — the project claims a row it cannot build. Rejected at both, it is `INCONCLUSIVE`,
+  because the harness rather than the pin is what failed.
+- **The VB ladder is probed with `-- --language vb`.** The escalation reaches native ceilings at
+  VB 14 (`Microsoft.Net.Compilers` 1.3.2), VB 11 (`v4.0.30319`) and VB 9 (`v3.5`); VB 10 and VB 12
+  report `UNPROVEN`, and nothing above VB 14 has a native ceiling at all. In practice that reaches
+  exactly one row of this corpus — `ConsumingCSharpRefReturnValues`, `UNGATED` at `native-ceiling`.
+  Every other VB floor rests on `sdk-pin` or on nothing.
 - **Pinning an SDK-style project to `ISO-1`/`ISO-2` needs `GenerateTargetFrameworkAttribute=false`**
   — the SDK's generated `AssemblyAttributes.cs` uses `global::`, so every C# 1.x era probe otherwise
   reports a phantom `CS8022`.
@@ -122,13 +187,31 @@ the applicability rule and the rest of the reasoning.
 The per-`<LangVersion>` `CSharp_v*` projects are **hand-authored probes**, replacing the older
 derived-projects model. Consequences:
 
-- `scripts/generate-net48-examples.cs` still targets the deleted `CSharpNet10Latest` /
-  `CSharpFw48Cs73` / `CSharpFw48Cs80` layout. **Do not run it against the new tree.** The
-  `GENERATED-COMPILE-ITEMS` markers inside the `CSharp_v*` csproj files are inherited artifacts that
-  nothing regenerates.
-- Treat the on-disk tree as truth where older planning material or `MANIFEST.md` still uses the
-  superseded project names.
+- `scripts/generate-net48-examples.cs` still targets the deleted derived-project layout.
+  **Do not run it against the new tree.** The `GENERATED-COMPILE-ITEMS` markers inside the
+  `CSharp_v*` csproj files are inherited artifacts that nothing regenerates.
+- Treat the on-disk tree as truth where older planning material or `MANIFEST.md` still describes the
+  superseded model.
 - Do not fan an edit across every copy of a sample by default — ask which projects are in scope.
+
+**Every project's namespace names its own coordinate.** `RootNamespace` is
+`Net<runtime>_<Language><LangVersion>_<Kind>` — `Net10_CSharp13_Library`, `Net48_CSharp7_1_Exe`,
+`Net10_Vb15_3_Library`, `Net48_Vb11_My` — and
+every C# file under a project declares that value as its first namespace segment, so an open file
+says which project it belongs to. C#'s `RootNamespace` only seeds new-file templates and will not
+enforce this, and the two drifted apart once already: six net10 library projects all declared
+`CSharpNet10Latest`, ten net48 projects all declared `CSharpFw48Cs73`, and every build stayed green.
+`dotnet scripts/verify-project-namespaces.cs` is what catches it; it also checks `<StartupObject>`,
+whose failure mode is a bare `CS1555` that never mentions namespaces.
+
+**VB is exempt from that rule and subject to its inverse.** A VB compilation prepends
+`RootNamespace` to every declaration itself, so a `.vb` file declares a version-relative namespace
+(`Namespace Vb15.Tuples`) and takes its project prefix at compile time — which is exactly what lets
+every pinned project in a family glob the same `src/` tree. The same script therefore requires that
+a `.vb` file under a family's `src/` must **not** begin its namespace with a `Net10_` or `Net48_`
+prefix. Such a file compiles to a doubled namespace
+(`Net10_Vb14_Library.Net10_Vb14_Library.Vb14.X`), and under a shared tree it corrupts every pin of
+that family at once.
 
 ## The MCP server
 

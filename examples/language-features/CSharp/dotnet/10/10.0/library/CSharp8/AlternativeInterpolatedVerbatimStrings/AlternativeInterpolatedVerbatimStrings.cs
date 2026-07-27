@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp8.AlternativeInterpolatedVerbatimStrings
+namespace Net10_CSharp10_Library.CSharp8.AlternativeInterpolatedVerbatimStrings
 {
     public class TokenOrder
     {

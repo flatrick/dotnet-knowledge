@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp9.CovariantReturnTypes
+namespace Net10_CSharp10_Library.CSharp9.CovariantReturnTypes
 {
     public class Food
     {

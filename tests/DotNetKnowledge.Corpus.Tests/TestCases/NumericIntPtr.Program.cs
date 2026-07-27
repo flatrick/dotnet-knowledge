@@ -1,5 +1,5 @@
 using System;
-using CSharpNet10Latest.CSharp11.NumericIntPtr;
+using Net10_CSharpLatest_Library.CSharp11.NumericIntPtr;
 
 Console.WriteLine($"From constant: {NumericPointerSized.FromConstant()}");
 Console.WriteLine($"Multiply: {NumericPointerSized.Multiply((IntPtr)6, (IntPtr)7)}");

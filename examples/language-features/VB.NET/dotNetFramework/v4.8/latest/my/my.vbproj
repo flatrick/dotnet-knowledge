@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Net48_VbLatest_My</RootNamespace>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <!--
+      MyType=Windows populates the `My` namespace, which is what the MyNamespaceHelpers row
+      demonstrates. It is a per-compilation switch that cannot be scoped to a folder, so the row
+      is housed apart rather than imposing the setting on every mainline project. On net10.0 the
+      SDK passes _MyType=Empty, which is why no net10 project can carry this row at all.
+    -->
+    <MyType>Windows</MyType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Baseline/MyNamespaceHelpers/**/*.vb" LinkBase="Baseline/MyNamespaceHelpers" />
+  </ItemGroup>
+</Project>

@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp11.NumericIntPtr
+namespace Net10_CSharp11_Library.CSharp11.NumericIntPtr
 {
     // This row demonstrates numeric IntPtr behavior as it is available when
     // compiling against reference assemblies that advertise the capability.

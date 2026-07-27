@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet7_10.CSharp9.TargetTypedNewExpressions
+namespace Net9_CSharp10_Library.CSharp9.TargetTypedNewExpressions
 {
     public class Order
     {

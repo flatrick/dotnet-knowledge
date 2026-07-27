@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp14.UnboundGenericTypesInNameof
+namespace Net10_CSharpLatest_Library.CSharp14.UnboundGenericTypesInNameof
 {
     public class UnboundNameof
     {

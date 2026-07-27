@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.StaticAbstractMembersInInterfaces
+namespace Net10_CSharp11_Library.CSharp11.StaticAbstractMembersInInterfaces
 {
     // An interface may declare static abstract members, so an implementing TYPE
     // rather than an instance supplies them. This is what makes generic math

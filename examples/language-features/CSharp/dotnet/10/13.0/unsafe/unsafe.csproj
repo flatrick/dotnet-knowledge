@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>CSharpNet10Unsafe</RootNamespace>
+    <RootNamespace>Net10_CSharp13_Unsafe</RootNamespace>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>13.0</LangVersion>
     <!--

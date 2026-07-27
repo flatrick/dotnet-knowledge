@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.ListPatterns
+namespace Net10_CSharp14_Library.CSharp11.ListPatterns
 {
     public class ListPatternSamples
     {

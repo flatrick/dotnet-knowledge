@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp9.RecordsAndWithExpressions
+namespace Net10_CSharp11_Library.CSharp9.RecordsAndWithExpressions
 {
     // A record is a reference type whose compiler-generated members give it
     // value semantics: Equals, GetHashCode, ToString, and a copy constructor.

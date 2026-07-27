@@ -63,14 +63,17 @@ public sealed class CorpusProjectBuildTests
     public static IEnumerable<object[]> ProjectCoordinates()
     {
         var repositoryRoot = RepositoryRoot();
-        foreach (var project in CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot))
+        foreach (var project in CorpusProjectDiscovery.FindAllSdkStyleProjects(repositoryRoot))
         {
+            var language = project.RepositoryRelativePath.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase)
+                ? "VB"
+                : "C#";
             yield return
             [
                 Path.GetFullPath(
                     project.RepositoryRelativePath.Replace('/', Path.DirectorySeparatorChar),
                     repositoryRoot),
-                $"{project.TargetFramework}/C# {project.LanguageVersion}"
+                $"{project.TargetFramework}/{language} {project.LanguageVersion}"
             ];
         }
     }

@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp13.RefStructInterfaces
+namespace Net10_CSharpLatest_Library.CSharp13.RefStructInterfaces
 {
     public interface IMeasurable
     {

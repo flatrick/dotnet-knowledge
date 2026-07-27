@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp2.Generics
+namespace Net10_CSharp13_Library.CSharp2.Generics
 {
     // Reference-type plus parameterless-constructor constraints.
     public class Repository<T> where T : class, new()

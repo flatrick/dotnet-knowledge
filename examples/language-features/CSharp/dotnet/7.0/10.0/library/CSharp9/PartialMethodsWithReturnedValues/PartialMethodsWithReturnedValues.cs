@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp9.PartialMethodsWithReturnedValues
+namespace Net7_CSharp10_Library.CSharp9.PartialMethodsWithReturnedValues
 {
     // A C# 3.0 partial method had to return void, take no out parameters, and
     // be implicitly private, so the compiler could erase it when unimplemented.

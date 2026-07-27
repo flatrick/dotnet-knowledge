@@ -2,7 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
-namespace CSharpFw48Cs73.CSharp7.GeneralizedAsyncReturnTypes
+namespace Net48_CSharp7_2_Library.CSharp7.GeneralizedAsyncReturnTypes
 {
     // Before C# 7.0 the return type of an async method could only be void, Task, or Task<T> —
     // the compiler hard-coded those three. C# 7.0 replaced the hard-coding with a lookup: any

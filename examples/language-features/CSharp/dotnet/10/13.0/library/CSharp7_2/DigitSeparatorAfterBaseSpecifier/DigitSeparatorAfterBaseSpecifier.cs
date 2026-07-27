@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp7_2.DigitSeparatorAfterBaseSpecifier
+namespace Net10_CSharp13_Library.CSharp7_2.DigitSeparatorAfterBaseSpecifier
 {
     public class BaseSpecifierSeparators
     {

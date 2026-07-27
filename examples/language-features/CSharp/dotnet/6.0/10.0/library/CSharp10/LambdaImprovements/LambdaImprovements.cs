@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet6_10.CSharp10.LambdaImprovements
+namespace Net6_CSharp10_Library.CSharp10.LambdaImprovements
 {
     [AttributeUsage(AttributeTargets.Method)]
     public sealed class AuditedAttribute : Attribute

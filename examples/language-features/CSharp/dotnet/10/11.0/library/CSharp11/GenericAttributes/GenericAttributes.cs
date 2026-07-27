@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp11.GenericAttributes
+namespace Net10_CSharp11_Library.CSharp11.GenericAttributes
 {
     // An attribute class may now be generic. Before C# 11.0 a type had to be
     // passed as a System.Type argument, which lost compile-time checking.

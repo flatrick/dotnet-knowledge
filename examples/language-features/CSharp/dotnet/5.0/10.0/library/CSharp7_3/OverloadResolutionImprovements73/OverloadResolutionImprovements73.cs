@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet6_10.CSharp7_3.OverloadResolutionImprovements73
+namespace Net5_CSharp10_Library.CSharp7_3.OverloadResolutionImprovements73
 {
     public class OverloadImprovements
     {

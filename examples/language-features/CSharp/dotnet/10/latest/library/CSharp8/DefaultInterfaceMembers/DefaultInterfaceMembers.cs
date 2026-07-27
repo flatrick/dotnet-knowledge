@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp8.DefaultInterfaceMembers
+namespace Net10_CSharpLatest_Library.CSharp8.DefaultInterfaceMembers
 {
     // An interface member may now carry a body. The implementation is inherited
     // by any implementer that does not supply its own, which lets an interface

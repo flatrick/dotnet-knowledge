@@ -1,6 +1,6 @@
 #define SHOWCASE
 
-namespace CSharpFw48Cs73.CSharp1.Preprocessor
+namespace Net48_CSharp7_3_Library.CSharp1.Preprocessor
 {
     public class ConditionalCompilation
     {

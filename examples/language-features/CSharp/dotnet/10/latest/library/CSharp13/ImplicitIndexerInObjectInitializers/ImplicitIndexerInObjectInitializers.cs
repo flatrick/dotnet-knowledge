@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp13.ImplicitIndexerInObjectInitializers
+namespace Net10_CSharpLatest_Library.CSharp13.ImplicitIndexerInObjectInitializers
 {
     public class Buffer
     {

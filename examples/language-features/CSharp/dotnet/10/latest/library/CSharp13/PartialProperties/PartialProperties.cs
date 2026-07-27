@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp13.PartialProperties
+namespace Net10_CSharpLatest_Library.CSharp13.PartialProperties
 {
     // C# 3.0 gave partial methods and C# 9.0 extended them. C# 13.0 brings the
     // same split to properties and indexers, so a generator can declare one

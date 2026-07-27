@@ -11,23 +11,34 @@ internal static class CorpusProjectDiscovery
 {
     private static readonly string[] ExcludedDirectoryNames = ["bin", "obj", ".artifacts"];
 
-    public static IReadOnlyList<CorpusProject> FindSdkStyleLibraries(string repositoryRoot)
+    public static IReadOnlyList<CorpusProject> FindSdkStyleLibraries(string repositoryRoot) =>
+        Scan(repositoryRoot, ["CSharp", "dotnet"], "*.csproj", "SDK-style C# corpus");
+
+    // The VB net48 family is SDK-style, unlike most of the C# net48 tree, so both VB families are
+    // scanned from one root.
+    public static IReadOnlyList<CorpusProject> FindSdkStyleVbProjects(string repositoryRoot) =>
+        Scan(repositoryRoot, ["VB.NET"], "*.vbproj", "VB.NET corpus");
+
+    public static IReadOnlyList<CorpusProject> FindAllSdkStyleProjects(string repositoryRoot) =>
+        [.. FindSdkStyleLibraries(repositoryRoot), .. FindSdkStyleVbProjects(repositoryRoot)];
+
+    private static CorpusProject[] Scan(
+        string repositoryRoot,
+        string[] corpusSegments,
+        string searchPattern,
+        string description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
 
         var fullRepositoryRoot = Path.GetFullPath(repositoryRoot);
         var corpusRoot = Path.Combine(
-            fullRepositoryRoot,
-            "examples",
-            "language-features",
-            "CSharp",
-            "dotnet");
+            [fullRepositoryRoot, "examples", "language-features", .. corpusSegments]);
         if (!Directory.Exists(corpusRoot))
         {
-            throw new DirectoryNotFoundException($"The SDK-style C# corpus directory does not exist: {corpusRoot}.");
+            throw new DirectoryNotFoundException($"The {description} directory does not exist: {corpusRoot}.");
         }
 
-        return Directory.EnumerateFiles(corpusRoot, "*.csproj", SearchOption.AllDirectories)
+        return Directory.EnumerateFiles(corpusRoot, searchPattern, SearchOption.AllDirectories)
             .Where(path => !HasExcludedDirectory(corpusRoot, path))
             .Select(ReadProject)
             .Where(project => project.IsSdkStyle && project.IsLibrary && !project.AllowsUnsafeBlocks)

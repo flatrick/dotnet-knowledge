@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp1.PropertiesAndIndexers
+namespace Net48_CSharp8_Library.CSharp1.PropertiesAndIndexers
 {
     public class Matrix
     {

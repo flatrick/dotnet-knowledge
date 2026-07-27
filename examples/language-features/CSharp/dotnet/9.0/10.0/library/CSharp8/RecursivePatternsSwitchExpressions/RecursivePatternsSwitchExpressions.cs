@@ -1,4 +1,4 @@
-namespace CSharpNet7_10.CSharp8.RecursivePatternsSwitchExpressions
+namespace Net9_CSharp10_Library.CSharp8.RecursivePatternsSwitchExpressions
 {
     public class Point
     {

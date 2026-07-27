@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp7_2.RefConditionalExpressions
+namespace Net48_CSharp8_Library.CSharp7_2.RefConditionalExpressions
 {
     public class RefConditional
     {

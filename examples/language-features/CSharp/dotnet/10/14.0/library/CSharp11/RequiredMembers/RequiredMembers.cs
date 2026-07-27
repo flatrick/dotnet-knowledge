@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace CSharpNet10Latest.CSharp11.RequiredMembers
+namespace Net10_CSharp14_Library.CSharp11.RequiredMembers
 {
     public class Person
     {

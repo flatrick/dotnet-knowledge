@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp7_1.DefaultLiteralExpressions
+namespace Net10_CSharp11_Library.CSharp7_1.DefaultLiteralExpressions
 {
     public class DefaultLiterals
     {

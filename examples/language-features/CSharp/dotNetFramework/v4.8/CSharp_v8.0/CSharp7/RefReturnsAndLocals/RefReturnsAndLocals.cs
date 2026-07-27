@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs80.CSharp7.RefReturnsAndLocals
+namespace Net48_CSharp8_Library.CSharp7.RefReturnsAndLocals
 {
     public class RefSamples
     {
