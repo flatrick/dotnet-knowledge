@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp10.MixedDeconstructions
+namespace Net10_CSharpLatest_Library.CSharp10.MixedDeconstructions
 {
     public class MixedDeconstruction
     {

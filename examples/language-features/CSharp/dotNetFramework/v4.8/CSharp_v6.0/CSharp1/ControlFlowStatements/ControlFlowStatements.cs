@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace CSharpFw48Cs73.CSharp1.ControlFlowStatements
+namespace Net48_CSharp6_Library.CSharp1.ControlFlowStatements
 {
     public class Resource : IDisposable
     {

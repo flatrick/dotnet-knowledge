@@ -1,6 +1,6 @@
 using System;
 
-namespace Net6_CSharp10.CSharp6.NameOfOperator
+namespace Net6_CSharp10_Library.CSharp6.NameOfOperator
 {
     public class Account
     {

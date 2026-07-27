@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 
-namespace CSharpNet10Latest.CSharp11.RefFields
+namespace Net10_CSharp14_Library.CSharp11.RefFields
 {
     // A ref struct may now hold a ref FIELD — a reference to storage owned by
     // someone else. This is what lets Span<T> be written in C# rather than

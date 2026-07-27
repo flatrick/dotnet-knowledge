@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp2.PartialTypes
+namespace Net10_CSharp11_Library.CSharp2.PartialTypes
 {
     // One half of the type. The other half is in Order.Validation.cs, and the
     // compiler merges both into a single class.

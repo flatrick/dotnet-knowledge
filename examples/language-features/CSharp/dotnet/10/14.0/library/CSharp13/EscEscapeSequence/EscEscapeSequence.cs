@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp13.EscEscapeSequence
+namespace Net10_CSharp14_Library.CSharp13.EscEscapeSequence
 {
     public class EscapeSequences
     {

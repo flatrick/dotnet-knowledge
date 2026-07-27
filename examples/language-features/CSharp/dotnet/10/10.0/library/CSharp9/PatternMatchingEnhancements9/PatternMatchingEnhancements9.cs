@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp9.PatternMatchingEnhancements9
+namespace Net10_CSharp10_Library.CSharp9.PatternMatchingEnhancements9
 {
     public class Patterns9
     {

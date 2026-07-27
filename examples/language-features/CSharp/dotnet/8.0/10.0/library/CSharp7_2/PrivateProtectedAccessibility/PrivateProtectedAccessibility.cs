@@ -1,4 +1,4 @@
-namespace Net8_CSharp10.CSharp7_2.PrivateProtectedAccessibility
+namespace Net8_CSharp10_Library.CSharp7_2.PrivateProtectedAccessibility
 {
     public class Repository
     {

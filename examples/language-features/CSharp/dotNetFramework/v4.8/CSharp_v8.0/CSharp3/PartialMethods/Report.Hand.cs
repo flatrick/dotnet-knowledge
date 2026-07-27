@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp3.PartialMethods
+namespace Net48_CSharp8_Library.CSharp3.PartialMethods
 {
     // The implementing half — the hand-written file. Supplying a body here is
     // what makes the calls in Report.Generated.cs real.

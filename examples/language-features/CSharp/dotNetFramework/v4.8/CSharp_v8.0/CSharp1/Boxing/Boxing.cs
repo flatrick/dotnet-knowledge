@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs80.CSharp1.Boxing
+namespace Net48_CSharp8_Library.CSharp1.Boxing
 {
     public class BoxingConversions
     {

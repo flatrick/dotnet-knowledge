@@ -1,4 +1,4 @@
-namespace Net8_CSharp10.CSharp8.IsNullOnUnconstrainedTypeParameter
+namespace Net8_CSharp10_Library.CSharp8.IsNullOnUnconstrainedTypeParameter
 {
     public class NullTests
     {

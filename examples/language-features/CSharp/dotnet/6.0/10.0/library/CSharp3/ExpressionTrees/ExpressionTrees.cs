@@ -1,7 +1,7 @@
 using System;
 using System.Linq.Expressions;
 
-namespace Net6_CSharp10.CSharp3.ExpressionTrees
+namespace Net6_CSharp10_Library.CSharp3.ExpressionTrees
 {
     public class ExpressionTreeSamples
     {

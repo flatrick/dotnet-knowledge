@@ -1,6 +1,6 @@
 using System;
 
-namespace Net7_CSharp10.CSharp1.Attributes
+namespace Net7_CSharp10_Library.CSharp1.Attributes
 {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = false)]
     public sealed class ReviewedAttribute : Attribute

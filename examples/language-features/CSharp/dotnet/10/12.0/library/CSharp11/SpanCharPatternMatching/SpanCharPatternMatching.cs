@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp11.SpanCharPatternMatching
+namespace Net10_CSharp12_Library.CSharp11.SpanCharPatternMatching
 {
     public class SpanPatterns
     {

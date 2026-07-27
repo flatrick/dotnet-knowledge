@@ -10,11 +10,22 @@ file(s) exist under that project's matching version/group folder and the project
 errors and 0 warnings; until then, that row is simply not yet authored there — not a placeholder,
 the accurate current state of an in-progress corpus.
 
-**Project codes:** `Fw73` = CSharpFw48Cs73, `Fw80` = CSharpFw48Cs80, `Latest` = CSharpNet10Latest,
-`Fw80Unsafe` = CSharpFw48Cs80Unsafe, `Net10Unsafe` = CSharpNet10Unsafe, `Net10Exe` = CSharpNet10Exe,
-`VbFw48` = VbNetFw48, `VbLatest` = VbNetNet10Latest.
+**Project codes:** `Fw73` = Net48_CSharp7_3_Library, `Fw80` = Net48_CSharp8_Library,
+`Latest` = Net10_CSharpLatest_Library, `Fw80Unsafe` = Net48_CSharp8_Unsafe,
+`Net10Unsafe` = Net10_CSharpLatest_Unsafe, `Net10Exe` = Net10_CSharpLatest_Exe,
+`VbFw48` = Net48_VbLatest_Library, `VbLatest` = Net10_VbLatest_Library.
 
-**`CSharpNet10Exe` carries only what needs an entry point.** `OutputType` is a per-project setting
+Every project's `RootNamespace` is its coordinate — runtime, language version, output kind — and
+every C# file under it declares that value as its first namespace segment, so an open file names the
+project it belongs to. `dotnet scripts/verify-project-namespaces.cs` enforces the pairing; C#'s
+`RootNamespace` seeds only new-file templates, so nothing else would.
+
+**The codes above name the ceiling projects only.** The corpus now also carries a project per pinned
+`<LangVersion>` — `Net48_CSharp1_Library` … `Net48_CSharp7_2_Library`, `Net10_CSharp10_Library` …
+`Net10_CSharp14_Library`, and `Net5_CSharp10_Library` … `Net9_CSharp10_Library`. The **Target
+project(s)** column below has not been extended to them.
+
+**`Net10_CSharpLatest_Exe` carries only what needs an entry point.** `OutputType` is a per-project setting
 and cannot be scoped to a folder, in exactly the way `/unsafe` cannot. Top-level statements require
 the compilation to be an executable — a library is rejected outright with `CS8805` — so that row
 lives here rather than forcing every other example in a mainline project to share an entry point.
@@ -55,15 +66,17 @@ consumes package assets only through the NuGet targets that ship with Visual Stu
 build-verification section. Every row naming `Fw73` in "Target project(s)" is subject to that same
 caveat; it is not repeated per row.
 
-**The two net48 C# projects and `VbNetFw48` are derived, not hand-written.**
-`dotnet scripts/generate-net48-examples.cs` writes them from `CSharpNet10Latest` and
-`VbNetNet10Latest`: the C# files differ from their originals only by root namespace, and the VB
-files are byte-identical because VB samples declare version-relative namespaces and take their
-prefix from `RootNamespace`. Fix a shared sample in the net10 project and regenerate; never edit a
-generated file. `dotnet scripts/generate-net48-examples.cs -- --check` re-derives and fails on
-drift, including a stray file hand-added to a derived folder. Two `VbNetFw48` rows are hand-authored
-and exempt from that check — `MyNamespaceHelpers`, which has no net10 counterpart, and
-`ConsumingCSharpRefReturnValues`, whose net48 subject differs (see its Note).
+**Every C# project is hand-authored.** `scripts/generate-net48-examples.cs` targets a project layout
+that no longer exists and must not be run against this tree; the `GENERATED-COMPILE-ITEMS` markers
+inside the net48 csproj files are inherited artifacts that nothing regenerates. Edit the file you
+mean to change, in the project you mean to change it in.
+
+**The two VB projects' sources are byte-identical.** VB prepends `RootNamespace` to every
+declaration in the compilation, so a VB sample declares a version-relative namespace
+(`Namespace Vb15.Tuples`) and takes its project prefix at compile time — which is why the VB half of
+the corpus needs no per-project edit to say which project it belongs to. Two `Net48_VbLatest_Library`
+rows have no `Net10_VbLatest_Library` counterpart: `MyNamespaceHelpers`, which no other project can
+carry, and `ConsumingCSharpRefReturnValues`, whose net48 subject differs (see its Note).
 
 ## C# (169 grouped rows across 14 major versions (18 releases))
 
@@ -306,7 +319,7 @@ the "Version" column below is informational provenance only, not a folder split)
 | VB 14 | Ambiguous interface method resolution | `AmbiguousInterfaceMethodResolution` | VbFw48, VbLatest | | Learn whats-new#visual-basic-14 |
 | VB 15 | Tuples | `Tuples` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 |
 | VB 15 | Binary literals, digit separators | `BinaryLiteralsAndDigitSeparators` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 |
-| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `CSharpFw48Cs80` — this corpus's own C# 7.0 ref-returns row — which suits the row's name at least as well. Both projects carry the same `Span` half. |
+| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `Net48_CSharp8_Library` — this corpus's own C# 7.0 ref-returns row — which suits the row's name at least as well. Both projects carry the same `Span` half. |
 | VB 15.3 | Named tuple inference | `NamedTupleInference` | VbFw48, VbLatest | | Learn whats-new#visual-basic-153 |
 | VB 15.3 | `-refout`/`-refonly` compiler switches | — | | VbFw48, VbLatest (compiler switch, not a source-level construct) | Learn whats-new#visual-basic-153 |
 | VB 15.5 | Non-trailing named arguments | `NonTrailingNamedArguments` | VbFw48, VbLatest | | Language-Version-History.md § VB 15.5 |
@@ -327,15 +340,18 @@ warnings.
 
 | Project | Authored | Not yet authored |
 |---|---|---|
-| `CSharpNet10Latest` | C# 1.0 → 14.0 — 159 group folders under `CSharp1/` … `CSharp14/` — **complete** | — |
-| `CSharpFw48Cs80Unsafe` | `UnsafeCodeAndPointers` (C# 1.0), `FixedBufferIndexing` and `CustomFixedStatement` (C# 7.3) | — |
-| `CSharpNet10Unsafe` | all 6 unsafe rows (C# 1.0, 7.3 ×2, 9.0 ×2, 13.0) — **complete** | — |
-| `CSharpNet10Exe` | `TopLevelStatements` (C# 9.0) | — |
+| `Net10_CSharpLatest_Library` | C# 1.0 → 14.0 — 159 group folders under `CSharp1/` … `CSharp14/` — **complete** | — |
+| `Net48_CSharp8_Unsafe` | `UnsafeCodeAndPointers` (C# 1.0), `FixedBufferIndexing` and `CustomFixedStatement` (C# 7.3) | — |
+| `Net10_CSharpLatest_Unsafe` | all 6 unsafe rows (C# 1.0, 7.3 ×2, 9.0 ×2, 13.0) — **complete** | — |
+| `Net10_CSharpLatest_Exe` | `TopLevelStatements` (C# 9.0) | — |
 | `CSharpComTypeLib` | support assembly (no feature rows) | — |
-| `CSharpFw48Cs73` | C# 1.0 → 7.3 — 75 group folders under `CSharp1/` … `CSharp7_3/` — **complete** | — |
-| `CSharpFw48Cs80` | C# 1.0 → 8.0 — 87 group folders under `CSharp1/` … `CSharp8/` — **complete** | — |
-| `VbNetFw48` | VB baseline → 17.13 — 55 group folders under `Baseline/` … `Vb17_13/`, including `MyNamespaceHelpers`, which no other project can carry — **complete** | — |
-| `VbNetNet10Latest` | VB baseline → 17.13 — 56 group folders under `Baseline/` … `Vb17_13/` — **complete** | — |
+| `Net48_CSharp7_3_Library` | C# 1.0 → 7.3 — 75 group folders under `CSharp1/` … `CSharp7_3/` — **complete** | — |
+| `Net48_CSharp8_Library` | C# 1.0 → 8.0 — 87 group folders under `CSharp1/` … `CSharp8/` — **complete** | — |
+| `Net48_VbLatest_Library` | VB baseline → 17.13 — 55 group folders under `Baseline/` … `Vb17_13/`, including `MyNamespaceHelpers`, which no other project can carry — **complete** | — |
+| `Net10_VbLatest_Library` | VB baseline → 17.13 — 56 group folders under `Baseline/` … `Vb17_13/` — **complete** | — |
+
+The per-`<LangVersion>` probe projects listed under **Project codes** are not enumerated here; their
+authoring status has not been audited against this manifest.
 
 No row is a placeholder: each names a real, sourced feature, a real group-folder name, and a real
 project assignment (or a real, verified exclusion reason).

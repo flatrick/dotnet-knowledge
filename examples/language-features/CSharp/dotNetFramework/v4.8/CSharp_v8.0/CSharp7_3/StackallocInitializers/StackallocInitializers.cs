@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs80.CSharp7_3.StackallocInitializers
+namespace Net48_CSharp8_Library.CSharp7_3.StackallocInitializers
 {
     public class StackallocInitializerSamples
     {

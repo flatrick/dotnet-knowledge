@@ -1,6 +1,6 @@
 using System;
 
-namespace Net6_CSharp10.CSharp7_2.SpanAndRefLikeTypes
+namespace Net6_CSharp10_Library.CSharp7_2.SpanAndRefLikeTypes
 {
     // A ref struct may live only on the stack: it cannot be boxed, captured by
     // a lambda, or stored in a field of a normal class. That restriction is

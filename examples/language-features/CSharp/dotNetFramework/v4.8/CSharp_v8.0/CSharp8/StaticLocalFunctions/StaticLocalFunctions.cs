@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp8.StaticLocalFunctions
+namespace Net48_CSharp8_Library.CSharp8.StaticLocalFunctions
 {
     public class StaticLocals
     {

@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp12.RefReadonlyParameters
+namespace Net10_CSharp12_Library.CSharp12.RefReadonlyParameters
 {
     public readonly struct Large
     {

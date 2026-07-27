@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp12.NameofAccessingInstanceMembers
+namespace Net10_CSharp11_Library.CSharp12.NameofAccessingInstanceMembers
 {
     public class Person
     {

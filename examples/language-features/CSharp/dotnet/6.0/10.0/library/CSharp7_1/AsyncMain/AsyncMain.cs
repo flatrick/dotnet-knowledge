@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 
-namespace Net6_CSharp10.CSharp7_1.AsyncMain
+namespace Net6_CSharp10_Library.CSharp7_1.AsyncMain
 {
     public class Program
     {

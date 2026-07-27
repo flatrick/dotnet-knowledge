@@ -1,4 +1,4 @@
-namespace Net9_CSharp10.CSharp10.LineSpanDirective
+namespace Net9_CSharp10_Library.CSharp10.LineSpanDirective
 {
     public class Mapping
     {

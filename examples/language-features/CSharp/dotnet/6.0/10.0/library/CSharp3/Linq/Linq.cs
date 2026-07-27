@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Net6_CSharp10.CSharp3.Linq
+namespace Net6_CSharp10_Library.CSharp3.Linq
 {
     public class QueryExpressions
     {

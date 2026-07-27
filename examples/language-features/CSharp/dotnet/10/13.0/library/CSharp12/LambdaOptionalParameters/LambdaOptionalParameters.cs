@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp12.LambdaOptionalParameters
+namespace Net10_CSharp13_Library.CSharp12.LambdaOptionalParameters
 {
     public class OptionalParameters
     {

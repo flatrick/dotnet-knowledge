@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp3.AutoImplementedProperties
+namespace Net48_CSharp4_Library.CSharp3.AutoImplementedProperties
 {
     public class Customer
     {

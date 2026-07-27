@@ -1,7 +1,7 @@
 using System;
 using System.Linq.Expressions;
 
-namespace CSharpNet10Latest.CSharp14.OptionalAndNamedArgumentsInExpressionTrees
+namespace Net10_CSharp14_Library.CSharp14.OptionalAndNamedArgumentsInExpressionTrees
 {
     public class Formatting
     {

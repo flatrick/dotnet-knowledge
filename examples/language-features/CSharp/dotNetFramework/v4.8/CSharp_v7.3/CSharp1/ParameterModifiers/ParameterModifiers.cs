@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp1.ParameterModifiers
+namespace Net48_CSharp7_3_Library.CSharp1.ParameterModifiers
 {
     public class Statistics
     {

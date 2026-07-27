@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp2.NullableValueTypes
+namespace Net48_CSharp4_Library.CSharp2.NullableValueTypes
 {
     public class NullableSamples
     {

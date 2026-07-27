@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.AutoDefaultStructs
+namespace Net10_CSharp12_Library.CSharp11.AutoDefaultStructs
 {
     // Before C# 11.0 a struct constructor had to definitely assign every field,
     // or the compiler reported an error. Now any field the constructor leaves

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Net6_CSharp10.CSharp3.ImplicitlyTypedLocals
+namespace Net6_CSharp10_Library.CSharp3.ImplicitlyTypedLocals
 {
     public class VarSamples
     {

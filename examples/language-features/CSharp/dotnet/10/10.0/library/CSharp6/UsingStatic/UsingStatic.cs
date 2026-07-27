@@ -1,7 +1,7 @@
 using static System.Math;
 using static System.String;
 
-namespace CSharpNet10Latest.CSharp6.UsingStatic
+namespace Net10_CSharp10_Library.CSharp6.UsingStatic
 {
     // using static imports a type's static members directly, so they can be
     // named without the type qualifier.

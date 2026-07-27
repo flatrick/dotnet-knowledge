@@ -1,7 +1,7 @@
 using System;
 using System.Collections;
 
-namespace CSharpFw48Cs73.CSharp1_2.ForeachEnhancements
+namespace Net48_CSharp1_Library.CSharp1_2.ForeachEnhancements
 {
     // C# 1.2 made foreach dispose the enumerator when it implements IDisposable.
     public class DisposableEnumerator : IEnumerator, IDisposable

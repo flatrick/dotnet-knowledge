@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp13.MethodGroupNaturalTypeImprovements
+namespace Net10_CSharpLatest_Library.CSharp13.MethodGroupNaturalTypeImprovements
 {
     public class NaturalTypes
     {

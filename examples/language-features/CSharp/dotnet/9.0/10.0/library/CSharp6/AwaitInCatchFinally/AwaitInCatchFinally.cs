@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace Net9_CSharp10.CSharp6.AwaitInCatchFinally
+namespace Net9_CSharp10_Library.CSharp6.AwaitInCatchFinally
 {
     public class Recovery
     {

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace CSharpNet10Unsafe.CSharp13.RefUnsafeInIteratorsAsync
+namespace Net10_CSharpLatest_Unsafe.CSharp13.RefUnsafeInIteratorsAsync
 {
     public class RefInIterators
     {

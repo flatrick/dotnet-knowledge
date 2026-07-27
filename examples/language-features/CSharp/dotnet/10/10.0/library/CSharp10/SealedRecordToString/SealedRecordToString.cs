@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp10.SealedRecordToString
+namespace Net10_CSharp10_Library.CSharp10.SealedRecordToString
 {
     // A record's ToString is generated and normally overridden again by each
     // derived record, so a base cannot fix the printed form. C# 10.0 allows

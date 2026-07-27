@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp3.LockStatement
+namespace Net10_CSharp11_Library.CSharp3.LockStatement
 {
     // The lock statement shipped in C# 1.0. This folder follows the section
     // placement of the corpus's source document; MANIFEST.md's Note column

@@ -1,4 +1,4 @@
-namespace Net9_CSharp10.CSharp2.NullableValueTypes
+namespace Net9_CSharp10_Library.CSharp2.NullableValueTypes
 {
     public class NullableSamples
     {

@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp8.ReadonlyMembers
+namespace Net10_CSharp13_Library.CSharp8.ReadonlyMembers
 {
     // readonly may now be applied to individual members of a struct, rather
     // than only to the whole type. A readonly member promises not to mutate

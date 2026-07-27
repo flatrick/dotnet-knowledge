@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp7.OutVariables
+namespace Net10_CSharp10_Library.CSharp7.OutVariables
 {
     public class OutVariableSamples
     {

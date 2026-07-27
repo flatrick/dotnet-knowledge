@@ -1,4 +1,4 @@
-namespace Net5_CSharp10.CSharp10.RecordStructsAndWithExpressions
+namespace Net5_CSharp10_Library.CSharp10.RecordStructsAndWithExpressions
 {
     // A record struct is a value type with the record members generated for it.
     // Unlike a record class its members are mutable unless declared readonly.

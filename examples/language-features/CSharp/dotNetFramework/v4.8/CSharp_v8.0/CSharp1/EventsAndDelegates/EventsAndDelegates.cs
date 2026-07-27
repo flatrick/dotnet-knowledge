@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs80.CSharp1.EventsAndDelegates
+namespace Net48_CSharp8_Library.CSharp1.EventsAndDelegates
 {
     public delegate void ThresholdReachedHandler(object sender, ThresholdReachedEventArgs e);
 

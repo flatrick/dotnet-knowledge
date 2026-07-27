@@ -1,4 +1,4 @@
-namespace Net7_CSharp10.CSharp3.AutoImplementedProperties
+namespace Net7_CSharp10_Library.CSharp3.AutoImplementedProperties
 {
     public class Customer
     {

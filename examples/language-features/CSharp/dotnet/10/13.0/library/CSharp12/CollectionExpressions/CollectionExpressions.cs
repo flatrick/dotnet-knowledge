@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpNet10Latest.CSharp12.CollectionExpressions
+namespace Net10_CSharp13_Library.CSharp12.CollectionExpressions
 {
     public class CollectionExpressionSamples
     {

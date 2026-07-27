@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp7_1.DefaultLiteralExpressions
+namespace Net48_CSharp7_1_Library.CSharp7_1.DefaultLiteralExpressions
 {
     public class DefaultLiterals
     {

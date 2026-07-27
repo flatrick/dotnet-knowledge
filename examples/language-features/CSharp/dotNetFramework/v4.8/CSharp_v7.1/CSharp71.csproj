@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <RootNamespace>CSharp71</RootNamespace>
+    <RootNamespace>Net48_CSharp7_1_Library</RootNamespace>
     <ProjectGuid>{7B1A2C3D-4E5F-4061-8A9B-0C1D2E3F4A51}</ProjectGuid>
     <OutputType>Library</OutputType>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
@@ -119,7 +119,6 @@
     <Compile Include="CSharp7\RefReturnsAndLocals\RefReturnsAndLocals.cs" />
     <Compile Include="CSharp7\ThrowExpressions\ThrowExpressions.cs" />
     <Compile Include="CSharp7\TuplesAndDeconstruction\TuplesAndDeconstruction.cs" />
-    <Compile Include="CSharp7_1\AsyncMain\AsyncMain.cs" />
     <Compile Include="CSharp7_1\DefaultLiteralExpressions\DefaultLiteralExpressions.cs" />
     <Compile Include="CSharp7_1\GenericPatternMatching\GenericPatternMatching.cs" />
     <Compile Include="CSharp7_1\InferredTupleElementNames\InferredTupleElementNames.cs" />

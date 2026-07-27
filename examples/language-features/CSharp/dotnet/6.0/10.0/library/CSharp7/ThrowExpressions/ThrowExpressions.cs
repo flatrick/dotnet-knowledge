@@ -1,6 +1,6 @@
 using System;
 
-namespace Net6_CSharp10.CSharp7.ThrowExpressions
+namespace Net6_CSharp10_Library.CSharp7.ThrowExpressions
 {
     public class ThrowExpressionSamples
     {

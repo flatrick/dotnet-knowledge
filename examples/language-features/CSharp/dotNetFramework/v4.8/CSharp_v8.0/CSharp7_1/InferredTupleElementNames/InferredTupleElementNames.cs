@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80.CSharp7_1.InferredTupleElementNames
+namespace Net48_CSharp8_Library.CSharp7_1.InferredTupleElementNames
 {
     public class Person
     {

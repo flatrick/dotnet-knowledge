@@ -1,6 +1,6 @@
 using System;
 
-namespace Net8_CSharp10.CSharp6.NullConditionalOperator
+namespace Net8_CSharp10_Library.CSharp6.NullConditionalOperator
 {
     public class Node
     {

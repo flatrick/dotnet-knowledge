@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs80Unsafe.CSharp7_3.FixedBufferIndexing
+namespace Net48_CSharp8_Unsafe.CSharp7_3.FixedBufferIndexing
 {
     public unsafe struct Packet
     {

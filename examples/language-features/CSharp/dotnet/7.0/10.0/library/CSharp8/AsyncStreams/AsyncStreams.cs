@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace Net7_CSharp10.CSharp8.AsyncStreams
+namespace Net7_CSharp10_Library.CSharp8.AsyncStreams
 {
     public class Streams
     {

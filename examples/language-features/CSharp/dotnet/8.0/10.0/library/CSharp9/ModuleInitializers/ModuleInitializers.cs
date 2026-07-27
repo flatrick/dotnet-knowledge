@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Net8_CSharp10.CSharp9.ModuleInitializers
+namespace Net8_CSharp10_Library.CSharp9.ModuleInitializers
 {
     public class Startup
     {

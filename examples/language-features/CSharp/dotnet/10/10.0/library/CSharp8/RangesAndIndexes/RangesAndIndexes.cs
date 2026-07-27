@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp8.RangesAndIndexes
+namespace Net10_CSharp10_Library.CSharp8.RangesAndIndexes
 {
     // This row is absent from the net48 project because System.Index and
     // System.Range have no official backport package for that target.

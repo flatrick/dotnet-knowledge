@@ -1,6 +1,6 @@
 using System;
 
-namespace Net8_CSharp10.CSharp1.Interfaces
+namespace Net8_CSharp10_Library.CSharp1.Interfaces
 {
     public interface IShape
     {

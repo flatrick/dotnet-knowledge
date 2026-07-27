@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpFw48Cs73.CSharp7.LocalFunctions
+namespace Net48_CSharp7_3_Library.CSharp7.LocalFunctions
 {
     public class LocalFunctionSamples
     {

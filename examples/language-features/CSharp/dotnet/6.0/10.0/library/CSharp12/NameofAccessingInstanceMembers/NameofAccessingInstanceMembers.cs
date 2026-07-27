@@ -1,4 +1,4 @@
-namespace Net6_CSharp10.CSharp12.NameofAccessingInstanceMembers;
+namespace Net6_CSharp10_Library.CSharp12.NameofAccessingInstanceMembers;
 
 public class Person
 {

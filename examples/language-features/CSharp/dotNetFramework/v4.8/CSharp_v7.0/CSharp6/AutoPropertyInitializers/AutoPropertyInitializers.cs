@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace CSharpFw48Cs73.CSharp6.AutoPropertyInitializers
+namespace Net48_CSharp7_Library.CSharp6.AutoPropertyInitializers
 {
     public class Config
     {

@@ -9,7 +9,7 @@ using IntList = System.Collections.Generic.List<int>;
 // A using alias for a namespace.
 using Text = System.Text;
 
-namespace Net9_CSharp10.CSharp2.NamespaceAndTypeAliases
+namespace Net9_CSharp10_Library.CSharp2.NamespaceAndTypeAliases
 {
     public class Aliases
     {

@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp14.IgnoredDirectives
+namespace Net10_CSharp14_Library.CSharp14.IgnoredDirectives
 {
     // This row cannot be demonstrated inside any project in this corpus, and
     // the file is comments-only for that reason. The runnable demonstration

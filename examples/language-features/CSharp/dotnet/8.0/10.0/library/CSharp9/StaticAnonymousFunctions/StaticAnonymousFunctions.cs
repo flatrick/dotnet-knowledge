@@ -1,6 +1,6 @@
 using System;
 
-namespace Net8_CSharp10.CSharp9.StaticAnonymousFunctions
+namespace Net8_CSharp10_Library.CSharp9.StaticAnonymousFunctions
 {
     public class StaticLambdas
     {

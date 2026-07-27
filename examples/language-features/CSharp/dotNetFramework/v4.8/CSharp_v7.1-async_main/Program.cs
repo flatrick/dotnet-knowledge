@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 
-namespace CSharp71
+namespace Net48_CSharp7_1_Exe
 {
     public class Program
     {

@@ -1,7 +1,7 @@
 // This is the one file in the corpus that uses a file-scoped namespace. Every
 // other example uses the block form, because that is the era-faithful choice
 // for its version — here the file-scoped form IS the feature being documented.
-namespace Net6_CSharp10.CSharp10.FileScopedNamespaces;
+namespace Net6_CSharp10_Library.CSharp10.FileScopedNamespaces;
 
 // A file-scoped namespace applies to the whole file and removes one level of
 // indentation. Only one may appear per file, and it cannot be combined with a

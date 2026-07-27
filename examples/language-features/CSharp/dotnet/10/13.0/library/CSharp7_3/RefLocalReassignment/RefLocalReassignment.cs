@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp7_3.RefLocalReassignment
+namespace Net10_CSharp13_Library.CSharp7_3.RefLocalReassignment
 {
     public class RefReassignment
     {

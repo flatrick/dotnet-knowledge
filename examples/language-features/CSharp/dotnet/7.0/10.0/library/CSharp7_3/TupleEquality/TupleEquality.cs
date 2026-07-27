@@ -1,4 +1,4 @@
-namespace Net7_CSharp10.CSharp7_3.TupleEquality
+namespace Net7_CSharp10_Library.CSharp7_3.TupleEquality
 {
     public class TupleComparison
     {

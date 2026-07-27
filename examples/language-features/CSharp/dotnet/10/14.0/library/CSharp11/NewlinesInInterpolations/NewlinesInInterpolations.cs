@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace CSharpNet10Latest.CSharp11.NewlinesInInterpolations
+namespace Net10_CSharp14_Library.CSharp11.NewlinesInInterpolations
 {
     public class Interpolations
     {

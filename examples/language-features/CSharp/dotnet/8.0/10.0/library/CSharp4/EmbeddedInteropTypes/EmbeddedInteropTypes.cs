@@ -1,6 +1,6 @@
 using CSharpComTypeLib;
 
-namespace Net8_CSharp10.CSharp4.EmbeddedInteropTypes
+namespace Net8_CSharp10_Library.CSharp4.EmbeddedInteropTypes
 {
     // IMeasurable comes from CSharpComTypeLib, referenced with
     // EmbedInteropTypes="true". The compiler copies the interface's shape into

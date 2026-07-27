@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp14.ExtensionOperators
+namespace Net10_CSharpLatest_Library.CSharp14.ExtensionOperators
 {
     public readonly struct Meters
     {

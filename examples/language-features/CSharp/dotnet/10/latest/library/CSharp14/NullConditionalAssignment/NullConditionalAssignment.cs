@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp14.NullConditionalAssignment
+namespace Net10_CSharpLatest_Library.CSharp14.NullConditionalAssignment
 {
     public class Settings
     {

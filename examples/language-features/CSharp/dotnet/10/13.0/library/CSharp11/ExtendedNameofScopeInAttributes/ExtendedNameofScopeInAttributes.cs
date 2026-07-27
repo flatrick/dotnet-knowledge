@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 
-namespace CSharpNet10Latest.CSharp11.ExtendedNameofScopeInAttributes
+namespace Net10_CSharp13_Library.CSharp11.ExtendedNameofScopeInAttributes
 {
     [AttributeUsage(AttributeTargets.Method | AttributeTargets.Parameter)]
     public sealed class DependsOnAttribute : Attribute

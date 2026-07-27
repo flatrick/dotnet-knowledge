@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp7.TuplesAndDeconstruction
+namespace Net10_CSharp12_Library.CSharp7.TuplesAndDeconstruction
 {
     public class Point
     {

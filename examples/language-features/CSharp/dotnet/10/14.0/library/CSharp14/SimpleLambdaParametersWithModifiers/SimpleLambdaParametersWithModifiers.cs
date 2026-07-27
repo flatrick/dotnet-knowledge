@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp14.SimpleLambdaParametersWithModifiers
+namespace Net10_CSharp14_Library.CSharp14.SimpleLambdaParametersWithModifiers
 {
     public delegate bool TryParser(string text, out int value);
 

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Net8_CSharp10.CSharp4.DynamicBinding
+namespace Net8_CSharp10_Library.CSharp4.DynamicBinding
 {
     public class Greeter
     {

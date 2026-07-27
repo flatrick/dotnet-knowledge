@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpNet10Latest.CSharp14.FirstClassSpanTypes
+namespace Net10_CSharp14_Library.CSharp14.FirstClassSpanTypes
 {
     public static class SpanExtensions
     {

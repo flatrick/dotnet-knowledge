@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Net5_CSharp10.CSharp9.AttributesOnLocalFunctions
+namespace Net5_CSharp10_Library.CSharp9.AttributesOnLocalFunctions
 {
     public class LocalFunctionAttributes
     {

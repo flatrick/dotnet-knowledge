@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.RawStringLiterals
+namespace Net10_CSharp14_Library.CSharp11.RawStringLiterals
 {
     public class RawStrings
     {

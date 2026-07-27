@@ -1,4 +1,4 @@
-namespace CSharpNet10Unsafe.CSharp9.FunctionPointers
+namespace Net10_CSharp14_Unsafe.CSharp9.FunctionPointers
 {
     public unsafe class FunctionPointerSamples
     {

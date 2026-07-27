@@ -34,6 +34,8 @@ dotnet scripts/verify-feature-floors.cs                          # classify ever
 dotnet scripts/verify-feature-floors.cs -- --project CSharp_v7.0 # one project
 dotnet scripts/verify-feature-floors.cs -- --json                # machine-readable
 dotnet scripts/verify-feature-floors.cs -- --offline             # skip the NuGet download
+dotnet scripts/verify-project-namespaces.cs                      # namespace vs. RootNamespace drift
+dotnet scripts/verify-project-namespaces.cs -- --json            # machine-readable
 ```
 
 `dotnet <file>.cs` silently claims some flags for itself, which is why every script takes its
@@ -122,13 +124,23 @@ the applicability rule and the rest of the reasoning.
 The per-`<LangVersion>` `CSharp_v*` projects are **hand-authored probes**, replacing the older
 derived-projects model. Consequences:
 
-- `scripts/generate-net48-examples.cs` still targets the deleted `CSharpNet10Latest` /
-  `CSharpFw48Cs73` / `CSharpFw48Cs80` layout. **Do not run it against the new tree.** The
-  `GENERATED-COMPILE-ITEMS` markers inside the `CSharp_v*` csproj files are inherited artifacts that
-  nothing regenerates.
-- Treat the on-disk tree as truth where older planning material or `MANIFEST.md` still uses the
-  superseded project names.
+- `scripts/generate-net48-examples.cs` still targets the deleted derived-project layout.
+  **Do not run it against the new tree.** The `GENERATED-COMPILE-ITEMS` markers inside the
+  `CSharp_v*` csproj files are inherited artifacts that nothing regenerates.
+- Treat the on-disk tree as truth where older planning material or `MANIFEST.md` still describes the
+  superseded model.
 - Do not fan an edit across every copy of a sample by default — ask which projects are in scope.
+
+**Every project's namespace names its own coordinate.** `RootNamespace` is
+`Net<runtime>_<Language><LangVersion>_<Kind>` — `Net10_CSharp13_Library`, `Net48_CSharp7_1_Exe` — and
+every C# file under a project declares that value as its first namespace segment, so an open file
+says which project it belongs to. C#'s `RootNamespace` only seeds new-file templates and will not
+enforce this, and the two drifted apart once already: six net10 library projects all declared
+`CSharpNet10Latest`, ten net48 projects all declared `CSharpFw48Cs73`, and every build stayed green.
+`dotnet scripts/verify-project-namespaces.cs` is what catches it; it also checks `<StartupObject>`,
+whose failure mode is a bare `CS1555` that never mentions namespaces. VB is exempt by design — a VB
+compilation prepends `RootNamespace` itself, which is what keeps the two VB projects' sources
+byte-identical.
 
 ## The MCP server
 

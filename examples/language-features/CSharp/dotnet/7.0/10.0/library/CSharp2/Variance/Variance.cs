@@ -1,6 +1,6 @@
 using System;
 
-namespace Net7_CSharp10.CSharp2.Variance
+namespace Net7_CSharp10_Library.CSharp2.Variance
 {
     public class Shape
     {

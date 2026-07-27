@@ -1,6 +1,6 @@
 using System;
 
-namespace CSharpFw48Cs73.CSharp2.Variance
+namespace Net48_CSharp4_Library.CSharp2.Variance
 {
     public class Shape
     {

@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp6.ExpressionBodiedMembers
+namespace Net48_CSharp6_Library.CSharp6.ExpressionBodiedMembers
 {
     // C# 6.0 allows an expression body on methods, read-only properties,
     // indexers, and operators. Constructors and property accessors had to wait

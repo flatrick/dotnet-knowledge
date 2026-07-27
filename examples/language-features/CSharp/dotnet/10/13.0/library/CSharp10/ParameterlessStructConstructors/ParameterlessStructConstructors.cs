@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp10.ParameterlessStructConstructors
+namespace Net10_CSharp13_Library.CSharp10.ParameterlessStructConstructors
 {
     // C# 10.0 allows a struct to declare a parameterless constructor and to
     // give its fields initializers. Both were errors before, because every

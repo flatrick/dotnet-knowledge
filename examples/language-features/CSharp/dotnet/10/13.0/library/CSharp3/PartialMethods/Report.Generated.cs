@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp3.PartialMethods
+namespace Net10_CSharp13_Library.CSharp3.PartialMethods
 {
     // The declaring half — the shape a code generator would emit. A C# 3.0
     // partial method is implicitly private, must return void, and cannot have

@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp7_1.GenericPatternMatching
+namespace Net48_CSharp7_2_Library.CSharp7_1.GenericPatternMatching
 {
     public class GenericPatterns
     {

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Net8_CSharp10.CSharp3.AnonymousTypes
+namespace Net8_CSharp10_Library.CSharp3.AnonymousTypes
 {
     public class AnonymousTypeSamples
     {

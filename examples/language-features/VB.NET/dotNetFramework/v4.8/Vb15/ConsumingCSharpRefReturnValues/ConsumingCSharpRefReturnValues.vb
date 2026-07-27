@@ -2,7 +2,7 @@ Option Strict On
 
 Imports System
 Imports System.Runtime.InteropServices
-Imports CSharpFw48Cs80.CSharp7.RefReturnsAndLocals
+Imports Net48_CSharp8_Library.CSharp7.RefReturnsAndLocals
 
 Namespace Vb15.ConsumingCSharpRefReturnValues
     Public Module RefReturns

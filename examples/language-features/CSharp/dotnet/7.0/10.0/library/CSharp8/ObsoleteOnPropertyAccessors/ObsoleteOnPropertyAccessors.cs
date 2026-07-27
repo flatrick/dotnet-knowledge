@@ -1,6 +1,6 @@
 using System;
 
-namespace Net7_CSharp10.CSharp8.ObsoleteOnPropertyAccessors
+namespace Net7_CSharp10_Library.CSharp8.ObsoleteOnPropertyAccessors
 {
     public class Settings
     {

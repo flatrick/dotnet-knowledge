@@ -1,4 +1,4 @@
-namespace CSharpNet10Unsafe.CSharp7_3.CustomFixedStatement
+namespace Net10_CSharpLatest_Unsafe.CSharp7_3.CustomFixedStatement
 {
     // A type becomes usable in a fixed statement by exposing GetPinnableReference.
     public class PixelBuffer

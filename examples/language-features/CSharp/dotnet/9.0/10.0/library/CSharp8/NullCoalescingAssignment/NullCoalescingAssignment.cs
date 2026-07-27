@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Net9_CSharp10.CSharp8.NullCoalescingAssignment
+namespace Net9_CSharp10_Library.CSharp8.NullCoalescingAssignment
 {
     public class Defaults
     {

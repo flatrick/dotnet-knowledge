@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace CSharpNet10Unsafe.CSharp9.SkipLocalsInit
+namespace Net10_CSharp14_Unsafe.CSharp9.SkipLocalsInit
 {
     // SkipLocalsInit tells the compiler to omit the .locals init flag, so the
     // runtime does not zero a method's stack space before it runs. It is an

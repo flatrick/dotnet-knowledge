@@ -1,4 +1,4 @@
-namespace CSharpFw48Cs73.CSharp2.PropertyAccessorAccessibility
+namespace Net48_CSharp2_Library.CSharp2.PropertyAccessorAccessibility
 {
     public class Document
     {

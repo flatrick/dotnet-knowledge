@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp11.RelaxedShiftOperatorRequirements
+namespace Net10_CSharp12_Library.CSharp11.RelaxedShiftOperatorRequirements
 {
     // Before C# 11.0 a user-defined shift operator's second operand had to be
     // int. That blocked generic math, where the shift amount may be any type

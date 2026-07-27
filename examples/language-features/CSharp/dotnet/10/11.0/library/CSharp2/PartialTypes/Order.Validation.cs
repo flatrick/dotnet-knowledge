@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp2.PartialTypes
+namespace Net10_CSharp11_Library.CSharp2.PartialTypes
 {
     // The second half reaches the first half's private fields directly:
     // after merging there is only one class.

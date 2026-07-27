@@ -1,4 +1,4 @@
-namespace Net8_CSharp10.CSharp10.ConstantInterpolatedStrings
+namespace Net8_CSharp10_Library.CSharp10.ConstantInterpolatedStrings
 {
     public class Constants
     {

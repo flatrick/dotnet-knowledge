@@ -1,4 +1,4 @@
-namespace Net9_CSharp10.CSharp9.InitOnlySetters
+namespace Net9_CSharp10_Library.CSharp9.InitOnlySetters
 {
     public class Settings
     {

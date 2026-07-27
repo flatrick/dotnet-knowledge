@@ -1,4 +1,4 @@
-namespace CSharpNet10Latest.CSharp10.ExtendedPropertyPatterns
+namespace Net10_CSharpLatest_Library.CSharp10.ExtendedPropertyPatterns
 {
     public class Address
     {

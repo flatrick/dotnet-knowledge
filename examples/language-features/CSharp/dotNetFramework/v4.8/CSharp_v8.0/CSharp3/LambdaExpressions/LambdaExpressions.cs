@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CSharpFw48Cs80.CSharp3.LambdaExpressions
+namespace Net48_CSharp8_Library.CSharp3.LambdaExpressions
 {
     public class LambdaSamples
     {
