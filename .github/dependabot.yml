@@ -1,0 +1,14 @@
+# Watches the action versions pinned in .github/workflows/corpus-tests.yml. Those are
+# exact vX.Y.Z tags, so every update arrives as a reviewable pull request that
+# the corpus workflow then verifies.
+#
+# github-actions only. NuGet versions in this repository are pinned to specific
+# historical releases as part of the corpus contract — Microsoft.Net.Compilers
+# 1.3.2 is pinned because it is old — so a nuget entry would open pull requests
+# that must always be rejected.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
