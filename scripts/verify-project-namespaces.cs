@@ -15,10 +15,12 @@
 // declared CSharpFw48Cs73, and nothing was wrong enough to fail a build. A file copied into a
 // sibling project compiles perfectly while claiming the wrong coordinate.
 //
-// VB is checked for <RootNamespace> only. A VB compilation prepends RootNamespace to every
-// declaration in the project, so its .vb files declare version-relative namespaces (Namespace
-// Vb15.Tuples) and inherit the coordinate at compile time. That is also what keeps the two VB
-// projects' sources byte-identical.
+// VB is checked for <RootNamespace>, plus the inverse of the C# rule. A VB compilation prepends
+// RootNamespace to every declaration in the project, so its .vb files declare version-relative
+// namespaces (Namespace Vb15.Tuples) and inherit the coordinate at compile time — that is also what
+// lets the VB families share one source tree across every pinned project. A file that also declares
+// the project prefix compiles to a doubled namespace (Net10_Vb14_Library.Net10_Vb14_Library.Vb14.X),
+// and because the tree is shared, one such file corrupts every pin that globs it at once.
 //
 // Run from repo root:
 //   dotnet scripts/verify-project-namespaces.cs
@@ -74,11 +76,14 @@ var supportProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 var rootNamespacePattern = new Regex(@"<RootNamespace>\s*(?<value>[^<\s][^<]*?)\s*</RootNamespace>");
 var startupObjectPattern = new Regex(@"<StartupObject>\s*(?<value>[^<\s][^<]*?)\s*</StartupObject>");
 var namespacePattern = new Regex(@"^namespace\s+(?<head>[A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Multiline);
+var vbNamespacePattern = new Regex(@"^\s*Namespace\s+(?<head>[A-Za-z_][A-Za-z0-9_]*)",
+    RegexOptions.Multiline | RegexOptions.IgnoreCase);
 
 var findings = new List<Finding>();
 var projectsChecked = 0;
 var filesChecked = 0;
 var seenExempt = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+var scannedVbSourceRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 var projectFiles = Directory
     .EnumerateFiles(corpusRoot, "*.*proj", SearchOption.AllDirectories)
@@ -110,10 +115,55 @@ foreach (var projectPath in projectFiles)
 
     var rootNamespace = rootNamespaceMatch.Groups["value"].Value;
 
-    // VB inherits the prefix at compile time, and support assemblies are not coordinates. Both
-    // still have to declare a RootNamespace, which Rule 1 above just checked.
-    if (projectPath.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase)
-        || supportProjects.Contains(projectRelative))
+    // ---------------------------------------------------------------------------------------
+    // Rule 1b (VB only) — no .vb source under a family's shared src/ tree redeclares the
+    // project prefix.
+    //
+    // VB inherits <RootNamespace> at compile time, so a source file must NOT also declare it. A
+    // file that does compiles to a doubled namespace, and because the VB families share one
+    // source tree across every pinned project, a single such file corrupts every pin that globs
+    // it at once. Scan each family's src/ tree the first time a project in that family is
+    // visited, not once per project — the same file belongs to many projects, and reporting it
+    // once per pin would bury the finding under duplicates.
+    // ---------------------------------------------------------------------------------------
+    if (projectPath.EndsWith(".vbproj", StringComparison.OrdinalIgnoreCase))
+    {
+        var familySrcRoot = FindFamilySrcRoot(corpusRoot, Path.GetDirectoryName(projectPath)!);
+        if (familySrcRoot is not null && scannedVbSourceRoots.Add(familySrcRoot))
+        {
+            var vbSources = Directory
+                .EnumerateFiles(familySrcRoot, "*.vb", SearchOption.AllDirectories)
+                .Where(path => !IsUnderBuildOutput(corpusRoot, path))
+                .OrderBy(path => path, StringComparer.Ordinal);
+
+            foreach (var source in vbSources)
+            {
+                filesChecked++;
+                var sourceRelative = Relative(corpusRoot, source);
+                var declared = FirstNamespaceSegment(vbNamespacePattern, source);
+                if (declared is null)
+                {
+                    continue;
+                }
+
+                if (declared.StartsWith("Net10_", StringComparison.Ordinal) ||
+                    declared.StartsWith("Net48_", StringComparison.Ordinal))
+                {
+                    findings.Add(new Finding(
+                        "vb-project-prefixed-namespace",
+                        sourceRelative,
+                        $"declares namespace {declared}, but VB prepends <RootNamespace> itself; this "
+                        + "compiles to a doubled namespace and corrupts every pin sharing this source"));
+                }
+            }
+        }
+
+        continue;
+    }
+
+    // Support assemblies are not coordinates, but still have to declare a RootNamespace, which
+    // Rule 1 above just checked.
+    if (supportProjects.Contains(projectRelative))
     {
         continue;
     }
@@ -229,6 +279,31 @@ static bool IsUnderBuildOutput(string corpusRoot, string path)
 
 static string Relative(string root, string path) =>
     Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+
+// Walks up from a project's directory to the nearest ancestor holding a src/ subdirectory — that
+// ancestor is the VB family root (e.g. .../VB.NET/dotnet/Net10), and src/ is the tree its pinned
+// projects all glob. Bounded by corpusRoot so a family without a src/ tree cannot fall through to
+// an unrelated directory of the same name elsewhere in the repository.
+static string? FindFamilySrcRoot(string corpusRoot, string start)
+{
+    var dir = new DirectoryInfo(start);
+    while (dir is not null && dir.FullName.Length >= corpusRoot.Length)
+    {
+        var candidate = Path.Combine(dir.FullName, "src");
+        if (Directory.Exists(candidate))
+            return candidate;
+
+        dir = dir.Parent;
+    }
+
+    return null;
+}
+
+static string? FirstNamespaceSegment(Regex pattern, string path)
+{
+    var match = pattern.Match(File.ReadAllText(path));
+    return match.Success ? match.Groups["head"].Value : null;
+}
 
 static string? FindRepoRoot(string start)
 {
