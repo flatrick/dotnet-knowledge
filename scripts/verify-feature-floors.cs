@@ -11,7 +11,7 @@
 // a too-low <LangVersion> rejects them. Semantic and attribute-driven features did not.
 // Generalized async return types is the known case: `async ValueTask<T>`, and even a hand-rolled
 // [AsyncMethodBuilder] type, compile clean under /langversion:5. Building the corpus at a pinned
-// <LangVersion> therefore proves less than it appears to.
+// <LangVersion> therefore proves less than it appears to. The same holds for VB.
 //
 // So each feature group folder is probed twice, and escalated to a period compiler when the two
 // probes disagree with expectations:
@@ -43,12 +43,22 @@
 // compilers read net48 reference assemblies without complaint, so no era-specific projects are
 // needed to use them.
 //
-// Windows only, and needs Visual Studio's MSBuild: the corpus's net48 projects are non-SDK XML and
-// resolve PackageReference assets only through the NuGet targets that ship with Visual Studio.
+// The VB ladder has no period compilers here, so every VB row the modern compiler accepts one rung
+// down reports UNPROVEN rather than UNGATED.
+//
+// The two corpora are shaped differently and are discovered differently:
+//   C# -- each CSharp_v* project directory holds its own version folders, one group folder deep.
+//   VB -- each family has one shared src/ tree and every pinned project selects row folders from it
+//         with Compile Include globs, minus its Compile Remove globs. Reading those items is the
+//         only way to learn which rows a VB project actually compiles.
+//
+// Windows only, and needs Visual Studio's MSBuild: the corpus's net48 C# projects are non-SDK XML
+// and resolve PackageReference assets only through the NuGet targets that ship with Visual Studio.
 //
 // Run from the repo root:
 //   dotnet scripts/verify-feature-floors.cs
 //   dotnet scripts/verify-feature-floors.cs -- --project CSharp_v7.0
+//   dotnet scripts/verify-feature-floors.cs -- --language vb
 //   dotnet scripts/verify-feature-floors.cs -- --json
 //   dotnet scripts/verify-feature-floors.cs -- --offline
 //
@@ -62,10 +72,12 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 var projectFilter = (string?)null;
 var emitJson = false;
 var offline = false;
+var language = "cs";
 
 for (var i = 0; i < args.Length; i++)
 {
@@ -73,6 +85,9 @@ for (var i = 0; i < args.Length; i++)
     {
         case "--project" when i + 1 < args.Length:
             projectFilter = args[++i];
+            break;
+        case "--language" when i + 1 < args.Length:
+            language = args[++i].ToLowerInvariant();
             break;
         case "--json":
             emitJson = true;
@@ -82,12 +97,18 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "-h":
         case "--help":
-            Console.WriteLine("Usage: dotnet scripts/verify-feature-floors.cs [-- --project <name>] [--json] [--offline]");
+            Console.WriteLine("Usage: dotnet scripts/verify-feature-floors.cs [-- --language <cs|vb>] [--project <name>] [--json] [--offline]");
             return 0;
         default:
             Console.Error.WriteLine($"verify-feature-floors: unknown argument: {args[i]}");
             return 2;
     }
+}
+
+if (language is not ("cs" or "vb"))
+{
+    Console.Error.WriteLine($"verify-feature-floors: unknown language '{language}'; expected cs or vb.");
+    return 2;
 }
 
 var repoRoot = FindRepoRoot(Environment.CurrentDirectory);
@@ -110,75 +131,83 @@ if (msbuild is null)
     return 2;
 }
 
-var modernCsc = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", "csc.exe");
-if (!File.Exists(modernCsc))
-{
-    Console.Error.WriteLine($"verify-feature-floors: no csc.exe beside MSBuild at '{modernCsc}'.");
-    return 2;
-}
-
-// Period compilers, keyed by the language version each one natively tops out at.
-var periodCompilers = new Dictionary<string, string>();
-
-// The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
-// fixed. There is deliberately no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in place
-// from C# 4 to C# 5, so no C# 4 compiler survives on a modern machine. C# 4 is therefore the one
-// floor in this range that cannot be settled by a native ceiling.
-var frameworkRoot = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64");
-
-foreach (var (version, directory) in new[]
-         {
-             ("2.0", "v2.0.50727"),
-             ("3.0", "v3.5"),
-             ("5.0", "v4.0.30319"),
-         })
-{
-    var candidate = Path.Combine(frameworkRoot, directory, "csc.exe");
-    if (File.Exists(candidate))
-    {
-        periodCompilers[version] = candidate;
-    }
-}
-
-var csharp6Csc = await AcquireCSharp6CompilerAsync(repoRoot, offline);
-if (csharp6Csc is not null)
-{
-    periodCompilers["6.0"] = csharp6Csc;
-}
-
-// The C# probe's identity: how to find its files, spell its language versions on the compiler
-// command line, and walk its version ladder. ProbeFloor and Below take this rather than reaching
-// for Versions.Ladder or the free functions directly, so a second LanguageProfile can be threaded
-// through the same code later.
+// Each language's identity within this probe: how to find its files, spell its language versions on
+// the compiler command line, and walk its version ladder.
 var csharpProfile = new LanguageProfile(
     Name: "C#",
     SourceExtension: ".cs",
     ProjectExtension: ".csproj",
+    CompilerFileName: "csc.exe",
     Ladder: Versions.Ladder,
     FolderVersion: ParseFolderVersion,
     LangVersionArg: LangVersionArg,
+    CeilingVersion: CSharpCeilingVersion,
     IsEnvironmentError: IsEnvironmentError);
 
-var corpusRoot = Path.Combine(
-    repoRoot, "examples", "language-features", "CSharp", "dotNetFramework", "v4.8");
-if (!Directory.Exists(corpusRoot))
+var vbProfile = new LanguageProfile(
+    Name: "VB",
+    SourceExtension: ".vb",
+    ProjectExtension: ".vbproj",
+    CompilerFileName: "vbc.exe",
+    Ladder: Versions.VbLadder,
+    FolderVersion: VbFolderVersion,
+    // Every VB ladder value is spelled the same on the command line, unlike C#'s ISO-1 / ISO-2.
+    LangVersionArg: version => version,
+    CeilingVersion: VbCeilingVersion,
+    IsEnvironmentError: IsVbEnvironmentError);
+
+var profile = language == "vb" ? vbProfile : csharpProfile;
+
+var modernCompiler = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
+if (!File.Exists(modernCompiler))
 {
-    Console.Error.WriteLine($"verify-feature-floors: corpus not found at '{corpusRoot}'.");
+    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompiler}'.");
     return 2;
 }
 
-var projectDirs = Directory
-    .EnumerateDirectories(corpusRoot, "CSharp_v*")
-    .Where(d => projectFilter is null || Path.GetFileName(d) == projectFilter)
-    .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
-    .ToArray();
+// Period compilers, keyed by the language version each one natively tops out at. Only the C# ladder
+// has any; every VB boundary is settled by the modern compiler alone.
+var periodCompilers = new Dictionary<string, string>();
 
-if (projectDirs.Length == 0)
+if (profile.Name == "C#")
 {
-    Console.Error.WriteLine(projectFilter is null
-        ? $"verify-feature-floors: no CSharp_v* projects under '{corpusRoot}'."
-        : $"verify-feature-floors: no project named '{projectFilter}' under '{corpusRoot}'.");
+    // The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
+    // fixed. There is deliberately no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in place
+    // from C# 4 to C# 5, so no C# 4 compiler survives on a modern machine. C# 4 is therefore the one
+    // floor in this range that cannot be settled by a native ceiling.
+    var frameworkRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64");
+
+    foreach (var (version, directory) in new[]
+             {
+                 ("2.0", "v2.0.50727"),
+                 ("3.0", "v3.5"),
+                 ("5.0", "v4.0.30319"),
+             })
+    {
+        var candidate = Path.Combine(frameworkRoot, directory, "csc.exe");
+        if (File.Exists(candidate))
+        {
+            periodCompilers[version] = candidate;
+        }
+    }
+
+    var csharp6Csc = await AcquireCSharp6CompilerAsync(repoRoot, offline);
+    if (csharp6Csc is not null)
+    {
+        periodCompilers["6.0"] = csharp6Csc;
+    }
+}
+
+var skippedProjects = new List<string>();
+
+var discovery = profile.Name == "VB"
+    ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
+    : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+
+if (discovery.Fatal is not null)
+{
+    Console.Error.WriteLine(discovery.Fatal);
     return 2;
 }
 
@@ -186,124 +215,115 @@ var workRoot = Path.Combine(repoRoot, ".artifacts", "feature-floors");
 Directory.CreateDirectory(workRoot);
 
 // The same group folder is duplicated across the cumulative projects, and its floor is a property
-// of the files rather than of the project holding them. Probe each distinct (version, content)
-// once and reuse the verdict.
+// of the files rather than of the project holding them. Probe each distinct (scope, version,
+// content) once and reuse the verdict. The scope keeps rows that share a reference set together:
+// C# has one, and VB has one per family and project kind, since a net10 reference set and a net48
+// one can disagree about whether a row compiles at all.
 var floorCache = new Dictionary<string, Verdict>(StringComparer.Ordinal);
 var results = new List<Result>();
-var skippedProjects = new List<string>();
 
-foreach (var projectDir in projectDirs)
+foreach (var project in discovery.Projects)
 {
-    var projectName = Path.GetFileName(projectDir);
-    var csproj = Directory.EnumerateFiles(projectDir, "*.csproj").FirstOrDefault();
-    if (csproj is null)
+    Console.Error.WriteLine($"verify-feature-floors: {project.Name} (ceiling {project.Ceiling})");
+
+    ProjectInputs? inputs = null;
+
+    foreach (var row in project.Rows)
     {
-        skippedProjects.Add($"{projectName}: no .csproj");
-        continue;
-    }
-
-    var ceiling = ReadLangVersion(csproj);
-    if (ceiling is null)
-    {
-        skippedProjects.Add($"{projectName}: no <LangVersion> in {Path.GetFileName(csproj)}");
-        continue;
-    }
-
-    var versionFolders = Directory
-        .EnumerateDirectories(projectDir, "CSharp*")
-        .Select(d => (Dir: d, Version: csharpProfile.FolderVersion(Path.GetFileName(d))))
-        .Where(x => x.Version is not null)
-        .OrderBy(x => LadderIndex(csharpProfile.Ladder, x.Version!))
-        .ToArray();
-
-    if (versionFolders.Length == 0)
-    {
-        skippedProjects.Add($"{projectName}: no CSharpN feature folders");
-        continue;
-    }
-
-    Console.Error.WriteLine($"verify-feature-floors: {projectName} (ceiling {ceiling})");
-
-    string[]? references = null;
-    string? defines = null;
-
-    foreach (var (versionDir, featureVersion) in versionFolders)
-    {
-        foreach (var groupDir in Directory.EnumerateDirectories(versionDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+        if (row.Files.Length == 0)
         {
-            var group = Path.GetFileName(groupDir);
-            var files = Directory.EnumerateFiles(groupDir, "*.cs", SearchOption.AllDirectories)
-                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                "INCONCLUSIVE", $"group folder holds no {profile.SourceExtension} files"));
+            continue;
+        }
 
-            if (files.Length == 0)
-            {
-                results.Add(new Result(projectName, ceiling, featureVersion!, group,
-                    "INCONCLUSIVE", "group folder holds no .cs files"));
-                continue;
-            }
+        if (LadderIndex(profile.Ladder, row.Version) > LadderIndex(profile.Ladder, project.Ceiling))
+        {
+            results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                "MISPLACED", $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}"));
+            continue;
+        }
 
-            if (LadderIndex(csharpProfile.Ladder, featureVersion!) > LadderIndex(csharpProfile.Ladder, ceiling))
-            {
-                results.Add(new Result(projectName, ceiling, featureVersion!, group,
-                    "MISPLACED", $"C# {featureVersion} group in a project pinned to {ceiling}"));
-                continue;
-            }
+        // Two shapes of exemption. A group exemption says the probe cannot see the feature at all,
+        // so nothing is compiled. A bucket exemption says the bucket has no single previous version
+        // to test against; the sources still have to stand on their own, so those keep step 1.
+        var exemption = ExemptionReason(row.Group);
+        if (exemption is not null)
+        {
+            results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                "EXEMPT", exemption));
+            continue;
+        }
 
-            var exemption = ExemptionReason(group);
-            if (exemption is not null)
-            {
-                results.Add(new Result(projectName, ceiling, featureVersion!, group,
-                    "EXEMPT", exemption));
-                continue;
-            }
+        var bucketExemption = ExemptionReason(row.VersionFolder);
 
-            var key = featureVersion + "|" + HashFiles(files);
-            if (!floorCache.TryGetValue(key, out var verdict))
+        var key = project.Scope + "|" + row.Version + "|" + HashFiles(row.Files);
+        if (!floorCache.TryGetValue(key, out var verdict))
+        {
+            // Resolving references costs a full MSBuild evaluation, so defer it until a
+            // project actually has uncached work to do.
+            if (inputs is null)
             {
-                // Resolving references costs a full MSBuild evaluation, so defer it until a
-                // project actually has uncached work to do.
-                if (references is null)
+                inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
+                if (inputs.References.Length == 0)
                 {
-                    (references, defines) = ResolveProjectInputs(msbuild, csproj);
-                    if (references.Length == 0)
-                    {
-                        skippedProjects.Add($"{projectName}: MSBuild resolved no references");
-                        break;
-                    }
+                    skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
+                    break;
                 }
-
-                verdict = ProbeFloor(csharpProfile, featureVersion!, files, references, defines,
-                    workRoot, modernCsc, periodCompilers);
-                floorCache[key] = verdict;
             }
 
-            results.Add(new Result(projectName, ceiling, featureVersion!, group,
-                verdict.Outcome, verdict.Detail));
+            verdict = bucketExemption is not null
+                ? ProbeOwnVersion(profile, row.Version, row.Files, inputs, workRoot, modernCompiler,
+                    bucketExemption)
+                : ProbeFloor(profile, row.Version, row.Files, inputs, workRoot, modernCompiler,
+                    periodCompilers);
+            floorCache[key] = verdict;
         }
 
-        if (references is not null && references.Length == 0)
-        {
-            break;
-        }
+        results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+            verdict.Outcome, verdict.Detail));
     }
 }
 
-Report(results, skippedProjects, periodCompilers, emitJson);
+Report(profile, results, skippedProjects, periodCompilers, emitJson);
 
 var failures = results.Count(r => r.Outcome is "MISPLACED" or "NOT-VERSION-SPECIFIC");
 return failures > 0 ? 1 : 0;
 
 // ---------------------------------------------------------------------------------------------
 
+// Step 1 on its own, for buckets whose exemption is about the ladder rather than about the sources.
+// The row still has to compile at the version it claims; what it cannot be asked is what happens
+// one rung down, because the bucket spans many rungs.
+static Verdict ProbeOwnVersion(
+    LanguageProfile profile,
+    string featureVersion,
+    string[] files,
+    ProjectInputs inputs,
+    string workRoot,
+    string modernCompiler,
+    string exemption)
+{
+    var ownArg = profile.LangVersionArg(featureVersion);
+    if (ownArg is null)
+    {
+        return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling");
+    }
+
+    var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
+    return own.Succeeded
+        ? new Verdict("EXEMPT", exemption)
+        : new Verdict("INCONCLUSIVE",
+            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})");
+}
+
 static Verdict ProbeFloor(
     LanguageProfile profile,
     string featureVersion,
     string[] files,
-    string[] references,
-    string? defines,
+    ProjectInputs inputs,
     string workRoot,
-    string modernCsc,
+    string modernCompiler,
     Dictionary<string, string> periodCompilers)
 {
     // Step 1 -- the group must stand on its own at its own language version, or nothing below
@@ -311,10 +331,10 @@ static Verdict ProbeFloor(
     var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
-        return new Verdict("UNPROVEN", $"C# {featureVersion} has no /langversion spelling");
+        return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling");
     }
 
-    var own = Compile(modernCsc, ownArg, files, references, defines, workRoot);
+    var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
     if (!own.Succeeded)
     {
         return new Verdict("INCONCLUSIVE",
@@ -325,17 +345,17 @@ static Verdict ProbeFloor(
     if (floor is null)
     {
         return new Verdict("BASELINE",
-            $"C# {featureVersion} is the oldest rung; there is no lower version to test against");
+            $"{profile.Name} {featureVersion} is the oldest rung; there is no lower version to test against");
     }
 
     var floorArg = profile.LangVersionArg(floor);
     if (floorArg is null)
     {
-        return new Verdict("UNPROVEN", $"C# {floor} has no /langversion spelling");
+        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling");
     }
 
     // Step 2 -- the modern compiler, held down to the rung below.
-    var gated = Compile(modernCsc, floorArg, files, references, defines, workRoot);
+    var gated = Compile(profile, modernCompiler, floorArg, files, inputs, workRoot);
     if (!gated.Succeeded)
     {
         return new Verdict("GATED", $"rejected at /langversion:{floorArg} ({gated.FirstError})");
@@ -348,26 +368,26 @@ static Verdict ProbeFloor(
     {
         // Environment control. A compiler this old may simply be unable to read the resolved
         // reference set, and that failure says nothing about the language.
-        var control = Compile(periodCsc, langVersion: null, [TrivialSource(workRoot)], references,
-            defines, workRoot);
+        var control = Compile(profile, periodCsc, langVersion: null, [TrivialSource(workRoot)], inputs,
+            workRoot);
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
-                $"the C# {floor} compiler cannot read this project's reference set ({control.FirstError})");
+                $"the {profile.Name} {floor} compiler cannot read this project's reference set ({control.FirstError})");
         }
 
-        var period = Compile(periodCsc, langVersion: null, files, references, defines, workRoot);
+        var period = Compile(profile, periodCsc, langVersion: null, files, inputs, workRoot);
         if (period.Succeeded)
         {
             return new Verdict("NOT-VERSION-SPECIFIC",
-                $"the C# {floor} compiler accepts it, so nothing here requires C# {featureVersion}");
+                $"the {profile.Name} {floor} compiler accepts it, so nothing here requires {profile.Name} {featureVersion}");
         }
 
         return profile.IsEnvironmentError(period.FirstError)
             ? new Verdict("INCONCLUSIVE",
-                $"the C# {floor} compiler could not process the group for a non-language reason ({period.FirstError})")
+                $"the {profile.Name} {floor} compiler could not process the group for a non-language reason ({period.FirstError})")
             : new Verdict("UNGATED",
-                $"accepted at /langversion:{floorArg} but rejected by the C# {floor} compiler ({period.FirstError})");
+                $"accepted at /langversion:{floorArg} but rejected by the {profile.Name} {floor} compiler ({period.FirstError})");
     }
 
     // Step 4 -- no compiler tops out at this rung, so fall back to the pre-Roslyn compiler held to
@@ -377,8 +397,8 @@ static Verdict ProbeFloor(
     // same reason. Acceptance therefore stays UNPROVEN and never accuses the example.
     var legacyArg = LegacyLangVersionArg(floor);
     var gate = periodCompilers
-        .Where(kv => Versions.Ladder.IndexOf(kv.Key) > Versions.Ladder.IndexOf(floor))
-        .OrderBy(kv => Versions.Ladder.IndexOf(kv.Key))
+        .Where(kv => LadderIndex(profile.Ladder, kv.Key) > LadderIndex(profile.Ladder, floor))
+        .OrderBy(kv => LadderIndex(profile.Ladder, kv.Key))
         .Select(kv => (Ceiling: kv.Key, Path: kv.Value))
         .FirstOrDefault();
 
@@ -386,26 +406,26 @@ static Verdict ProbeFloor(
     {
         // Control run first. Unless this compiler can handle the files at its own ceiling, a
         // failure at the floor says nothing about language versions.
-        var control = Compile(gate.Path, langVersion: null, files, references, defines, workRoot);
+        var control = Compile(profile, gate.Path, langVersion: null, files, inputs, workRoot);
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
-                $"the C# {gate.Ceiling} compiler cannot process the group even at its own ceiling ({control.FirstError})");
+                $"the {profile.Name} {gate.Ceiling} compiler cannot process the group even at its own ceiling ({control.FirstError})");
         }
 
-        var legacy = Compile(gate.Path, legacyArg, files, references, defines, workRoot);
+        var legacy = Compile(profile, gate.Path, legacyArg, files, inputs, workRoot);
         if (!legacy.Succeeded)
         {
             return new Verdict("UNGATED",
-                $"accepted at /langversion:{floorArg} by the modern compiler but rejected by the C# {gate.Ceiling} compiler held to the same setting ({legacy.FirstError})");
+                $"accepted at /langversion:{floorArg} by the modern compiler but rejected by the {profile.Name} {gate.Ceiling} compiler held to the same setting ({legacy.FirstError})");
         }
 
         return new Verdict("UNPROVEN",
-            $"accepted at C# {floor} by the modern compiler and by the C# {gate.Ceiling} compiler held there, and no compiler topping out at C# {floor} exists to settle it");
+            $"accepted at {profile.Name} {floor} by the modern compiler and by the {profile.Name} {gate.Ceiling} compiler held there, and no compiler topping out at {profile.Name} {floor} exists to settle it");
     }
 
     return new Verdict("UNPROVEN",
-        $"accepted at /langversion:{floorArg}, and no compiler for C# {floor} is available");
+        $"accepted at /langversion:{floorArg}, and no compiler for {profile.Name} {floor} is available");
 }
 
 // A compile that exercises only the reference set, used to tell a metadata problem apart from a
@@ -418,33 +438,58 @@ static string TrivialSource(string workRoot)
 }
 
 static CompileResult Compile(
-    string csc,
+    LanguageProfile profile,
+    string compiler,
     string? langVersion,
     string[] files,
-    string[] references,
-    string? defines,
+    ProjectInputs inputs,
     string workRoot)
 {
     var outDir = Path.Combine(workRoot, "probe");
     Directory.CreateDirectory(outDir);
 
-    // /noconfig is deliberately absent here: csc honors it only on the command line. Left in the
-    // response file it is ignored, csc.rsp gets read anyway, and its auto-references collide with
-    // the resolved set as CS1703 on the older compilers.
+    // /noconfig is deliberately absent here: the compilers honor it only on the command line. Left
+    // in the response file it is ignored, csc.rsp or vbc.rsp gets read anyway, and its
+    // auto-references collide with the resolved set as CS1703 on the older compilers.
     var rsp = new StringBuilder();
     rsp.AppendLine("/nologo");
-    rsp.AppendLine("/nostdlib+");
+
+    if (profile.Name == "VB")
+    {
+        // vbc rejects /nostdlib+ with BC2007; the switch has no trailing sign in VB.
+        rsp.AppendLine("/nostdlib");
+
+        // With /nostdlib the compiler no longer supplies the VB runtime itself, and every probe
+        // fails with BC2017 unless it is named explicitly.
+        var vbRuntime = inputs.References.FirstOrDefault(reference =>
+            Path.GetFileName(reference).Equals("Microsoft.VisualBasic.dll", StringComparison.OrdinalIgnoreCase));
+        if (vbRuntime is null)
+        {
+            return new CompileResult(false, "BC2017: no Microsoft.VisualBasic.dll in the resolved reference set");
+        }
+
+        rsp.AppendLine($"/vbruntime:\"{vbRuntime}\"");
+    }
+    else
+    {
+        rsp.AppendLine("/nostdlib+");
+    }
+
     rsp.AppendLine("/target:library");
     if (langVersion is not null)
     {
         rsp.AppendLine($"/langversion:{langVersion}");
     }
-    if (!string.IsNullOrWhiteSpace(defines))
+    if (!string.IsNullOrWhiteSpace(inputs.Defines))
     {
-        rsp.AppendLine($"/define:{defines}");
+        rsp.AppendLine($"/define:{inputs.Defines}");
+    }
+    foreach (var option in inputs.Options)
+    {
+        rsp.AppendLine(option);
     }
     rsp.AppendLine($"/out:\"{Path.Combine(outDir, "probe.dll")}\"");
-    foreach (var reference in references)
+    foreach (var reference in inputs.References)
     {
         rsp.AppendLine($"/reference:\"{reference}\"");
     }
@@ -456,7 +501,7 @@ static CompileResult Compile(
     var rspPath = Path.Combine(outDir, "probe.rsp");
     File.WriteAllText(rspPath, rsp.ToString());
 
-    var psi = new ProcessStartInfo(csc, $"/noconfig @\"{rspPath}\"")
+    var psi = new ProcessStartInfo(compiler, $"/noconfig @\"{rspPath}\"")
     {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
@@ -500,12 +545,22 @@ static CompileResult Compile(
     return new CompileResult(process.ExitCode == 0, firstError);
 }
 
-static (string[] References, string? Defines) ResolveProjectInputs(string msbuild, string csproj)
+static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, LanguageProfile profile)
 {
-    Run(msbuild, $"\"{csproj}\" -t:Restore -v:q -nologo");
+    Run(msbuild, $"\"{projectPath}\" -t:Restore -v:q -nologo");
 
-    var json = Run(msbuild,
-        $"\"{csproj}\" -t:ResolveReferences -getItem:ReferencePath -getProperty:DefineConstants -nologo");
+    // VB's conditional-compilation state is not the raw DefineConstants property: the VB targets
+    // fold in CONFIG, DEBUG, _MyType and the framework constants, and spell the result the way
+    // /define: expects. VB also carries four compilation options and a set of project-level imports
+    // that the sources rely on; leaving them out turns ordinary rows into BC30209 and BC30451
+    // failures that read exactly like version gating.
+    var query = profile.Name == "VB"
+        ? "-getItem:ReferencePath -getItem:Import -getProperty:FinalDefineConstants"
+          + " -getProperty:OptionExplicit -getProperty:OptionStrict -getProperty:OptionInfer"
+          + " -getProperty:OptionCompare"
+        : "-getItem:ReferencePath -getProperty:DefineConstants";
+
+    var json = Run(msbuild, $"\"{projectPath}\" -t:ResolveReferences {query} -nologo");
 
     try
     {
@@ -513,7 +568,8 @@ static (string[] References, string? Defines) ResolveProjectInputs(string msbuil
         var root = doc.RootElement;
 
         var references = Array.Empty<string>();
-        if (root.TryGetProperty("Items", out var items)
+        root.TryGetProperty("Items", out var items);
+        if (items.ValueKind == JsonValueKind.Object
             && items.TryGetProperty("ReferencePath", out var paths))
         {
             // Deduplicate by simple name, not by path. MSBuild can resolve the same assembly
@@ -530,20 +586,335 @@ static (string[] References, string? Defines) ResolveProjectInputs(string msbuil
                 .ToArray();
         }
 
+        root.TryGetProperty("Properties", out var properties);
+
         string? defines = null;
-        if (root.TryGetProperty("Properties", out var properties)
-            && properties.TryGetProperty("DefineConstants", out var define))
+        var definesProperty = profile.Name == "VB" ? "FinalDefineConstants" : "DefineConstants";
+        if (properties.ValueKind == JsonValueKind.Object
+            && properties.TryGetProperty(definesProperty, out var define))
         {
             defines = define.GetString();
         }
 
-        return (references, defines);
+        var options = new List<string>();
+        if (profile.Name == "VB")
+        {
+            options.AddRange(VbOptions(properties, items));
+        }
+
+        return new ProjectInputs(references, defines, options);
     }
     catch (JsonException)
     {
-        return (Array.Empty<string>(), null);
+        return new ProjectInputs(Array.Empty<string>(), null, Array.Empty<string>());
     }
 }
+
+// The compilation options a VB project carries besides its references and constants. Option Infer
+// is the one that matters most: the SDK turns it on, and without it every `Dim x = ...` in the
+// corpus fails with BC30209 under Option Strict On.
+static IEnumerable<string> VbOptions(JsonElement properties, JsonElement items)
+{
+    var options = new List<string>();
+
+    if (properties.ValueKind == JsonValueKind.Object)
+    {
+        AddSwitch("OptionExplicit", "/optionexplicit");
+        AddSwitch("OptionInfer", "/optioninfer");
+
+        if (Property("OptionStrict") is { Length: > 0 } strict)
+        {
+            options.Add(strict.Equals("Custom", StringComparison.OrdinalIgnoreCase)
+                ? "/optionstrict:custom"
+                : "/optionstrict" + (strict.Equals("On", StringComparison.OrdinalIgnoreCase) ? "+" : "-"));
+        }
+
+        if (Property("OptionCompare") is { Length: > 0 } compare)
+        {
+            options.Add("/optioncompare:" + compare.ToLowerInvariant());
+        }
+    }
+
+    if (items.ValueKind == JsonValueKind.Object && items.TryGetProperty("Import", out var imports))
+    {
+        var namespaces = imports.EnumerateArray()
+            .Select(i => i.GetProperty("Identity").GetString())
+            .Where(i => !string.IsNullOrWhiteSpace(i))
+            .ToArray();
+        if (namespaces.Length > 0)
+        {
+            options.Add("/imports:" + string.Join(",", namespaces));
+        }
+    }
+
+    return options;
+
+    string? Property(string name) =>
+        properties.TryGetProperty(name, out var value) ? value.GetString() : null;
+
+    void AddSwitch(string name, string option)
+    {
+        if (Property(name) is { Length: > 0 } value)
+        {
+            options.Add(option + (value.Equals("On", StringComparison.OrdinalIgnoreCase) ? "+" : "-"));
+        }
+    }
+}
+
+// Each CSharp_v* project directory holds its own version folders, so the tree alone says which rows
+// a project compiles.
+static Discovery DiscoverCSharpProjects(
+    string repoRoot,
+    LanguageProfile profile,
+    string? projectFilter,
+    List<string> skippedProjects)
+{
+    var corpusRoot = Path.Combine(
+        repoRoot, "examples", "language-features", "CSharp", "dotNetFramework", "v4.8");
+    if (!Directory.Exists(corpusRoot))
+    {
+        return new Discovery([], $"verify-feature-floors: corpus not found at '{corpusRoot}'.");
+    }
+
+    var projectDirs = Directory
+        .EnumerateDirectories(corpusRoot, "CSharp_v*")
+        .Where(d => projectFilter is null || Path.GetFileName(d) == projectFilter)
+        .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    if (projectDirs.Length == 0)
+    {
+        return new Discovery([], projectFilter is null
+            ? $"verify-feature-floors: no CSharp_v* projects under '{corpusRoot}'."
+            : $"verify-feature-floors: no project named '{projectFilter}' under '{corpusRoot}'.");
+    }
+
+    var projects = new List<ProbeProject>();
+
+    foreach (var projectDir in projectDirs)
+    {
+        var projectName = Path.GetFileName(projectDir);
+        var csproj = Directory.EnumerateFiles(projectDir, "*" + profile.ProjectExtension).FirstOrDefault();
+        if (csproj is null)
+        {
+            skippedProjects.Add($"{projectName}: no {profile.ProjectExtension}");
+            continue;
+        }
+
+        var ceiling = ReadLangVersion(csproj, profile);
+        if (ceiling is null)
+        {
+            skippedProjects.Add($"{projectName}: no <LangVersion> in {Path.GetFileName(csproj)}");
+            continue;
+        }
+
+        var versionFolders = Directory
+            .EnumerateDirectories(projectDir, "CSharp*")
+            .Select(d => (Dir: d, Version: profile.FolderVersion(Path.GetFileName(d))))
+            .Where(x => x.Version is not null)
+            .OrderBy(x => LadderIndex(profile.Ladder, x.Version!))
+            .ToArray();
+
+        if (versionFolders.Length == 0)
+        {
+            skippedProjects.Add($"{projectName}: no CSharpN feature folders");
+            continue;
+        }
+
+        var rows = new List<RowGroup>();
+        foreach (var (versionDir, featureVersion) in versionFolders)
+        {
+            foreach (var groupDir in Directory.EnumerateDirectories(versionDir)
+                         .OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+            {
+                var files = Directory
+                    .EnumerateFiles(groupDir, "*" + profile.SourceExtension, SearchOption.AllDirectories)
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                rows.Add(new RowGroup(
+                    Path.GetFileName(versionDir), featureVersion!, Path.GetFileName(groupDir), files));
+            }
+        }
+
+        // One cache scope: every CSharp_v* project resolves against the same net48 reference set.
+        projects.Add(new ProbeProject(projectName, csproj, ceiling, Scope: "", rows));
+    }
+
+    return new Discovery(projects, null);
+}
+
+// Each VB family has one shared src/ tree, and a pinned project selects rows from it with Compile
+// Include globs minus Compile Remove globs. The project file is therefore the only statement of
+// which rows it owns -- the directory it sits in holds no sources at all.
+static Discovery DiscoverVbProjects(
+    string repoRoot,
+    LanguageProfile profile,
+    string? projectFilter,
+    List<string> skippedProjects)
+{
+    var vbRoot = Path.Combine(repoRoot, "examples", "language-features", "VB.NET");
+    var families = new[]
+    {
+        Path.Combine(vbRoot, "dotnet", "Net10"),
+        Path.Combine(vbRoot, "dotNetFramework", "v4.8"),
+    };
+
+    foreach (var family in families)
+    {
+        if (!Directory.Exists(family))
+        {
+            return new Discovery([], $"verify-feature-floors: corpus not found at '{family}'.");
+        }
+    }
+
+    var projects = new List<ProbeProject>();
+
+    foreach (var family in families)
+    {
+        var sourceRoot = Path.Combine(family, "src");
+        var familyName = Path.GetRelativePath(vbRoot, family).Replace('\\', '/');
+        var familyProjects = new List<ProbeProject>();
+
+        foreach (var projectPath in Directory
+                     .EnumerateFiles(family, "*" + profile.ProjectExtension, SearchOption.AllDirectories)
+                     .Where(p => !IsBuildOutput(p)))
+        {
+            var projectDirectory = Path.GetDirectoryName(projectPath)!;
+            var projectName = Path.GetRelativePath(vbRoot, projectDirectory).Replace('\\', '/');
+            if (projectFilter is not null && projectName != projectFilter)
+            {
+                continue;
+            }
+
+            var ceiling = ReadLangVersion(projectPath, profile);
+            if (ceiling is null)
+            {
+                skippedProjects.Add(
+                    $"{projectName}: no usable <LangVersion> in {Path.GetFileName(projectPath)}");
+                continue;
+            }
+
+            var rows = VbRows(projectPath, sourceRoot, profile);
+            if (rows.Count == 0)
+            {
+                skippedProjects.Add($"{projectName}: compiles no row folders under src/");
+                continue;
+            }
+
+            // A net10 reference set and a net48 one disagree about what is available, and the my/
+            // projects compile with _MyType defined, so each of those is its own cache scope.
+            var scope = familyName + "|" + Path.GetFileName(projectDirectory);
+            familyProjects.Add(new ProbeProject(projectName, projectPath, ceiling, scope, rows));
+        }
+
+        // Ascending pin order, so the lowest project probes each row first and the pins above it
+        // read the verdict out of the cache instead of paying for a second reference resolution.
+        projects.AddRange(familyProjects
+            .OrderBy(p => LadderIndex(profile.Ladder, p.Ceiling))
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
+    }
+
+    if (projects.Count == 0)
+    {
+        return new Discovery([], projectFilter is null
+            ? $"verify-feature-floors: no {profile.ProjectExtension} projects under '{vbRoot}'."
+            : $"verify-feature-floors: no project named '{projectFilter}' under '{vbRoot}'.");
+    }
+
+    return new Discovery(projects, null);
+}
+
+// The row folders a single VB project compiles: its Compile Include globs resolved to files on
+// disk, minus its Compile Remove globs resolved the same way, then bucketed by the
+// src/<version folder>/<group>/ path each surviving file sits under. Honoring Remove is what keeps
+// MyNamespaceHelpers attributed to the my/ projects alone; a directory-prefix reading would file it
+// under every library project too, none of which compiles it.
+static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
+{
+    var projectDirectory = Path.GetDirectoryName(projectPath)!;
+    var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var compile in XDocument.Load(projectPath).Descendants()
+                 .Where(element => element.Name.LocalName == "Compile"))
+    {
+        var includeGlob = compile.Attribute("Include")?.Value;
+        if (!string.IsNullOrWhiteSpace(includeGlob))
+        {
+            included.UnionWith(ResolveGlob(projectPath, projectDirectory, includeGlob, profile));
+        }
+
+        var removeGlob = compile.Attribute("Remove")?.Value;
+        if (!string.IsNullOrWhiteSpace(removeGlob))
+        {
+            removed.UnionWith(ResolveGlob(projectPath, projectDirectory, removeGlob, profile));
+        }
+    }
+
+    included.ExceptWith(removed);
+
+    var buckets = new Dictionary<(string Folder, string Group), List<string>>();
+    foreach (var file in included)
+    {
+        var relative = Path.GetRelativePath(sourceRoot, file);
+        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (segments.Length < 3 || segments[0] == "..")
+        {
+            throw new InvalidOperationException(
+                $"{projectPath} compiles '{file}', which is not a src/<version folder>/<group>/ row.");
+        }
+
+        var key = (segments[0], segments[1]);
+        if (!buckets.TryGetValue(key, out var files))
+        {
+            files = [];
+            buckets[key] = files;
+        }
+
+        files.Add(file);
+    }
+
+    return buckets
+        .Select(bucket => new RowGroup(
+            bucket.Key.Folder,
+            VbRowVersion(bucket.Key.Folder)
+                ?? throw new InvalidOperationException(
+                    $"{projectPath} compiles rows from '{bucket.Key.Folder}', which names no VB version."),
+            bucket.Key.Group,
+            bucket.Value.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray()))
+        .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
+        .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+}
+
+// Every Compile Include/Remove glob in this corpus has the shape "<directory>/**/*.vb". Resolve that
+// to the source files actually present under the directory rather than implementing a general glob
+// matcher. A glob that does not fit this shape throws, so a future pattern change fails loudly
+// instead of silently dropping rows from the probe.
+static IEnumerable<string> ResolveGlob(
+    string projectPath, string projectDirectory, string glob, LanguageProfile profile)
+{
+    var tailPattern = "**/*" + profile.SourceExtension;
+    if (!glob.EndsWith(tailPattern, StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            $"Unrecognized Compile glob \"{glob}\" in {projectPath}: expected it to end in \"{tailPattern}\".");
+    }
+
+    var directoryPart = glob[..^tailPattern.Length];
+    var directory = Path.GetFullPath(Path.Combine(projectDirectory, directoryPart))
+        .TrimEnd(Path.DirectorySeparatorChar);
+
+    return Directory.Exists(directory)
+        ? Directory.EnumerateFiles(directory, "*" + profile.SourceExtension, SearchOption.AllDirectories)
+            .Select(Path.GetFullPath)
+        : [];
+}
+
+static bool IsBuildOutput(string path) =>
+    path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+    || path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
 
 static string Run(string exe, string arguments)
 {
@@ -607,6 +978,7 @@ static async Task<string?> AcquireCSharp6CompilerAsync(string repoRoot, bool off
 }
 
 static void Report(
+    LanguageProfile profile,
     List<Result> results,
     List<string> skippedProjects,
     Dictionary<string, string> periodCompilers,
@@ -663,13 +1035,13 @@ static void Report(
         {
             // The healthy majority. Naming every project copy of every row would bury the rest.
             var groups = rows
-                .Select(r => $"C# {r.FeatureVersion} {r.Group}")
+                .Select(r => $"{profile.Name} {r.FeatureVersion} {r.Group}")
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(g => g, StringComparer.Ordinal)
                 .ToArray();
             var note = outcome == "GATED"
                 ? "<LangVersion> enforces these"
-                : "C# 1.0 rows, with no lower version to test against";
+                : $"{profile.Name} {profile.Ladder[0]} rows, with no lower version to test against";
             Console.WriteLine($"  {groups.Length} distinct groups across {rows.Length} project copies -- {note}.");
             continue;
         }
@@ -677,7 +1049,7 @@ static void Report(
         foreach (var row in rows.OrderBy(r => r.Project, StringComparer.Ordinal)
                                 .ThenBy(r => r.Group, StringComparer.Ordinal))
         {
-            Console.WriteLine($"  {row.Project} (ceiling {row.Ceiling})  C# {row.FeatureVersion}/{row.Group}");
+            Console.WriteLine($"  {row.Project} (ceiling {row.Ceiling})  {profile.Name} {row.FeatureVersion}/{row.Group}");
             Console.WriteLine($"      {row.Detail}");
         }
     }
@@ -694,7 +1066,7 @@ static void Report(
 
     var available = periodCompilers.Count == 0
         ? "none"
-        : string.Join(", ", periodCompilers.Keys.OrderBy(k => k).Select(k => $"C# {k}"));
+        : string.Join(", ", periodCompilers.Keys.OrderBy(k => k).Select(k => $"{profile.Name} {k}"));
 
     Console.WriteLine();
     Console.WriteLine($"Period compilers available: {available}");
@@ -751,7 +1123,8 @@ static string? LangVersionArg(string version) => version switch
 
 // Groups a floor probe cannot speak to, each for a reason inherent to the row rather than to the
 // example's quality. Without these the probe reports NOT-VERSION-SPECIFIC and accuses code that is
-// exactly what it should be.
+// exactly what it should be. "Baseline" names a VB version folder rather than a group: a bucket
+// exemption, which still gets the own-version check.
 static string? ExemptionReason(string group) => group switch
 {
     "LockStatement" =>
@@ -763,6 +1136,11 @@ static string? ExemptionReason(string group) => group switch
         "NoPIA is a property of the reference (/link with EmbedInteropTypes), not of the source. "
         + "This harness compiles with /reference: only, so the feature is absent from the "
         + "compilation it performs and no compiler version can reveal it",
+
+    "Baseline" =>
+        "the Baseline bucket spans VS.NET 2002 to VS2012, and the upstream sources give no "
+        + "per-version attribution below VB 14. No single previous-version pin is meaningful for "
+        + "it, so it gets the own-version check only",
 
     _ => null,
 };
@@ -779,6 +1157,24 @@ static bool IsEnvironmentError(string diagnostic)
         "CS1705",  // assembly requires a newer version of a referenced assembly
         "CS2001",  // source file could not be found
         "CS2008",  // no source files specified
+    ];
+
+    return codes.Any(code => diagnostic.Contains(code, StringComparison.Ordinal));
+}
+
+// The VB equivalent. BC30002 and BC30451 are here deliberately: they are ordinary "missing type"
+// and "missing name" errors, and against a correctly resolved reference set they cannot appear, so
+// reading one as a broken reference set is safer than reading it as evidence of version gating.
+static bool IsVbEnvironmentError(string diagnostic)
+{
+    string[] codes =
+    [
+        "BC2017",  // could not find library
+        "BC2001",  // file could not be found
+        "BC2008",  // no input sources specified
+        "BC30002", // type is not defined
+        "BC30451", // name is not declared
+        "BC31091", // import of type from assembly failed
     ];
 
     return codes.Any(code => diagnostic.Contains(code, StringComparison.Ordinal));
@@ -818,9 +1214,42 @@ static string? ParseFolderVersion(string folderName)
     return Versions.Ladder.Contains(candidate) ? candidate : null;
 }
 
-static string? ReadLangVersion(string csproj)
+// Corpus folders are namespace segments, so they carry the version with an underscore and a Vb
+// prefix: Vb15_3 -> 15.3, Vb16_0 -> 16. Baseline carries no single version and is handled apart.
+static string? VbFolderVersion(string folderName)
 {
-    foreach (var line in File.ReadLines(csproj))
+    if (!folderName.StartsWith("Vb", StringComparison.Ordinal))
+    {
+        return null;
+    }
+
+    var candidate = folderName["Vb".Length..].Replace('_', '.');
+    if (candidate.EndsWith(".0", StringComparison.Ordinal))
+    {
+        candidate = candidate[..^2];
+    }
+
+    return Versions.VbLadder.Contains(candidate) ? candidate : null;
+}
+
+// The version a VB row folder is probed at. The Baseline bucket is everything VB shipped through
+// VS2012, so its own-version check runs at VB 11, the highest rung in it.
+static string? VbRowVersion(string folderName) =>
+    folderName == "Baseline" ? Versions.VbBaseline : VbFolderVersion(folderName);
+
+// C# spells a whole version with a trailing ".0" on the ladder but not always in a project file.
+static string? CSharpCeilingVersion(string value) => value.Contains('.') ? value : value + ".0";
+
+// A VB project pins a bare ladder value, or "latest", which is the top of the ladder this script
+// knows about.
+static string? VbCeilingVersion(string value) =>
+    value.Equals("latest", StringComparison.OrdinalIgnoreCase)
+        ? Versions.VbLadder[^1]
+        : Versions.VbLadder.Contains(value) ? value : null;
+
+static string? ReadLangVersion(string projectPath, LanguageProfile profile)
+{
+    foreach (var line in File.ReadLines(projectPath))
     {
         var open = line.IndexOf("<LangVersion>", StringComparison.OrdinalIgnoreCase);
         if (open < 0)
@@ -835,8 +1264,7 @@ static string? ReadLangVersion(string csproj)
             continue;
         }
 
-        var value = line[start..close].Trim();
-        return value.Contains('.') ? value : value + ".0";
+        return profile.CeilingVersion(line[start..close].Trim());
     }
 
     return null;
@@ -898,24 +1326,54 @@ static class Versions
     // The last Roslyn that tops out at C# 6, used as the period compiler for that boundary.
     public const string CompilerPackage = "1.3.2";
 
+    // The bucket every VB row below VB 14 sits in, probed at the highest version it can contain.
+    public const string VbBaseline = "11";
+
     public static readonly List<string> Ladder = new()
     {
         "1.0", "1.2", "2.0", "3.0", "4.0", "5.0", "6.0",
         "7.0", "7.1", "7.2", "7.3",
         "8.0", "9.0", "10.0", "11.0", "12.0", "13.0", "14.0",
     };
+
+    // vbc accepts these and rejects 17 and 17.0 with BC2014 -- there is no VB 17.0 language version.
+    // Note the bare "16": VB spells that rung without a minor part.
+    public static readonly List<string> VbLadder = new()
+    {
+        "9", "10", "11", "12", "14", "15", "15.3", "15.5", "16", "16.9", "17.13",
+    };
 }
 
 // A language's identity within this probe: how to find its files, spell its language versions on
-// the compiler command line, and walk its version ladder. C# is the only implementation today.
+// the compiler command line, and walk its version ladder.
 record LanguageProfile(
     string Name,
     string SourceExtension,
     string ProjectExtension,
+    string CompilerFileName,
     IReadOnlyList<string> Ladder,
     Func<string, string?> FolderVersion,
     Func<string, string?> LangVersionArg,
+    Func<string, string?> CeilingVersion,
     Func<string, bool> IsEnvironmentError);
+
+// One feature group folder as a project compiles it. VersionFolder is kept alongside the version it
+// resolves to because a bucket exemption is keyed on the folder name, not on the group.
+record RowGroup(string VersionFolder, string Version, string Group, string[] Files);
+
+// One project to probe, with the rows it compiles already resolved. Scope names the reference set
+// its rows are probed against, so the floor cache never reuses a verdict across incompatible ones.
+record ProbeProject(
+    string Name,
+    string ProjectPath,
+    string Ceiling,
+    string Scope,
+    IReadOnlyList<RowGroup> Rows);
+
+record Discovery(List<ProbeProject> Projects, string? Fatal);
+
+// Everything a probe compile needs from a project besides its sources.
+record ProjectInputs(string[] References, string? Defines, IReadOnlyList<string> Options);
 
 record Result(
     string Project,
