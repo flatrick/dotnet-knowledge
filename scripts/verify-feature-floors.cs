@@ -151,7 +151,7 @@ if (csharp6Csc is not null)
 // command line, and walk its version ladder. ProbeFloor and Below take this rather than reaching
 // for Versions.Ladder or the free functions directly, so a second LanguageProfile can be threaded
 // through the same code later.
-var CSharpProfile = new LanguageProfile(
+var csharpProfile = new LanguageProfile(
     Name: "C#",
     SourceExtension: ".cs",
     ProjectExtension: ".csproj",
@@ -211,9 +211,9 @@ foreach (var projectDir in projectDirs)
 
     var versionFolders = Directory
         .EnumerateDirectories(projectDir, "CSharp*")
-        .Select(d => (Dir: d, Version: CSharpProfile.FolderVersion(Path.GetFileName(d))))
+        .Select(d => (Dir: d, Version: csharpProfile.FolderVersion(Path.GetFileName(d))))
         .Where(x => x.Version is not null)
-        .OrderBy(x => LadderIndex(CSharpProfile.Ladder, x.Version!))
+        .OrderBy(x => LadderIndex(csharpProfile.Ladder, x.Version!))
         .ToArray();
 
     if (versionFolders.Length == 0)
@@ -243,7 +243,7 @@ foreach (var projectDir in projectDirs)
                 continue;
             }
 
-            if (LadderIndex(CSharpProfile.Ladder, featureVersion!) > LadderIndex(CSharpProfile.Ladder, ceiling))
+            if (LadderIndex(csharpProfile.Ladder, featureVersion!) > LadderIndex(csharpProfile.Ladder, ceiling))
             {
                 results.Add(new Result(projectName, ceiling, featureVersion!, group,
                     "MISPLACED", $"C# {featureVersion} group in a project pinned to {ceiling}"));
@@ -273,7 +273,7 @@ foreach (var projectDir in projectDirs)
                     }
                 }
 
-                verdict = ProbeFloor(CSharpProfile, featureVersion!, files, references, defines,
+                verdict = ProbeFloor(csharpProfile, featureVersion!, files, references, defines,
                     workRoot, modernCsc, periodCompilers);
                 floorCache[key] = verdict;
             }
@@ -468,15 +468,21 @@ static CompileResult Compile(
     var stderr = process.StandardError.ReadToEnd();
     process.WaitForExit();
 
-    // Diagnostic severity words are localized; the CSnnnn / BCnnnn code is not. Keying on the code
-    // keeps this correct on a non-English machine, where matching ": error " silently finds nothing
-    // and a failed compile reads as a clean one.
-    var diagnosticCode = new Regex(@"\b(?:CS|BC)\d{4}\b");
+    // Prefer selecting by severity, not just by code: a warning line ahead of the actual error
+    // must not be mistaken for it, or a GATED/UNGATED verdict ends up quoting the wrong
+    // diagnostic. ": error " is tried first -- on an English toolchain this reproduces the
+    // original literal match exactly, warnings excluded. Only when no line matches it at all (a
+    // localized toolchain, where the severity word itself is translated) does this fall back to
+    // matching any CSnnnn/BCnnnnn code, which can pick up a warning. That fallback trades severity
+    // discrimination for not going silent -- the best available signal once the severity word
+    // can't be matched by spelling, and strictly better than the old behavior of finding nothing.
+    // CS codes are always 4 digits; BC codes run 4 or 5 (BC2001 vs. BC30002, BC36716, BC42024 --
+    // all real codes this corpus has hit), so both need the wider count.
+    var diagnosticCode = new Regex(@"\b(?:CS|BC)\d{4,5}\b");
     var output = stdout + stderr;
-    var firstError = output
-        .Split('\n')
-        .Select(line => line.Trim())
-        .FirstOrDefault(line => diagnosticCode.IsMatch(line))
+    var lines = output.Split('\n').Select(line => line.Trim()).ToArray();
+    var firstError = lines.FirstOrDefault(line => line.Contains(": error ", StringComparison.Ordinal))
+        ?? lines.FirstOrDefault(line => diagnosticCode.IsMatch(line))
         ?? (process.ExitCode == 0 ? "" : "no diagnostic text");
 
     // Keep only the severity word, code, and message; the absolute path in front is noise in a
