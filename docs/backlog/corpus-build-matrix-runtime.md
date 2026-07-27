@@ -1,8 +1,8 @@
 # The corpus build matrix dominates suite runtime
 
 `CorpusProjectBuildTests` builds every discovered SDK-style corpus project with `-t:Rebuild`,
-under `[DoNotParallelize]`. It is the largest single cost in the corpus test suite, and it grew
-when the VB families gained a project per language-version pin.
+under `[DoNotParallelize]`. It is the largest single cost in the corpus test suite: each VB family
+holds a project per language-version pin, and the matrix scales with that project count.
 
 ## Why it matters
 

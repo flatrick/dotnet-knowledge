@@ -72,7 +72,8 @@ Exit code is **1** when any group is `MISPLACED` or `NOT-VERSION-SPECIFIC` — t
 mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
 argument, an unrecognized `--language` value, no repo root, a non-Windows host, no Visual Studio
 MSBuild, no compiler beside it, or one of discovery's three fatal cases — the corpus root itself
-missing, no project of the expected extension under it, or a `--project`/`--language` filter matching
+missing, no projects found under it with no `--project` filter given (C#'s message names the
+`CSharp_v*` directory pattern; VB's names the `.vbproj` extension), or a `--project` filter matching
 no project. Every other outcome is a finding about the toolchain's reach and exits 0.
 
 ## How a group is probed
@@ -134,7 +135,7 @@ record.
 | `MISPLACED` | A row above its project's pin that compiles at its own version but not at the pin. The project file is stale. | yes |
 | `UNPROVEN` | No compiler exists here that can settle the boundary. | |
 | `BASELINE` | A row at the ladder's lowest rung — there is no lower version to test against. | |
-| `INCONCLUSIVE` | The group will not compile standalone, an old compiler could not read the reference set, a row above its pin failed at both the pin and its own version, the group folder holds no source files of the probed language, or the pin or the row's own version has no `/langversion` spelling to compile at. | |
+| `INCONCLUSIVE` | The probe hit a failure it cannot attribute to a language version — for example the group will not compile standalone, a period or gate compiler cannot process the group for a non-language reason (its reference-set or own-ceiling control failed), a row above its pin failed at both the pin and its own version, the group folder holds no source files of the probed language, or the pin or the row's own version has no `/langversion` spelling to compile at. This list is representative of the script's `INCONCLUSIVE` sites, not exhaustive. | |
 | `EXEMPT` | A row a floor probe structurally cannot judge. See below. | |
 
 ## Evidence
@@ -146,7 +147,7 @@ claim, and reporting a floor without saying which produced it overstates the wea
 | Evidence | Meaning |
 |---|---|
 | `native-ceiling` | A compiler whose native ceiling is the rung below settled it. Does not drift as SDKs ship, and the only tier that can settle the question in *both* directions. |
-| `legacy-pin` | A compiler that does not top out at the rung below, held there with `/langversion` instead — not always pre-Roslyn, since the C# 6 / VB 14 boundary uses Microsoft.Net.Compilers 1.3.2, itself a Roslyn build. One-directional: a rejection settles it — version dependence proven; an acceptance settles nothing and reports `UNPROVEN`. C# only. |
+| `legacy-pin` | A compiler that does not top out at the rung below, held there with `/langversion` instead — always an in-box, pre-Roslyn `csc`, since this tier only ever fires for the C# 1.0 and 4.0 floors. (The C# 6 / VB 14 boundary is settled at its native ceiling by `Microsoft.Net.Compilers` 1.3.2 and never reaches this tier.) One-directional: a rejection settles it — version dependence proven; an acceptance settles nothing and reports `UNPROVEN`. C# only. |
 | `sdk-pin` | The installed SDK's compiler under `/langversion`, and nothing else. Says what today's toolchain gates — a fact that drifts. |
 | `none` | Nothing compiled here bears on the floor. |
 
@@ -243,10 +244,15 @@ languages.
 under one project's reference set is never reused for a project with a different one. For VB it
 holds: `familyName|kind`, and reference sets are props-driven and identical within each family and
 kind. For C# every `CSharp_v*` project declares `Scope: ""`, even though they do not share a
-reference set — `CSharp_v8.0` is SDK-style with different packages, and `CSharp_v1.0-Unsafe` and
-`CSharp_v8.0-Unsafe` declare no explicit references at all. It is safe only because the projects that
-currently author cache entries happen to sit inside the identical group; deriving `Scope` from the
-resolved reference set instead of declaring it would close the gap.
+reference set — `CSharp_v8.0` is SDK-style with different packages, `CSharp_v1.0-Unsafe` and
+`CSharp_v8.0-Unsafe` declare no explicit references at all, and four of the eleven non-SDK projects
+carry no `<ProjectReference>` to `CSharpComTypeLib` while the rest do. The cache key is
+`Scope|Version|HashFiles(files)`, and every corpus project's copy of a row declares that project's
+own namespace as the row's first namespace segment, so no two C# projects ever hold byte-identical
+sources for the same row — no C# row ever lands on a shared cache entry, and `Scope: ""` is
+currently inert. That holds because of the per-project namespace rule, not because the projects
+above share anything; deriving `Scope` from the resolved reference set instead of declaring it
+would close the gap without depending on it.
 
 ## Exemptions
 

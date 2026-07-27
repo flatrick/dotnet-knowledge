@@ -71,8 +71,10 @@
 //                     /langversion. One-directional: a rejection settles it -- the construct is
 //                     version-dependent. An acceptance settles nothing (reported UNPROVEN), because
 //                     the gate can be missing from this compiler for the same reason it is missing
-//                     from the modern one. This gate is not always pre-Roslyn: the C# 6 / VB 14
-//                     boundary uses Microsoft.Net.Compilers 1.3.2, itself a Roslyn build.
+//                     from the modern one. This gate only ever fires for the C# 1.0 and 4.0 floors,
+//                     both resolved by an in-box, pre-Roslyn csc; the C# 6 / VB 14 boundary is
+//                     settled at its native ceiling in step 3 by Microsoft.Net.Compilers 1.3.2 and
+//                     never reaches this gate.
 //   sdk-pin        -- the installed SDK's compiler under /langversion, and nothing else. This says
 //                     what the current toolchain gates, which is a fact that drifts.
 //   none           -- nothing compiled here bears on the floor.
@@ -524,11 +526,13 @@ static Verdict ProbeFloor(
     }
 
     // Step 4 -- no compiler tops out at this rung, so fall back to the nearest higher-ceiling
-    // compiler held to that setting with /langversion. That compiler is not always pre-Roslyn: the
-    // C# 6 / VB 14 boundary uses Microsoft.Net.Compilers 1.3.2, itself a Roslyn build. Either way
-    // this is a second implementation's gate rather than a native ceiling, so the evidence is
-    // one-directional: a rejection proves the construct is version-dependent, but an acceptance
-    // proves nothing, because a gate can be missing in both implementations for the same reason.
+    // compiler held to that setting with /langversion. LegacyLangVersionArg only spells 1.0-5.0, so
+    // this fallback only ever fires for the C# 1.0 and 4.0 floors, and the gate it picks is always
+    // an in-box, pre-Roslyn csc -- the C# 6 / VB 14 boundary is settled at its native ceiling in
+    // step 3 by Microsoft.Net.Compilers 1.3.2 and never falls through to here. This is a second
+    // implementation's gate rather than a native ceiling, so the evidence is one-directional: a
+    // rejection proves the construct is version-dependent, but an acceptance proves nothing, because
+    // a gate can be missing in both implementations for the same reason.
     // Acceptance therefore stays UNPROVEN and never accuses the example.
     var legacyArg = profile.LegacyLangVersionArg(floor);
     var gate = periodCompilers
@@ -1508,9 +1512,11 @@ static class Evidence
     public const string NativeCeiling = "native-ceiling";
 
     // A compiler that does not top out at the rung below, held there with /langversion instead --
-    // not always pre-Roslyn, since the C# 6 / VB 14 boundary uses Microsoft.Net.Compilers 1.3.2, a
-    // Roslyn build. A rejection settles it: version dependence proven. An acceptance settles
-    // nothing, because both implementations can lack the same gate; that case reports UNPROVEN.
+    // always an in-box, pre-Roslyn csc, since this tier only ever fires for the C# 1.0 and 4.0
+    // floors. The C# 6 / VB 14 boundary is settled at its native ceiling by Microsoft.Net.Compilers
+    // 1.3.2 and never reaches this tier. A rejection settles it: version dependence proven. An
+    // acceptance settles nothing, because both implementations can lack the same gate; that case
+    // reports UNPROVEN.
     public const string LegacyPin = "legacy-pin";
 
     // Only the installed SDK's compiler under /langversion bears on this floor.
