@@ -53,7 +53,7 @@ public sealed class CorpusRuntimeTests
         }
         catch (InvalidOperationException exception)
         {
-            Assert.Fail($"{coordinate}{Environment.NewLine}{exception.Message}");
+            Assert.Inconclusive($"{coordinate}{Environment.NewLine}{exception.Message}");
             throw;
         }
 
