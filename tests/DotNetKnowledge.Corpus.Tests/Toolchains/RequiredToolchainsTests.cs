@@ -11,32 +11,21 @@ public sealed class RequiredToolchainsTests
     {
         var cases = LoadCases();
         var inventory = await ToolchainInventory.Current;
-        var missing = new List<string>();
+        
+        var missing = cases.SelectMany(testCase => testCase.Compilations)
+            .Select(compilation => compilation.SdkBand)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(ParseBand)
+            .Select(sdkBand => MissingSdk(inventory, sdkBand))
+            .OfType<string>()
+            .ToList();
 
-        foreach (var sdkBand in cases
-                     .SelectMany(testCase => testCase.Compilations)
-                     .Select(compilation => compilation.SdkBand)
-                     .Distinct(StringComparer.Ordinal)
-                     .OrderBy(ParseBand))
-        {
-            var missingSdk = MissingSdk(inventory, sdkBand);
-            if (missingSdk is not null)
-            {
-                missing.Add(missingSdk);
-            }
-        }
-
-        foreach (var runtimeBand in cases
-                     .SelectMany(testCase => testCase.Runtimes)
-                     .Select(runtime => RuntimeBand(runtime.TargetFramework))
-                     .Distinct(StringComparer.Ordinal)
-                     .OrderBy(ParseBand))
-        {
-            if (!inventory.HasRuntime(runtimeBand))
-            {
-                missing.Add($"Microsoft.NETCore.App runtime {runtimeBand}");
-            }
-        }
+        missing.AddRange(from runtimeBand in cases.SelectMany(testCase => testCase.Runtimes)
+                .Select(runtime => RuntimeBand(runtime.TargetFramework))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(ParseBand)
+            where !inventory.HasRuntime(runtimeBand)
+            select $"Microsoft.NETCore.App runtime {runtimeBand}");
 
         if (missing.Count > 0)
         {
