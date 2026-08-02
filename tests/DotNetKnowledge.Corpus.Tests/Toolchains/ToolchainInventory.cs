@@ -52,9 +52,10 @@ internal sealed partial class ToolchainInventory
     public InstalledSdk ResolveSdk(string band)
     {
         var requiredVersion = RequiredSdkVersion(band);
+        
         var candidate = installedSdks
-            .Where(sdk => sdk.Version == requiredVersion)
-            .FirstOrDefault();
+            .FirstOrDefault(sdk => sdk.Version == requiredVersion);
+        
         if (candidate is not null)
         {
             return candidate;
