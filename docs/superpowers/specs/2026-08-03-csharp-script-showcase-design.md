@@ -82,7 +82,7 @@ process working directory.
 
 ### `reference-bcl-assembly`
 
-Uses `#r` to reference a framework assembly and then consumes a type from that assembly. The exact
+Uses `#r "System.Xml.Linq"` and then consumes `System.Xml.Linq.XDocument`. The assembly-name
 reference must resolve in both configured Roslyn hosts without a package download or machine-local
 path. The scenario descriptor records parity for both hosts.
 
@@ -151,6 +151,10 @@ The host has focused components for:
 A successful run writes one JSON object containing the scenario ID, host, return type, return value,
 captured standard output, and completed-submission count. This structured output keeps the example
 useful to an agent caller and gives tests an unambiguous assertion surface.
+
+A failed run writes one structured error object to standard error and exits nonzero. Compilation
+errors include Roslyn diagnostic IDs and messages; runtime errors include the original exception
+type and message. The host does not print a success object after a failed submission.
 
 The host accepts cancellation and enforces a bounded execution timeout. It is an execution host,
 not a security boundary. Documentation warns that a Roslyn script has the process's permissions and
