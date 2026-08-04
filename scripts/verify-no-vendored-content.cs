@@ -63,6 +63,28 @@ var contentScanExempt = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     "THIRD-PARTY-NOTICES.md",
 };
 
+// Extensions exempt from the SHAPE patterns (rule 4) only. The header patterns (rule 3) still run
+// on every file, because a pasted copyright notice is a finding wherever it lands.
+//
+// Rule 4's premise is that our own writing cannot produce an upstream document's scaffolding by
+// accident. That premise holds for prose and for data files, and fails for source code: a test
+// covering a parser has to build the very shape the parser reads. ApiDocsQueryServiceTests.cs
+// constructs ECMA-XML for a fictional System.Widget, and rule 4 could not tell it from a vendored
+// dotnet-api-docs page — nor could any structural narrowing, because a good fixture is structurally
+// a real document in miniature.
+//
+// The discriminator is the file type, not the content. Vendored material arrives as a file of its
+// own kind: dotnet-api-docs ships .xml, csharplang ships .md. Getting one into a .cs string literal
+// means escaping every quote and re-indenting it by hand, which is authoring rather than copying.
+// Excluding a whole file from the scan would blind the guard; excluding source files from one
+// heuristic that cannot apply to them keeps every other check pointed at them.
+var shapeScanExemptExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+{
+    ".cs",
+    ".csx",
+    ".vb",
+};
+
 var findings = new List<Finding>();
 
 // ---------------------------------------------------------------------------------------------
@@ -217,6 +239,9 @@ foreach (var file in trackedFiles)
         }
     }
 
+    if (shapeScanExemptExtensions.Contains(Path.GetExtension(file)))
+        continue; // Source code cannot *be* an upstream document; see shapeScanExemptExtensions.
+
     foreach (var (rule, pattern, detail) in shapePatterns)
     {
         if (pattern.IsMatch(text))
@@ -251,22 +276,25 @@ if (scanHistory)
         // POSIX ERE for git grep, kept separate from the .NET patterns above rather than shared:
         // the two engines differ in escaping, and a pattern that silently fails to compile here
         // would report a clean history for the wrong reason.
-        var historyPatterns = new (string Rule, string Expression)[]
+        // IsShape mirrors the split above: a shape rule does not apply to source files, so the
+        // history scan excludes them too. Without this the two scans disagree, and a tree that
+        // passes reports a finding the moment someone adds --history.
+        var historyPatterns = new (string Rule, string Expression, bool IsShape)[]
         {
-            ("dotnet-foundation-header", @"Licensed to the \.NET Foundation"),
-            ("microsoft-copyright", @"Copyright ?(\(c\)|\xc2\xa9) ?[0-9]* ?Microsoft"),
-            ("creative-commons", @"Creative Commons|CC-BY"),
-            ("apache-license", @"Apache License,? Version 2\.0"),
-            ("ecma-xml-api-doc", @"<Type Name=""[^""]+"" FullName="""),
-            ("csharplang-proposal", @"Champion issue: ?<?https://github\.com/dotnet/(csharplang|vblang)/issues/"),
-            ("ldm-notes", @"(C#|Visual Basic) Language Design (Meeting|Notes)"),
+            ("dotnet-foundation-header", @"Licensed to the \.NET Foundation", false),
+            ("microsoft-copyright", @"Copyright ?(\(c\)|\xc2\xa9) ?[0-9]* ?Microsoft", false),
+            ("creative-commons", @"Creative Commons|CC-BY", false),
+            ("apache-license", @"Apache License,? Version 2\.0", false),
+            ("ecma-xml-api-doc", @"<Type Name=""[^""]+"" FullName=""", true),
+            ("csharplang-proposal", @"Champion issue: ?<?https://github\.com/dotnet/(csharplang|vblang)/issues/", true),
+            ("ldm-notes", @"(C#|Visual Basic) Language Design (Meeting|Notes)", true),
         };
 
         // Commit SHAs are passed as arguments, so they are chunked to stay clear of the Windows
         // command-line length limit. Every commit is scanned; nothing is sampled or capped.
         const int commitsPerInvocation = 400;
 
-        foreach (var (rule, expression) in historyPatterns)
+        foreach (var (rule, expression, isShape) in historyPatterns)
         {
             for (var offset = 0; offset < commits.Count; offset += commitsPerInvocation)
             {
@@ -279,6 +307,12 @@ if (scanHistory)
                 arguments.Add("--");
                 foreach (var exempt in contentScanExempt)
                     arguments.Add($":!{exempt}");
+
+                if (isShape)
+                {
+                    foreach (var extension in shapeScanExemptExtensions)
+                        arguments.Add($":!*{extension}");
+                }
 
                 // git grep exits 1 when it matches nothing, which is the common case here.
                 foreach (var hit in GitLines(repoRoot, allowExitCode1: true, [.. arguments]))
@@ -429,7 +463,11 @@ static string? FindRepoRoot(string start)
     var dir = new DirectoryInfo(start);
     while (dir is not null)
     {
-        if (Directory.Exists(Path.Combine(dir.FullName, ".git")))
+        // In a linked worktree `.git` is a FILE holding a gitdir pointer, not a directory. Testing
+        // only for a directory walks straight past the worktree root to the main checkout, so the
+        // scan reports on code the caller is not working in — a pass that measured nothing.
+        var gitPath = Path.Combine(dir.FullName, ".git");
+        if (Directory.Exists(gitPath) || File.Exists(gitPath))
             return dir.FullName;
         dir = dir.Parent;
     }

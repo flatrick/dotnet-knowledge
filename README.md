@@ -31,19 +31,33 @@ Start at [`AGENTS.md`](AGENTS.md). For server work, continue with the
 [`MCP tool-surface design`](docs/design/mcp-tool-surface.md); known deferred work is indexed in
 [`docs/backlog/`](docs/backlog/README.md).
 
+Install the server as a user-global .NET tool. This is machine-global, so one install serves every
+client and every checkout:
+
 ```bash
-dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
+dotnet scripts/install-mcp-tool.cs -- install
 ```
 
 ```json
 {
   "mcpServers": {
     "dotnet-knowledge": {
-      "command": "dotnet",
-      "args": ["run", "--project", "path/to/dotnet-knowledge/src/DotNetKnowledge.Mcp"]
+      "command": "dotnet-knowledge",
+      "args": []
     }
   }
 }
+```
+
+Re-run the install after changing server code, then restart the MCP connection — a connected client
+keeps serving the build it started with. `dotnet scripts/install-mcp-tool.cs` with no arguments
+reports which commit the installed tool was built from, and `-- uninstall` removes it.
+
+To build or launch from a checkout instead, without installing:
+
+```bash
+dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
+dotnet run --project src/DotNetKnowledge.Mcp
 ```
 
 The example corpus is bundled and needs no setup. Upstream documentation is fetched explicitly —

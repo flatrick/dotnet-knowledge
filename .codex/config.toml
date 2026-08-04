@@ -1,3 +1,7 @@
 [mcp_servers.dotnet-mcp]
 command = "dotnet-mcp"
 args = []
+
+[mcp_servers.dotnet-knowledge]
+command = "dotnet-knowledge"
+args = []

@@ -27,6 +27,11 @@ parsing — structured payloads, no ASCII tables, no decorative formatting.
 dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
 dotnet run --project src/DotNetKnowledge.Mcp        # stdio; expects a client on stdin
 
+# The installed server — what .mcp.json and .codex/config.toml launch
+dotnet scripts/install-mcp-tool.cs                  # which build would launch next
+dotnet scripts/install-mcp-tool.cs -- install       # pack + install/update the user-global tool
+dotnet scripts/install-mcp-tool.cs -- uninstall     # remove it
+
 # Dev tooling — single-file C# programs; arguments go after `--`
 dotnet scripts/verify-no-vendored-content.cs                     # licensing guard; exit 1 on a finding
 dotnet scripts/verify-no-vendored-content.cs -- --history        # same checks against every commit
