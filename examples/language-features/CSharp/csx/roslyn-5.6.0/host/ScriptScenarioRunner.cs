@@ -21,11 +21,15 @@ internal sealed class ScriptScenarioRunner
         var code = await File.ReadAllTextAsync(entryPath, cancellationToken);
         var options = ScriptOptions.Default
             .AddReferences(
-                typeof(Console).Assembly,
-                typeof(Enumerable).Assembly,
-                typeof(JsonDocument).Assembly,
-                typeof(System.Xml.Linq.XDocument).Assembly)
-            .WithFilePath(entryPath);
+                MetadataReference.CreateFromFile(
+                    System.Reflection.Assembly.Load("System.Runtime").Location),
+                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(JsonDocument).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Xml.Linq.XDocument).Assembly.Location))
+            .WithFilePath(entryPath)
+            .WithSourceResolver(new RestrictedSourceResolver(scenarioDirectory))
+            .WithMetadataResolver(new BclMetadataResolver());
 
         var standardOutput = new StringWriter(CultureInfo.InvariantCulture);
         var standardError = new StringWriter(CultureInfo.InvariantCulture);
@@ -47,12 +51,20 @@ internal sealed class ScriptScenarioRunner
                     diagnostics.ToImmutableArray());
             }
 
-            var state = await script.RunAsync(
-                new ScriptGlobals(
-                    descriptor.Arguments.ToArray(),
-                    descriptor.Globals?.Prefix ?? "",
-                    cancellationToken),
-                cancellationToken);
+            ScriptState<object?> state;
+            try
+            {
+                state = await script.RunAsync(
+                    new ScriptGlobals(
+                        descriptor.Arguments.ToArray(),
+                        descriptor.Globals?.Prefix ?? "",
+                        cancellationToken),
+                    cancellationToken);
+            }
+            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
 
             return new ScriptSuccess(
                 descriptor.Id,
