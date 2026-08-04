@@ -38,6 +38,95 @@ public sealed class ScriptHostProcessTests
         Assert.AreEqual("boom", document.RootElement.GetProperty("message").GetString());
     }
 
+    [TestMethod]
+    public async Task HostClassifiesMalformedDescriptorsAsValidationFailures()
+    {
+        using var descriptor = new TemporaryDescriptor("{");
+
+        var result = await RunHostAsync(descriptor.Path);
+
+        Assert.AreEqual(1, result.ExitCode);
+        Assert.AreEqual(string.Empty, result.StandardOutput);
+        using var document = JsonDocument.Parse(result.StandardError);
+        Assert.AreEqual("validation", document.RootElement.GetProperty("kind").GetString());
+        Assert.AreEqual(
+            "DotNetKnowledge.CSharpScriptHost.ScenarioDescriptorValidationException",
+            document.RootElement.GetProperty("type").GetString());
+        StringAssert.Contains(document.RootElement.GetProperty("message").GetString()!, descriptor.Path);
+    }
+
+    [TestMethod]
+    public async Task HostClassifiesSemanticDescriptorErrorsAsValidationFailures()
+    {
+        using var descriptor = new TemporaryDescriptor(
+            """
+            {
+              "id": "temporary",
+              "entry": "main.csx",
+              "supportFiles": [],
+              "hosts": ["api"],
+              "arguments": [],
+              "submissions": [],
+              "expectations": {
+                "api": {
+                  "exitCode": 0,
+                  "returnType": null,
+                  "returnValue": null,
+                  "standardOutput": [],
+                  "standardError": [],
+                  "completedSubmissionCount": 1
+                }
+              }
+            }
+            """);
+
+        var result = await RunHostAsync(descriptor.Path);
+
+        Assert.AreEqual(1, result.ExitCode);
+        Assert.AreEqual(string.Empty, result.StandardOutput);
+        using var document = JsonDocument.Parse(result.StandardError);
+        Assert.AreEqual("validation", document.RootElement.GetProperty("kind").GetString());
+        Assert.AreEqual(
+            "DotNetKnowledge.CSharpScriptHost.ScenarioDescriptorValidationException",
+            document.RootElement.GetProperty("type").GetString());
+        var message = document.RootElement.GetProperty("message").GetString()!;
+        StringAssert.Contains(message, descriptor.Path);
+        StringAssert.Contains(message, "Path does not exist: main.csx.");
+    }
+
+    [TestMethod]
+    public async Task HostHelpDescribesTheCooperativeCancellationBoundary()
+    {
+        var result = await RunHostAsync("--help");
+
+        Assert.AreEqual(0, result.ExitCode, result.StandardError);
+        Assert.AreEqual(string.Empty, result.StandardError);
+        StringAssert.Contains(result.StandardOutput, "30-second cooperative cancellation request");
+        StringAssert.Contains(result.StandardOutput, "Ctrl+C");
+        StringAssert.Contains(result.StandardOutput, "does not hard-stop");
+        StringAssert.Contains(result.StandardOutput, "terminate the host process");
+    }
+
+    [TestMethod]
+    [Timeout(45000)]
+    public async Task HostReportsWhenACooperativeScriptObservesTheThirtySecondRequest()
+    {
+        using var scenario = new TemporaryScenario(
+            "await System.Threading.Tasks.Task.Delay(System.Threading.Timeout.Infinite, CancellationToken);");
+
+        var result = await RunHostAsync(Path.Combine(scenario.DirectoryPath, "scenario.json"));
+
+        Assert.AreEqual(3, result.ExitCode);
+        Assert.AreEqual(string.Empty, result.StandardOutput);
+        using var document = JsonDocument.Parse(result.StandardError);
+        Assert.AreEqual("timeout", document.RootElement.GetProperty("kind").GetString());
+        Assert.AreEqual("System.TimeoutException", document.RootElement.GetProperty("type").GetString());
+        var message = document.RootElement.GetProperty("message").GetString()!;
+        StringAssert.Contains(message, "30-second cooperative cancellation request");
+        StringAssert.Contains(message, "does not hard-stop");
+        StringAssert.Contains(message, "terminate the host process");
+    }
+
     private async Task<ProcessResult> RunHostAsync(string descriptorPath)
     {
         var dotnetPath = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
@@ -46,13 +135,12 @@ public sealed class ScriptHostProcessTests
             dotnetPath = "dotnet";
         }
 
-        var hostPath = Path.Combine(
-            CSharpScriptTestPaths.ShowcaseRoot,
-            "host",
-            "bin",
-            "Release",
-            "net10.0",
-            "host.dll");
+        var hostPath = Path.Combine(AppContext.BaseDirectory, "host.dll");
+        if (!File.Exists(hostPath))
+        {
+            throw new InvalidOperationException($"Script host does not exist in the active test output: {hostPath}.");
+        }
+
         return await new ProcessRunner().RunAsync(
             dotnetPath,
             [hostPath, descriptorPath],
@@ -94,5 +182,24 @@ public sealed class ScriptHostProcessTests
         public string DirectoryPath { get; }
 
         public void Dispose() => Directory.Delete(DirectoryPath, recursive: true);
+    }
+
+    private sealed class TemporaryDescriptor : IDisposable
+    {
+        private readonly string directoryPath;
+
+        public TemporaryDescriptor(string contents)
+        {
+            directoryPath = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-knowledge-csx-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directoryPath);
+            Path = System.IO.Path.Combine(directoryPath, "scenario.json");
+            File.WriteAllText(Path, contents);
+        }
+
+        public string Path { get; }
+
+        public void Dispose() => Directory.Delete(directoryPath, recursive: true);
     }
 }

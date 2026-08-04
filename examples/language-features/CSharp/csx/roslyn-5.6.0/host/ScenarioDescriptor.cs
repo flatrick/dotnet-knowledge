@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DotNetKnowledge.CSharpScriptHost;
 
@@ -69,6 +70,26 @@ internal sealed record ScenarioDescriptor(
         foreach (var host in expectations.Keys.Except(hosts).OrderBy(host => host))
         {
             errors.Add($"Unexpected expectation for host: {HostName(host)}.");
+        }
+
+        foreach (var (host, expectation) in expectations.OrderBy(pair => pair.Key))
+        {
+            if (expectation is null)
+            {
+                errors.Add($"Expectation must not be null: {HostName(host)}.");
+                continue;
+            }
+
+            AddNullExpectationCollectionError(
+                errors,
+                expectation.StandardOutput,
+                host,
+                "standardOutput");
+            AddNullExpectationCollectionError(
+                errors,
+                expectation.StandardError,
+                host,
+                "standardError");
         }
 
         ValidatePath(errors, scenarioDirectory, Entry, "Entry", requiresScriptExtension: true);
@@ -167,14 +188,26 @@ internal sealed record ScenarioDescriptor(
             errors.Add($"Required collection is missing: {memberName}.");
         }
     }
+
+    private static void AddNullExpectationCollectionError(
+        ICollection<string> errors,
+        object? collection,
+        ScriptHostKind host,
+        string memberName)
+    {
+        if (collection is null)
+        {
+            errors.Add($"Expectation collection must not be null: {HostName(host)}.{memberName}.");
+        }
+    }
 }
 
 internal sealed record ScriptGlobalsInput(string Prefix = "");
 
 internal sealed record ScenarioExpectation(
-    int ExitCode,
-    string? ReturnType,
-    JsonElement? ReturnValue,
-    IReadOnlyList<string> StandardOutput,
-    IReadOnlyList<string> StandardError,
-    int CompletedSubmissionCount);
+    [property: JsonRequired] int ExitCode,
+    [property: JsonRequired] string? ReturnType,
+    [property: JsonRequired] JsonElement? ReturnValue,
+    [property: JsonRequired] IReadOnlyList<string> StandardOutput,
+    [property: JsonRequired] IReadOnlyList<string> StandardError,
+    [property: JsonRequired] int CompletedSubmissionCount);

@@ -80,7 +80,8 @@ These are correctness obligations, not preferences. The reasoning is in
   through `Microsoft.Net.Compilers.Toolset` 5.6.0 `tasks/net472/csi.exe` on Windows. The net10
   embedding executable is a host, not evidence that `.csx` is a .NET 10 file-based-program format.
   Its path restrictions are correctness boundaries, not a sandbox: scripts are trusted code with
-  the process's permissions.
+  the process's permissions. The host requests cooperative cancellation after 30 seconds and on
+  Ctrl+C; a script that does not observe cancellation may require caller process termination.
 - **The legacy `CSharp_v7.0` project needs Visual Studio's `MSBuild.exe`.** Its current path is
   `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj`.
   `dotnet build` restores its `PackageReference` items and resolves none of them, because a non-SDK

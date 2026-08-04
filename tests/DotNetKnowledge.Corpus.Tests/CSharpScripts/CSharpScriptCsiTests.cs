@@ -11,6 +11,13 @@ public sealed class CSharpScriptCsiTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public void NormalizeLinesDistinguishesNoOutputFromOneBlankLine()
+    {
+        CollectionAssert.AreEqual(Array.Empty<string>(), NormalizeLines(string.Empty));
+        CollectionAssert.AreEqual(new[] { string.Empty }, NormalizeLines("\n"));
+    }
+
+    [TestMethod]
     [DynamicData(nameof(CsiScenarios), DynamicDataDisplayName = nameof(CsiScenarioDisplayName))]
     public async Task CsiHostMatchesTheScenarioExpectation(string descriptorPath)
     {
@@ -71,12 +78,17 @@ public sealed class CSharpScriptCsiTests
 
     private static string[] NormalizeLines(string text)
     {
+        if (text.Length == 0)
+        {
+            return [];
+        }
+
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         if (normalized.EndsWith('\n'))
         {
             normalized = normalized[..^1];
         }
 
-        return normalized.Length == 0 ? [] : normalized.Split('\n');
+        return normalized.Split('\n');
     }
 }

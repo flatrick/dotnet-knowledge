@@ -156,9 +156,10 @@ A failed run writes one structured error object to standard error and exits nonz
 errors include Roslyn diagnostic IDs and messages; runtime errors include the original exception
 type and message. The host does not print a success object after a failed submission.
 
-The host accepts cancellation and enforces a bounded execution timeout. It is an execution host,
-not a security boundary. Documentation warns that a Roslyn script has the process's permissions and
-must be trusted.
+The host issues a cooperative cancellation request after 30 seconds and when it receives Ctrl+C.
+Roslyn cannot preempt trusted script code that does not observe cancellation, so a caller that needs
+a hard stop must terminate the host process. It is an execution host, not a security boundary: a
+script has the process's permissions and must be trusted.
 
 ## `csi` Host
 
@@ -182,8 +183,9 @@ verification remains mandatory and cross-platform.
 - Missing or escaping `#load` paths and unresolved `#r` references fail visibly. Resolution does not
   fall back to unrelated working-tree or machine directories.
 - Invalid descriptors fail before script execution with the descriptor path and offending field.
-- Cancellation and timeout are distinct outcomes; a timeout terminates process-based `csi`
-  execution and cancels API-host execution.
+- When API execution observes Ctrl+C cancellation, the host reports `cancelled`; when it observes
+  the 30-second request, the host reports `timeout`. Neither outcome is a hard-stop guarantee for a
+  non-cooperative script, which may require caller process termination.
 - Missing optional `csi` prerequisites produce an explicit Inconclusive result, never a passing
   test or silent omission.
 
@@ -221,9 +223,10 @@ Tests compare normalized output, standard error, and exit code with the descript
 support is reported as Inconclusive with a remediation message.
 
 The verifier also has isolated tests for malformed descriptors, path traversal, missing `#load`
-targets, unresolved references, compilation errors, runtime exceptions, cancellation, and timeout.
-These fixtures live under the test project rather than in the authored showcase, because they test
-the harness rather than demonstrate useful scripting behavior.
+targets, unresolved references, compilation errors, runtime exceptions, cooperative cancellation,
+and the structured result produced when a script observes the 30-second request. These fixtures
+live under the test project rather than in the authored showcase, because they test the harness
+rather than demonstrate useful scripting behavior.
 
 ## Package and Content Policy
 

@@ -61,7 +61,9 @@ version and applicable host (`api` and optionally `csi`), not a `TargetFramework
 pair. The embedding executable targets net10.0 so it can run in the test environment; that does not
 make the authored `.csx` files .NET 10 file-based `.cs` programs. The scripts use only the BCL. The
 API host restricts descriptor paths and resolvers, but execution remains trusted code running with
-the host process's permissions, not a sandbox.
+the host process's permissions, not a sandbox. The host requests cooperative cancellation after 30
+seconds and on Ctrl+C; it cannot preempt a script that does not observe cancellation, so callers
+requiring a hard stop must terminate the host process.
 
 ### Why VB shares one source tree and C# does not
 

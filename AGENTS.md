@@ -65,8 +65,10 @@ earned their place, not out of habit.
 matching `Microsoft.Net.Compilers.Toolset` 5.6.0 `tasks/net472/csi.exe` on Windows. Scripts and
 support files use only the BCL. The net10 embedding host does not turn `.csx` into a .NET 10
 file-based `.cs` program, and its restricted resolvers do not make script execution a sandbox:
-these are trusted programs running with the host process's permissions. Keep the manifest rows,
-scenario descriptors, and recursive file inventories in exact agreement.
+these are trusted programs running with the host process's permissions. The host requests
+cooperative cancellation after 30 seconds and on Ctrl+C, but a script that does not observe
+cancellation may require the caller to terminate the host process. Keep the manifest rows, scenario
+descriptors, and recursive file inventories in exact agreement.
 
 **The per-`<LangVersion>` trees are hand-authored probes.** They replace the older derived-project
 layout, and the tracked tree is current truth. `scripts/generate-net48-examples.cs` still targets
