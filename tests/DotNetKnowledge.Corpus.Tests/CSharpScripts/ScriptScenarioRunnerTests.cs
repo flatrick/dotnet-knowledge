@@ -8,8 +8,10 @@ namespace DotNetKnowledge.Corpus.Tests.CSharpScripts;
 [TestCategory("Unit")]
 public sealed class ScriptScenarioRunnerTests
 {
+    private static readonly string[] CommandLineArgumentsOutput = ["alpha|two words"];
     private static readonly string[] LoadedValueOutput = ["loaded value: 42"];
     private static readonly string[] RootOutput = ["root"];
+    private static readonly string[] TypedGlobalsOutput = ["agent: ready"];
 
     public TestContext TestContext { get; set; } = null!;
 
@@ -27,6 +29,42 @@ public sealed class ScriptScenarioRunnerTests
         Assert.AreEqual("System.Int32", result.ReturnType);
         Assert.AreEqual("42", result.ReturnValue.GetRawText());
         CollectionAssert.AreEqual(Array.Empty<string>(), result.StandardOutput.ToArray());
+    }
+
+    [TestMethod]
+    public async Task RunAsyncExposesDescriptorArgumentsThroughArgs()
+    {
+        var descriptorPath = CSharpScriptTestPaths.Descriptor("command-line-arguments");
+        var descriptor = ScenarioDescriptorLoader.Load(descriptorPath);
+
+        var result = await new ScriptScenarioRunner().RunAsync(
+            descriptor,
+            Path.GetDirectoryName(descriptorPath)!,
+            TestContext.CancellationToken);
+
+        CollectionAssert.AreEqual(CommandLineArgumentsOutput, result.StandardOutput.ToArray());
+    }
+
+    [TestMethod]
+    public async Task RunAsyncExposesTheDescriptorPrefixThroughTypedGlobals()
+    {
+        var descriptorPath = CSharpScriptTestPaths.Descriptor("typed-globals");
+        var descriptor = ScenarioDescriptorLoader.Load(descriptorPath);
+
+        var result = await new ScriptScenarioRunner().RunAsync(
+            descriptor,
+            Path.GetDirectoryName(descriptorPath)!,
+            TestContext.CancellationToken);
+
+        CollectionAssert.AreEqual(TypedGlobalsOutput, result.StandardOutput.ToArray());
+    }
+
+    [TestMethod]
+    public void TypedGlobalsDoesNotClaimCsiSupport()
+    {
+        var descriptor = ScenarioDescriptorLoader.Load(CSharpScriptTestPaths.Descriptor("typed-globals"));
+
+        Assert.IsFalse(descriptor.Hosts.Contains(ScriptHostKind.Csi));
     }
 
     [TestMethod]
