@@ -28,6 +28,23 @@ public sealed class ScenarioDescriptorLoaderTests
     }
 
     [TestMethod]
+    [DataRow("supportFiles")]
+    [DataRow("hosts")]
+    [DataRow("arguments")]
+    [DataRow("submissions")]
+    [DataRow("expectations")]
+    public void LoadRejectsOmittedRequiredCollections(string member)
+    {
+        using var scenario = new TemporaryScenario();
+        scenario.WriteFile("main.csx");
+
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            ScenarioDescriptorLoader.Load(scenario.WriteDescriptor(DescriptorWithOmittedMember(member))));
+
+        StringAssert.Contains(exception.Message, $"Required collection is missing: {member}.");
+    }
+
+    [TestMethod]
     public void LoadRejectsBlankIds()
     {
         using var scenario = new TemporaryScenario();
@@ -201,6 +218,29 @@ public sealed class ScenarioDescriptorLoaderTests
           "expectations": {{expectations}}
         }
         """;
+
+    private static string DescriptorWithOmittedMember(string omittedMember)
+    {
+        var members = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["id"] = JsonSerializer.Serialize("sample"),
+            ["entry"] = JsonSerializer.Serialize("main.csx"),
+            ["supportFiles"] = "[]",
+            ["hosts"] = "[\"api\"]",
+            ["arguments"] = "[]",
+            ["submissions"] = "[]",
+            ["expectations"] = "{ \"api\": {} }"
+        };
+        if (!members.Remove(omittedMember))
+        {
+            throw new ArgumentOutOfRangeException(nameof(omittedMember));
+        }
+
+        var serializedMembers = string.Join(
+            $",{Environment.NewLine}  ",
+            members.Select(pair => $"\"{pair.Key}\": {pair.Value}"));
+        return $"{{{Environment.NewLine}  {serializedMembers}{Environment.NewLine}}}";
+    }
 
     private sealed class TemporaryScenario : IDisposable
     {

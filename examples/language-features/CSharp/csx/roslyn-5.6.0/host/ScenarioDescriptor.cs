@@ -28,6 +28,12 @@ internal sealed record ScenarioDescriptor(
         var submissions = Submissions ?? [];
         var expectations = Expectations ?? new Dictionary<ScriptHostKind, ScenarioExpectation>();
 
+        AddMissingCollectionError(errors, SupportFiles, "supportFiles");
+        AddMissingCollectionError(errors, Hosts, "hosts");
+        AddMissingCollectionError(errors, Arguments, "arguments");
+        AddMissingCollectionError(errors, Submissions, "submissions");
+        AddMissingCollectionError(errors, Expectations, "expectations");
+
         if (string.IsNullOrWhiteSpace(Id))
         {
             errors.Add("Scenario ID is required.");
@@ -150,6 +156,17 @@ internal sealed record ScenarioDescriptor(
     }
 
     private static string HostName(ScriptHostKind host) => host.ToString().ToLowerInvariant();
+
+    private static void AddMissingCollectionError(
+        ICollection<string> errors,
+        object? collection,
+        string memberName)
+    {
+        if (collection is null)
+        {
+            errors.Add($"Required collection is missing: {memberName}.");
+        }
+    }
 }
 
 internal sealed record ScriptGlobalsInput(string Prefix = "");
