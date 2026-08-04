@@ -9,9 +9,10 @@ Two things that serve one purpose — giving an agent trustworthy, local, versio
 C#, VB.NET and Roslyn:
 
 1. **`examples/language-features/`** — an authored corpus of every C# and VB.NET language feature,
-   one example per feature per language version, across several TFM/project-format combinations. It
-   is complete against `MANIFEST.md`, which is the count of record; every project builds at 0 errors
-   and 0 warnings.
+   one example per feature per language version across several TFM/project-format combinations,
+   plus a curated C# script showcase. It is complete against `MANIFEST.md`, which is the count of
+   record; every project builds at 0 errors and 0 warnings, and every script scenario has verified
+   host behavior.
 2. **`src/`** — an MCP stdio server that serves that corpus, plus API and language-design docs
    fetched from upstream Microsoft repositories.
 
@@ -24,7 +25,8 @@ human browsing — structured payloads, no ASCII tables, no decorative formattin
 | Path | Purpose |
 |------|---------|
 | `examples/language-features/` | The corpus. `MANIFEST.md` is its index and completion oracle. |
-| `examples/language-features/MANIFEST.md` | Every feature row, its group folder, target projects, and any exclusion reason. Read this before touching the corpus. |
+| `examples/language-features/MANIFEST.md` | Every language-feature row and script scenario; the corpus index and count of record. Read this before touching the corpus. |
+| `examples/language-features/CSharp/csx/roslyn-5.6.0/` | Eight descriptor-backed, BCL-only C# script scenarios plus the pinned embedding host. |
 | `docs/HANDOFF.md` | **Start here.** Current build state, next steps, and open decisions. |
 | `docs/design/mcp-tool-surface.md` | The server's tool surface, provenance envelope, and sync model. |
 | `docs/design/language-feature-showcase-design.md` | Why the corpus is shaped the way it is: era probes, applicability rule, the derivation model. |
@@ -56,6 +58,15 @@ earned their place, not out of habit.
    `dotnet scripts/verify-no-vendored-content.cs` enforces it and exits 1 on a finding.
 
 ## Working on the corpus
+
+**C# scripts have a Roslyn host coordinate, not an SDK/TFM project coordinate.** The tree at
+`CSharp/csx/roslyn-5.6.0/` is outside project discovery. All eight descriptors execute through
+`Microsoft.CodeAnalysis.CSharp.Scripting` 5.6.0; the five that name `csi` also execute through the
+matching `Microsoft.Net.Compilers.Toolset` 5.6.0 `tasks/net472/csi.exe` on Windows. Scripts and
+support files use only the BCL. The net10 embedding host does not turn `.csx` into a .NET 10
+file-based `.cs` program, and its restricted resolvers do not make script execution a sandbox:
+these are trusted programs running with the host process's permissions. Keep the manifest rows,
+scenario descriptors, and recursive file inventories in exact agreement.
 
 **The per-`<LangVersion>` trees are hand-authored probes.** They replace the older derived-project
 layout, and the tracked tree is current truth. `scripts/generate-net48-examples.cs` still targets

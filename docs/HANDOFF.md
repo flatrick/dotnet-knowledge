@@ -19,12 +19,13 @@ synchronization between the two — the extraction is one-way and final.
 | Thing | State |
 |---|---|
 | `examples/language-features/` | Complete authored corpus. The build matrix discovers every SDK-style C# library project under `CSharp/dotnet/` and every VB project under `VB.NET/`; `CorpusProjectDiscoveryTests` holds the exact expected list, and special and legacy projects remain explicit. |
+| `examples/language-features/CSharp/csx/roslyn-5.6.0/` | Bundled eight-scenario, BCL-only C# script showcase. Every descriptor runs through the Roslyn 5.6.0 embedding API; five shared scenarios also run through the matching pinned `csi` host on Windows. The manifest/descriptor/file inventory and both Roslyn package pins are enforced. |
 | `src/DotNetKnowledge.Mcp/` | Builds at 0 errors / 0 warnings. Serves `list_sources` over stdio. |
 | `sources.json` | Five upstream sources with the commits `dotnet-mcp` had pinned. |
 | `scripts/api-docs-query.cs` | The working XML-doc query logic, still in CLI form. Port it, don't rewrite it. |
 | `scripts/generate-net48-examples.cs` | Legacy generator for deleted project roots; do not run it against the current tree. |
 | `scripts/fetch-roslyn-wiki.cs` | A working blobless/sparse clone implementation — the reference for `sync_source`. |
-| `tests/DotNetKnowledge.Corpus.Tests/` | Corpus build, isolated-compilation, runtime, and runtime-marker contracts. |
+| `tests/DotNetKnowledge.Corpus.Tests/` | Corpus build, isolated-compilation, runtime, runtime-marker, and C# script host/inventory contracts. |
 | `scripts/install-corpus-test-sdks.cs` | Installs or verifies the exact corpus SDK matrix in a repository-private host. |
 
 The server was smoke-tested over real stdio: `initialize` → `tools/call list_sources` returns the
@@ -46,7 +47,9 @@ names only — no bodies — so an agent can narrow cheaply.
 
 **3. `list_examples` and `get_example`.** `MANIFEST.md` is the index. Parsing markdown tables at
 runtime is the obvious approach and the wrong one: generate a JSON index from the manifest at build
-time so a malformed table is a build failure rather than a silently short result set.
+time so a malformed table is a build failure rather than a silently short result set. The generated
+shape must carry an example-kind field that distinguishes project examples from script scenarios;
+script records also preserve their descriptor-backed hosts, support files, and behavior.
 
 **4. `search_language_docs` / `get_language_doc`** over `csharplang` and `vblang`.
 
@@ -71,6 +74,13 @@ These are correctness obligations, not preferences. The reasoning is in
 - **The per-`<LangVersion>` trees are hand-authored probes.** The on-disk tree is current truth.
   `scripts/generate-net48-examples.cs` targets deleted project roots and is not a validation command
   for the current corpus.
+- **C# scripts use host coordinates, not project coordinates.** The eight scenarios under
+  `CSharp/csx/roslyn-5.6.0/` use only the BCL and are verified through
+  `Microsoft.CodeAnalysis.CSharp.Scripting` 5.6.0; the five descriptors naming `csi` also run
+  through `Microsoft.Net.Compilers.Toolset` 5.6.0 `tasks/net472/csi.exe` on Windows. The net10
+  embedding executable is a host, not evidence that `.csx` is a .NET 10 file-based-program format.
+  Its path restrictions are correctness boundaries, not a sandbox: scripts are trusted code with
+  the process's permissions.
 - **The legacy `CSharp_v7.0` project needs Visual Studio's `MSBuild.exe`.** Its current path is
   `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj`.
   `dotnet build` restores its `PackageReference` items and resolves none of them, because a non-SDK

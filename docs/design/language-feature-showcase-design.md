@@ -18,7 +18,8 @@ checkable claim rather than an assertion.
 - Every C# language feature shipped from C# 1.0 through the latest version shipped with .NET 10.
 - Every VB.NET language feature shipped from VB.NET 1.0 through the latest version shipped with
   Visual Studio 2022/2026 and .NET 10.
-- A coverage manifest proving the above two claims are true, or documenting exactly what's excluded
+- Eight BCL-only C# script scenarios at the exact Roslyn 5.6.0 host coordinate.
+- A coverage manifest proving the claims above are true, or documenting exactly what's excluded
   and why.
 
 **Explicitly out of scope for this change:**
@@ -42,6 +43,10 @@ explicitly:
   discovers; `10/latest/` also holds the canonical `library`, `unsafe`, and `exe` sources.
 - `CSharp/dotNetFramework/v4.8/CSharp_v*/` contains the hand-authored net48 language-version
   projects, including dedicated unsafe projects where required.
+- `CSharp/csx/roslyn-5.6.0/` contains the script-host coordinate: eight descriptor-backed scenarios,
+  a net10 embedding host using `Microsoft.CodeAnalysis.CSharp.Scripting` 5.6.0, and shared cases
+  verified through the matching `Microsoft.Net.Compilers.Toolset` 5.6.0 `csi` distribution. This
+  tree is deliberately outside the SDK/TFM project-discovery roots.
 - `VB.NET/dotnet/Net10/` and `VB.NET/dotNetFramework/v4.8/` are the two VB **families**. Each is one
   shared `src/` tree plus a project per pinned `<LangVersion>` under `<pin>/<kind>/`, on the ladder
   `11, 14, 15, 15.3, 15.5, 16, 16.9, 17.13, latest`. `vbc` rejects `17` and `17.0` with `BC2014`, so
@@ -50,6 +55,13 @@ explicitly:
 
 Each cumulative project includes every applicable feature up to its version ceiling unless the
 TFM, project format, or a deliberately disabled compiler switch excludes it.
+
+Script coordinates are different from project coordinates. A `.csx` scenario names the Roslyn
+version and applicable host (`api` and optionally `csi`), not a `TargetFramework`/`LangVersion`
+pair. The embedding executable targets net10.0 so it can run in the test environment; that does not
+make the authored `.csx` files .NET 10 file-based `.cs` programs. The scripts use only the BCL. The
+API host restricts descriptor paths and resolvers, but execution remains trusted code running with
+the host process's permissions, not a sandbox.
 
 ### Why VB shares one source tree and C# does not
 
@@ -311,11 +323,12 @@ about the installed SDK as a fact about the language. The C# table has no floor 
 `Target project(s)` column names ceiling projects and has not been extended to the
 per-`<LangVersion>` probe projects.
 
-Every row is sourced from `Language-Version-History.md` (C#) or the Learn page + local spec (VB.NET).
-Every feature that ships must end up with a folder in at least one project, or an explicit
-excluded-with-reason entry — nothing is silently missing. This table is the completion oracle: the
-corpus is "done" when every row is accounted for, and it's re-checkable at any time by re-walking the
-source docs.
+Every language-feature row is sourced from `Language-Version-History.md` (C#) or the Learn page +
+local spec (VB.NET). Every feature that ships must end up with a folder in at least one project, or
+an explicit excluded-with-reason entry — nothing is silently missing. Those tables are the
+language-feature completion oracle: the corpus is "done" when every row is accounted for, and it's
+re-checkable at any time by re-walking the source docs. The separate C# script table is
+descriptor-backed and enforced against its authored scenario inventory.
 
 ## Applicability & exclusion rule
 
@@ -393,6 +406,16 @@ Corpus evidence has three layers:
 1. Project builds prove validity at a declared SDK, TFM, and language-version coordinate.
 2. Isolated compilation cases prove positive and negative feature boundaries.
 3. Runtime cases prove comments that assert observable behavior.
+
+The C# script showcase adds a host-coordinate verification layer beside those project-coordinate
+layers. Every scenario is compiled and executed through `Microsoft.CodeAnalysis.CSharp.Scripting`
+5.6.0. The five descriptors that name `csi` are also executed through the restored
+`Microsoft.Net.Compilers.Toolset` 5.6.0 `tasks/net472/csi.exe` on Windows; the three API-only cases
+record host capabilities that batch `csi` does not share. Descriptor expectations are the behavior
+oracle. The manifest gate enforces exact equality among its eight IDs and descriptor IDs, exact
+entry and host matches, recursive scenario file inventories, canonical in-root unique paths, and
+the two exact Roslyn package pins. `CorpusProjectDiscoveryTests` separately keeps this host out of
+the SDK/TFM corpus matrix.
 
 These layers are complementary. A successful project build cannot establish a historical feature
 boundary or prove a comment about runtime behavior. Every project build still requires **0 errors
