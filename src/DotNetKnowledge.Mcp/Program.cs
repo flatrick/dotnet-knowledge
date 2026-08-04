@@ -1,3 +1,4 @@
+using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -13,6 +14,8 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 
 builder.Services.AddSingleton<SourceCatalog>();
 builder.Services.AddSingleton<SourceCache>();
+builder.Services.AddSingleton<SourceSynchronizer>();
+builder.Services.AddSingleton<ApiDocsQueryService>();
 
 builder.Services
     .AddMcpServer()

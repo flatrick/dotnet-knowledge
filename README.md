@@ -27,7 +27,9 @@ it.
 
 ## For agents
 
-Start at [`AGENTS.md`](AGENTS.md), then [`docs/HANDOFF.md`](docs/HANDOFF.md).
+Start at [`AGENTS.md`](AGENTS.md). For server work, continue with the
+[`MCP tool-surface design`](docs/design/mcp-tool-surface.md); known deferred work is indexed in
+[`docs/backlog/`](docs/backlog/README.md).
 
 ```bash
 dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
@@ -45,7 +47,8 @@ dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
 ```
 
 The example corpus is bundled and needs no setup. Upstream documentation is fetched explicitly —
-call `list_sources` to see what is available and where it is cached.
+call `list_sources` to see what is available and where it is cached, then `sync_source` before an
+API lookup.
 
 ## Verifying the corpus
 
@@ -63,10 +66,18 @@ Targeting `net5.0` under SDK 10 selects net5.0 reference APIs; it does not selec
 compiler. Use `dotnet scripts/install-corpus-test-sdks.cs` to install or check the reusable private
 toolchains, then run the [full suite through the private host](scripts/install-corpus-test-sdks.md).
 
+The MCP server's unit and redirected-stdio tests need SDK 10 and Git, with no network access:
+
+```powershell
+dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj
+```
+
 ## Status
 
-The corpus is complete. The server is early: `list_sources` works; `sync_source`, the API-doc
-lookups, and the example queries are not built yet. See [`docs/HANDOFF.md`](docs/HANDOFF.md).
+The corpus is complete. The server lists and synchronizes pinned upstream sources and provides
+paginated API search plus exact type/member lookup over the .NET and Roslyn ECMA XML docs. Language
+design-document queries and bundled-example queries remain future work; their intended surface is
+recorded in [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).
 
 ## License
 

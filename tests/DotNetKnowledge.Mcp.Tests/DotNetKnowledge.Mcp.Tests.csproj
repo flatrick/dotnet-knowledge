@@ -1,0 +1,13 @@
+<Project Sdk="MSTest.Sdk/4.3.2">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>DotNetKnowledge.Mcp.Tests</RootNamespace>
+    <UseVSTest>true</UseVSTest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DotNetKnowledge.Mcp\DotNetKnowledge.Mcp.csproj" />
+  </ItemGroup>
+</Project>
