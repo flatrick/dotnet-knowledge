@@ -35,6 +35,22 @@ human browsing — structured payloads, no ASCII tables, no decorative formattin
 | `docs/backlog/` | Known issues and deferred decisions, one file each. Read before assuming a rough edge is undiscovered. |
 | `sources.json` | The upstream sources, their pinned commits, and their sparse-checkout paths. |
 | `scripts/*.cs` | Dev tooling, as single-file C# programs — `dotnet scripts/foo.cs -- <args>`. |
+| `version.json` | Nerdbank.GitVersioning config. The package version carries the commit it was built from, which is how the install script tells a current tool from a stale one. |
+
+## Prerequisites
+
+**Run `dotnet scripts/install-mcp-tool.cs -- install` once per machine, before the first session
+that uses the `dotnet-knowledge` tools.** `.mcp.json` and `.codex/config.toml` start the server with
+the `dotnet-knowledge` command from `~/.dotnet/tools`, which this install creates.
+
+The install is machine-global, not per-checkout: a worktree needs no MCP setup of its own, and
+installing from one worktree changes the server for every concurrent session. The script self-locates
+from its own file path, so a worktree's copy always installs *that worktree's* code regardless of the
+shell's working directory.
+
+Re-run the same command after changing server code, then **restart the MCP connection** — a running
+client keeps serving the previously installed binary until it reconnects. With no arguments the
+script reports the installed version and whether it was built from this checkout's HEAD.
 
 ## Conventions inherited deliberately
 

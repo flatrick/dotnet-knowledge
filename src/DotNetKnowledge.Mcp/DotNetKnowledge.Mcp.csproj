@@ -23,14 +23,26 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="1.3.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+    <!--
+      Derives the package version from git: 0.1.0-preview.{height}.g{commit}, configured in
+      version.json at the repository root. The embedded commit id is what lets
+      `dotnet scripts/install-mcp-tool.cs` tell an installed tool built from this checkout's HEAD
+      apart from a stale one. Build-time only, so it adds nothing to the shipped package.
+    -->
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.10.85" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <!--
       The pins ship with the server so an install vouches for specific upstream revisions.
       Copied rather than embedded so an operator can edit them without rebuilding.
+
+      Pack="false" is not "excluded from the package": PackAsTool packs the whole publish output
+      into tools/$(TargetFramework)/any/, and CopyToOutputDirectory already puts sources.json
+      there. Naming that same destination explicitly makes NuGet add the file twice and fail the
+      pack with NU5118.
     -->
-    <Content Include="../../sources.json" Link="sources.json" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="tools/net10.0/any/" />
+    <Content Include="../../sources.json" Link="sources.json" CopyToOutputDirectory="PreserveNewest" Pack="false" />
   </ItemGroup>
 
 </Project>
