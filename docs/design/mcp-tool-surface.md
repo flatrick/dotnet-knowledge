@@ -51,14 +51,25 @@ get_language_doc(path, source)
     → the document's contents
 
 ── examples (bundled) ────────────────────────────────────────────────
-list_examples(language?, version?, feature?)
-    → manifest rows: version, feature, group folder, target projects,
+list_examples(kind?, language?, version?, feature?)
+    kind: "project" | "script"
+    → project manifest rows: version, feature, group folder, target projects,
       exclusion reasons
+    → script manifest rows: scenario ID, Roslyn version, entry, applicable hosts,
+      demonstrates, note
 
-get_example(group, project?)
-    → source text; project selects the TFM/format twin and defaults to the
-      net10 one, listing the alternatives available
+get_example(id, kind?, project?)
+    → project example: source text; project selects the TFM/format twin and
+      defaults to the net10 one, listing the alternatives available
+    → script example: kind: "script", language: "C#",
+      host: { name: "Roslyn", version: "5.6.0" }, entry, supportFiles,
+      applicableHosts, and descriptor-backed behavior expectations
 ```
+
+The example tools are a future server surface. Their build-time index must preserve the example
+kind so a script scenario is never presented as a project/TFM feature row. For scripts,
+`scenario.json` supplies the support-file list, applicable hosts, and verified behavior; the
+dedicated `MANIFEST.md` table supplies discovery metadata and must agree with the descriptor.
 
 ### Why the search tools return names and locations rather than content
 

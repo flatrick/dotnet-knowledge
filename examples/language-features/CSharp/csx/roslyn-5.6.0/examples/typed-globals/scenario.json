@@ -1,0 +1,21 @@
+{
+  "id": "typed-globals",
+  "entry": "main.csx",
+  "supportFiles": [],
+  "hosts": ["api"],
+  "arguments": [],
+  "globals": {
+    "prefix": "agent"
+  },
+  "submissions": [],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["agent: ready"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    }
+  }
+}

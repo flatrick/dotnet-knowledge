@@ -1,14 +1,15 @@
 # Language-feature showcase — coverage manifest
 
-Every row is sourced from `external/csharplang/Language-Version-History.md` (C#) or
+Every language-feature row is sourced from `external/csharplang/Language-Version-History.md` (C#) or
 `https://learn.microsoft.com/dotnet/visual-basic/whats-new/` + `external/vblang/spec/` (VB.NET —
-see the design doc's sourcing-strategy section for why VB.NET needs two sources). The **Target
-project(s)** column names the project(s) each feature is destined for — it is a plan, not a record of
-what exists on disk today. The **Authoring status** section near the end of this file is the record
-of what has actually been authored so far: a row counts as authored for a project once its example
-file(s) exist under that project's matching version/group folder and the project builds with 0
-errors and 0 warnings; until then, that row is simply not yet authored there — not a placeholder,
-the accurate current state of an in-progress corpus.
+see the design doc's sourcing-strategy section for why VB.NET needs two sources). In those tables,
+the **Target project(s)** column names the project(s) each feature is destined for — it is a plan,
+not a record of what exists on disk today. The **Authoring status** section near the end of this file
+is the record of what has actually been authored so far: a row counts as authored for a project once
+its example file(s) exist under that project's matching version/group folder and the project builds
+with 0 errors and 0 warnings; until then, that row is simply not yet authored there — not a
+placeholder, the accurate current state of an in-progress corpus. The C# script table is instead
+backed one-to-one by the checked-in scenario descriptors and their exact file inventories.
 
 **Project codes:** `Fw73` = Net48_CSharp7_3_Library, `Fw80` = Net48_CSharp8_Library,
 `Latest` = Net10_CSharpLatest_Library, `Fw80Unsafe` = Net48_CSharp8_Unsafe,
@@ -128,6 +129,19 @@ The two families keep separate `src/` trees because four rows genuinely diverge:
 | `ConsumingCSharpRefReturnValues` | In both, over different ref-returning subjects — see its Note. |
 | `CallerArgumentExpressionConsumption` | `VbLatest` only. net48 has no attributed API to consume — see its Note. |
 | `OverloadResolutionPriorityConsumption` | `VbLatest` only. No net48 assembly here can supply a prioritized API — see its Note. |
+
+## C# scripts (`.csx`)
+
+| Scenario | Entry | Hosts | Demonstrates | Note |
+|---|---|---|---|---|
+| expression-result | `CSharp/csx/roslyn-5.6.0/examples/expression-result/main.csx` | `api`, `csi` | A final expression produces a typed API result | Batch `csi` presents the final integer expression as process exit code 42. |
+| top-level-await | `CSharp/csx/roslyn-5.6.0/examples/top-level-await/main.csx` | `api`, `csi` | Top-level `await` in a script | Both hosts resume and write the same output. |
+| load-relative-script | `CSharp/csx/roslyn-5.6.0/examples/load-relative-script/main.csx` | `api`, `csi` | `#load` relative to the entry script | The API host restricts resolution to the scenario directory; `csi` uses its native resolver. |
+| reference-bcl-assembly | `CSharp/csx/roslyn-5.6.0/examples/reference-bcl-assembly/main.csx` | `api`, `csi` | `#r` of a BCL assembly | The API host resolves only its explicit BCL allowlist; `csi` uses its native resolver. |
+| command-line-arguments | `CSharp/csx/roslyn-5.6.0/examples/command-line-arguments/main.csx` | `api`, `csi` | Script command arguments, including whitespace | The API host exposes typed `Args`; `csi` receives native script arguments. |
+| typed-globals | `CSharp/csx/roslyn-5.6.0/examples/typed-globals/main.csx` | `api` | Strongly typed host globals | Typed globals are an embedding-API contract and are not available to batch `csi`. |
+| continued-submissions | `CSharp/csx/roslyn-5.6.0/examples/continued-submissions/initialize.csx` | `api` | State shared across ordered submissions | The API host continues `ScriptState`; batch `csi` is not used as an interactive session. |
+| json-file-transform | `CSharp/csx/roslyn-5.6.0/examples/json-file-transform/main.csx` | `api` | A deterministic JSON file transformation | The net10 API host supplies `System.Text.Json`; the pinned net472 `csi` host does not. |
 
 ## C#
 

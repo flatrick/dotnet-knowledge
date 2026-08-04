@@ -1,0 +1,26 @@
+{
+  "id": "top-level-await",
+  "entry": "main.csx",
+  "supportFiles": [],
+  "hosts": ["api", "csi"],
+  "arguments": [],
+  "submissions": [],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["resumed after await"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    },
+    "csi": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["resumed after await"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    }
+  }
+}

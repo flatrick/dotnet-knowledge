@@ -1,0 +1,26 @@
+{
+  "id": "load-relative-script",
+  "entry": "main.csx",
+  "supportFiles": ["shared.csx"],
+  "hosts": ["api", "csi"],
+  "arguments": [],
+  "submissions": [],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["loaded value: 42"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    },
+    "csi": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["loaded value: 42"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "reference-bcl-assembly",
+  "entry": "main.csx",
+  "supportFiles": [],
+  "hosts": ["api", "csi"],
+  "arguments": [],
+  "submissions": [],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["root"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    },
+    "csi": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["root"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    }
+  }
+}

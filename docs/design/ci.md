@@ -82,6 +82,14 @@ Exact action tags trade automatic patch adoption for one reviewable commit per v
 deliberately excluded: corpus package versions are pinned to historical releases as part of the
 corpus contract, so that ecosystem would only produce pull requests that must be rejected.
 
+The C# script showcase has a paired Roslyn coordinate: the net10 embedding host references
+`Microsoft.CodeAnalysis.CSharp.Scripting` exactly at 5.6.0, and the corpus test project references
+`Microsoft.Net.Compilers.Toolset` exactly at 5.6.0 with `PrivateAssets=all`. On Windows the test
+build copies the restored toolset's top-level `tasks/net472` assets into its output and runs that
+exact `csi.exe` for the five descriptors that declare `csi`. Those files are package restore/build
+output, are never tracked or bundled as corpus content, and the net472 executable is a Windows-only
+verification host. All eight embedding-API cases remain mandatory independently of `csi`.
+
 ### When an action cannot move
 
 An action that cannot be upgraded is pinned to the version that works, with a comment naming what

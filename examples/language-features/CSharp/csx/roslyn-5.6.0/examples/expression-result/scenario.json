@@ -1,0 +1,26 @@
+{
+  "id": "expression-result",
+  "entry": "main.csx",
+  "supportFiles": [],
+  "hosts": ["api", "csi"],
+  "arguments": [],
+  "submissions": [],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": "System.Int32",
+      "returnValue": 42,
+      "standardOutput": [],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    },
+    "csi": {
+      "exitCode": 42,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": [],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    }
+  }
+}
