@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace DotNetKnowledge.Mcp.Sources;
 
 /// <summary>
@@ -16,20 +18,79 @@ public sealed class SourceCache
 {
     public const string CacheEnvironmentVariable = "DOTNET_KNOWLEDGE_CACHE";
 
-    public string Root { get; } = ResolveRoot();
+    public SourceCache()
+        : this(ResolveRoot())
+    {
+    }
+
+    public SourceCache(string root) => Root = Path.GetFullPath(root);
+
+    public string Root { get; }
 
     public string DirectoryFor(string sourceName) => Path.Combine(Root, sourceName);
 
+    public string StatePathFor(string sourceName) =>
+        Path.Combine(Root, ".state", sourceName + ".json");
+
+    public SourceSyncState? TryReadState(string sourceName)
+    {
+        var path = StatePathFor(sourceName);
+        if (!File.Exists(path))
+            return null;
+
+        try
+        {
+            var state = JsonSerializer.Deserialize<SourceSyncState>(File.ReadAllText(path));
+            return IsComplete(state) ? state : null;
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException or IOException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsComplete(SourceSyncState? state) =>
+        state is not null
+        && state.SchemaVersion == 1
+        && !string.IsNullOrWhiteSpace(state.Name)
+        && !string.IsNullOrWhiteSpace(state.Repository)
+        && !string.IsNullOrWhiteSpace(state.Url)
+        && !string.IsNullOrWhiteSpace(state.Ref)
+        && state.Commit is { Length: 40 }
+        && state.Commit.All(Uri.IsHexDigit)
+        && state.FetchedAt != default
+        && state.SparsePaths is { Count: > 0 }
+        && state.SparsePaths.All(path => !string.IsNullOrWhiteSpace(path));
+
+    public void WriteState(string sourceName, SourceSyncState state)
+    {
+        var directory = Path.GetDirectoryName(StatePathFor(sourceName))!;
+        Directory.CreateDirectory(directory);
+        var destination = StatePathFor(sourceName);
+        var temporary = destination + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(state));
+            File.Move(temporary, destination, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
     /// <summary>
-    /// True when the source has been cloned. A directory containing a <c>.git</c> entry is the
-    /// signal; an empty or partially-created directory counts as not synced, because a half-fetched
-    /// source answers queries with plausible-looking absences rather than errors.
+    /// True when the source has both a Git repository and structurally complete synchronization
+    /// metadata. Full commit, configuration, and worktree validation is performed by
+    /// <see cref="SourceSynchronizer.TryGetCurrentStateAsync"/>.
     /// </summary>
     public bool IsSynced(string sourceName)
     {
         var directory = DirectoryFor(sourceName);
-        return Directory.Exists(Path.Combine(directory, ".git"))
+        var hasGitEntry = Directory.Exists(Path.Combine(directory, ".git"))
             || File.Exists(Path.Combine(directory, ".git"));
+
+        return hasGitEntry && TryReadState(sourceName) is not null;
     }
 
     private static string ResolveRoot()

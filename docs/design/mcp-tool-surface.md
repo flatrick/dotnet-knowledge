@@ -11,6 +11,9 @@ a web search risks an answer describing a different version than the one in the 
 
 This server provides all three locally and states which revision each answer came from.
 
+The source and API-doc tools are implemented. Language-design and bundled-example tools below are
+the remaining surface.
+
 ## Two classes of source, two lifecycles
 
 | Class | What | Sync needed |
@@ -27,7 +30,7 @@ and only the doc tools require a sync.
 ── sources (fetched only) ────────────────────────────────────────────
 list_sources()
     → per source: name, purpose, pinned commit, currently-synced ref and
-      commit, synced?, sizeOnDisk, cacheDir
+      commit, fetchedAt, synced?, cacheDir
 
 sync_source(name, ref?)
     → clones or fetches into the cache. Long-running by nature.
@@ -95,6 +98,13 @@ Every payload — from every tool, including cached and bundled ones — carries
 `ref` is `"pinned"`, `"head:<branch>"`, or `"bundled"` for the corpus. It is never absent and never
 inferred.
 
+When one response contains matches from both API repositories, each match carries its own source
+envelope; provenance is never collapsed into one ambiguous top-level revision.
+
+`list_sources` does not recursively measure cache size. The largest source is expensive enough that
+walking it can make this cheap status call look hung; synchronization state and provenance are the
+contract that query correctness depends on.
+
 **This is the server's central correctness obligation, not a nicety.** The reason to prefer a local
 lookup over a web search is that the answer is tied to a known revision. Once a caller can request
 `head`, an unlabeled answer forfeits exactly that property — it becomes a web search with worse
@@ -113,6 +123,9 @@ clone is measured in minutes, which means:
 The second failure is the dangerous one, because nothing about it looks like an error. So: query
 tools check for the source and fail fast, and the failure message names the remedy in imperative
 form, because the reader is an LLM.
+
+An API query with no `source` restriction requires both API-doc repositories to be synchronized.
+It never searches only the available subset, because an incomplete result set looks authoritative.
 
 ```json
 {
@@ -147,7 +160,8 @@ the working reference implementation:
 ```
 git clone --filter=blob:none --no-checkout --sparse <url> <dir>
 git -C <dir> sparse-checkout set <paths...>
-git -C <dir> checkout <pin-or-head>
+git -C <dir> fetch --depth 1 origin <pin-or-head>
+git -C <dir> checkout --detach FETCH_HEAD
 ```
 
 ## Naming, against dotnet-mcp

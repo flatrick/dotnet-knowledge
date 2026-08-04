@@ -1,7 +1,8 @@
 # Agent setup — dotnet-knowledge
 
-This file is the entry point for LLM agents and contributors. Read it before doing anything else,
-then read [docs/HANDOFF.md](docs/HANDOFF.md) for the current state of the build and what to do next.
+This file is the entry point for LLM agents and contributors. Read it before doing anything else.
+For server work, read [docs/design/mcp-tool-surface.md](docs/design/mcp-tool-surface.md); for known
+deferred work, read [docs/backlog/README.md](docs/backlog/README.md).
 
 ## What this repository is
 
@@ -27,7 +28,6 @@ human browsing — structured payloads, no ASCII tables, no decorative formattin
 | `examples/language-features/` | The corpus. `MANIFEST.md` is its index and completion oracle. |
 | `examples/language-features/MANIFEST.md` | Every language-feature row and script scenario; the corpus index and count of record. Read this before touching the corpus. |
 | `examples/language-features/CSharp/csx/roslyn-5.6.0/` | Eight descriptor-backed, BCL-only C# script scenarios plus the pinned embedding host. |
-| `docs/HANDOFF.md` | **Start here.** Current build state, next steps, and open decisions. |
 | `docs/design/mcp-tool-surface.md` | The server's tool surface, provenance envelope, and sync model. |
 | `docs/design/language-feature-showcase-design.md` | Why the corpus is shaped the way it is: era probes, applicability rule, the derivation model. |
 | `docs/design/ci.md` | What CI runs and when, why every version is pinned, and the runbook to activate the merge gate. |

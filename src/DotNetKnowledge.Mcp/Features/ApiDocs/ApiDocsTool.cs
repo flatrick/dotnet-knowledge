@@ -1,0 +1,153 @@
+using System.ComponentModel;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using ModelContextProtocol.Server;
+
+namespace DotNetKnowledge.Mcp.Features.ApiDocs;
+
+[McpServerToolType]
+public sealed class ApiDocsTool
+{
+    private static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    [McpServerTool(Name = "lookup_api", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
+        "Use TypeName or TypeName.MemberName; pass source to restrict the lookup to " +
+        "dotnet-api-docs or roslyn-api-docs. Returns signatures and documentation with provenance.")]
+    public static async Task<string> LookupApi(
+        string symbol,
+        ApiDocsQueryService service,
+        CancellationToken cancellationToken,
+        string? source = null)
+    {
+        try
+        {
+            var result = await service.LookupAsync(symbol, source, cancellationToken).ConfigureAwait(false);
+            if (result.Matches.Count == 0)
+            {
+                return JsonSerializer.Serialize(
+                    new
+                    {
+                        error = "not_found",
+                        message = $"API symbol '{symbol}' was not found in the selected synchronized source(s). " +
+                            "Call search_api with a type-name fragment to find candidates.",
+                        symbol,
+                        searchedSources = result.SearchedSources,
+                    },
+                    WriteOptions);
+            }
+
+            return JsonSerializer.Serialize(result, WriteOptions);
+        }
+        catch (SourceNotSyncedException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_not_synced",
+                    message = exception.Message,
+                    source = exception.SourceName,
+                },
+                WriteOptions);
+        }
+        catch (ArgumentException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "invalid_request",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (InvalidDataException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_invalid",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
+    }
+
+    [McpServerTool(Name = "search_api", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Search synchronized .NET and Roslyn ECMA XML docs by type-name fragment. " +
+        "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
+        "call lookup_api for documentation bodies.")]
+    public static async Task<string> SearchApi(
+        string pattern,
+        ApiDocsQueryService service,
+        CancellationToken cancellationToken,
+        int? limit = null,
+        string? cursor = null)
+    {
+        try
+        {
+            var result = await service.SearchAsync(
+                pattern,
+                limit ?? 20,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Serialize(result, WriteOptions);
+        }
+        catch (SourceNotSyncedException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_not_synced",
+                    message = exception.Message,
+                    source = exception.SourceName,
+                },
+                WriteOptions);
+        }
+        catch (ArgumentException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = string.Equals(exception.ParamName, "cursor", StringComparison.Ordinal)
+                        ? "invalid_cursor"
+                        : "invalid_request",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (InvalidDataException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_invalid",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
+    }
+
+    private static string SerializeSourceInvalid(Exception exception) =>
+        JsonSerializer.Serialize(
+            new
+            {
+                error = "source_invalid",
+                message = exception.Message,
+            },
+            WriteOptions);
+}

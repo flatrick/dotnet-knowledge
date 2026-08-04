@@ -8,6 +8,7 @@
     "'pin' is the commit this repository vouches for. A caller may instead request the ref in",
     "'head', which opts into upstream drift; every response states which of the two it came",
     "from, because an answer whose version is unknown is worse than no answer.",
+    "'repository' is the stable owner/name identity carried in each provenance envelope.",
     "",
     "'sparse' limits the checkout to the paths the query tools actually read. dotnet-api-docs",
     "is large enough that a full clone is not a reasonable first-run experience."
@@ -17,6 +18,7 @@
 
   "sources": {
     "csharplang": {
+      "repository": "dotnet/csharplang",
       "url": "https://github.com/dotnet/csharplang.git",
       "pin": "36796924c898eb698d983b921001fa00cf689d9b",
       "head": "main",
@@ -24,6 +26,7 @@
       "purpose": "C# language design: proposals, specification, LDM notes, version history."
     },
     "vblang": {
+      "repository": "dotnet/vblang",
       "url": "https://github.com/dotnet/vblang.git",
       "pin": "0712f0b8c91dfba593fc16f846c5821ed5cad2f9",
       "head": "main",
@@ -31,6 +34,7 @@
       "purpose": "VB.NET language design. Note its version history only covers VB 15.0 onward."
     },
     "roslyn-api-docs": {
+      "repository": "dotnet/roslyn-api-docs",
       "url": "https://github.com/dotnet/roslyn-api-docs.git",
       "pin": "4fed37999ba2fb00b90d4489358bb9a7763e49ef",
       "head": "main",
@@ -38,6 +42,7 @@
       "purpose": "Roslyn compiler and workspace API XML docs (Microsoft.CodeAnalysis.*)."
     },
     "dotnet-api-docs": {
+      "repository": "dotnet/dotnet-api-docs",
       "url": "https://github.com/dotnet/dotnet-api-docs.git",
       "pin": "a81557d32be7626cbd80b453b35b057cbcc472c7",
       "head": "main",
@@ -45,6 +50,7 @@
       "purpose": "BCL API XML docs (System.*, Microsoft.*)."
     },
     "roslyn-wiki": {
+      "repository": "dotnet/roslyn",
       "url": "https://github.com/dotnet/roslyn.git",
       "pin": "fca0128889ed81ab7a8754586be0ed18aadb4b14",
       "head": "main",

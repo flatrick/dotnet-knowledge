@@ -12,6 +12,7 @@ namespace DotNetKnowledge.Mcp.Sources;
 /// <param name="Sparse">Paths to sparse-checkout; the rest of the tree is never fetched.</param>
 /// <param name="Purpose">One line on what the source answers, surfaced by <c>list_sources</c>.</param>
 public sealed record SourceDefinition(
+    [property: JsonPropertyName("repository")] string Repository,
     [property: JsonPropertyName("url")] string Url,
     [property: JsonPropertyName("pin")] string Pin,
     [property: JsonPropertyName("head")] string Head,
@@ -42,16 +43,21 @@ public sealed class SourceCatalog
 
     private readonly Lazy<IReadOnlyDictionary<string, SourceDefinition>> _sources;
 
-    public SourceCatalog() => _sources = new Lazy<IReadOnlyDictionary<string, SourceDefinition>>(Load);
+    public SourceCatalog()
+        : this(Path.Combine(AppContext.BaseDirectory, FileName))
+    {
+    }
+
+    public SourceCatalog(string path) =>
+        _sources = new Lazy<IReadOnlyDictionary<string, SourceDefinition>>(() => Load(path));
 
     public IReadOnlyDictionary<string, SourceDefinition> Sources => _sources.Value;
 
     public bool TryGet(string name, out SourceDefinition definition) =>
         Sources.TryGetValue(name, out definition!);
 
-    private static Dictionary<string, SourceDefinition> Load()
+    private static Dictionary<string, SourceDefinition> Load(string path)
     {
-        var path = Path.Combine(AppContext.BaseDirectory, FileName);
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
@@ -64,9 +70,51 @@ public sealed class SourceCatalog
         var parsed = JsonSerializer.Deserialize<SourcesFile>(File.ReadAllText(path), ReadOptions)
             ?? throw new InvalidDataException($"{path} did not parse into a sources document.");
 
+        if (parsed.SchemaVersion != 1)
+            throw new InvalidDataException($"{path} has unsupported schemaVersion {parsed.SchemaVersion}.");
+
         if (parsed.Sources is null || parsed.Sources.Count == 0)
             throw new InvalidDataException($"{path} declares no sources.");
 
+        foreach (var (name, definition) in parsed.Sources)
+            ValidateSource(path, name, definition);
+
         return parsed.Sources;
+    }
+
+    private static void ValidateSource(string path, string name, SourceDefinition? definition)
+    {
+        if (string.IsNullOrWhiteSpace(name)
+            || name.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_'))
+        {
+            throw new InvalidDataException($"{path} declares invalid source name '{name}'.");
+        }
+
+        if (definition is null
+            || string.IsNullOrWhiteSpace(definition.Repository)
+            || string.IsNullOrWhiteSpace(definition.Url)
+            || string.IsNullOrWhiteSpace(definition.Head)
+            || definition.Head.StartsWith('-')
+            || string.IsNullOrWhiteSpace(definition.Purpose)
+            || definition.Pin is not { Length: 40 }
+            || definition.Pin.Any(character => !Uri.IsHexDigit(character))
+            || definition.Sparse is not { Count: > 0 })
+        {
+            throw new InvalidDataException($"{path} declares incomplete source '{name}'.");
+        }
+
+        foreach (var sparsePath in definition.Sparse)
+        {
+            var segments = sparsePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+            if (string.IsNullOrWhiteSpace(sparsePath)
+                || Path.IsPathRooted(sparsePath)
+                || sparsePath.Contains(':')
+                || sparsePath.StartsWith('-')
+                || segments.Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+            {
+                throw new InvalidDataException(
+                    $"{path} source '{name}' declares invalid sparse path '{sparsePath}'.");
+            }
+        }
     }
 }
