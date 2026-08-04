@@ -23,6 +23,19 @@ public sealed class CSharpScriptCorpusCoverageTests
         };
 
     [TestMethod]
+    public void ExamplesRootClosureRejectsAFileOutsideEveryScenarioDirectory()
+    {
+        using var examples = new TemporaryExamplesRoot();
+        var declaredPath = examples.WriteFile("sample/main.csx");
+        _ = examples.WriteFile("orphan.csx");
+
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            RequireCompleteExamplesRoot(examples.Path, [declaredPath]));
+
+        StringAssert.Contains(exception.Message, "Unowned file: orphan.csx.");
+    }
+
+    [TestMethod]
     public void ManifestDescriptorsAndScenarioFilesAreAnExactBijection()
     {
         var repositoryRoot = CSharpScriptTestPaths.RepositoryRoot;
@@ -110,6 +123,8 @@ public sealed class CSharpScriptCorpusCoverageTests
                 descriptor.Hosts.ToArray(),
                 $"Descriptor hosts must match the approved host matrix for '{descriptor.Id}'.");
         }
+
+        RequireCompleteExamplesRoot(examplesRoot, canonicalPaths);
     }
 
     [TestMethod]
@@ -167,6 +182,60 @@ public sealed class CSharpScriptCorpusCoverageTests
         return canonicalPath;
     }
 
+    private static void RequireCompleteExamplesRoot(
+        string examplesRoot,
+        IEnumerable<string> declaredCanonicalPaths)
+    {
+        var canonicalRoot = Path.GetFullPath(examplesRoot);
+        var comparer = PathComparer();
+        var declaredFiles = declaredCanonicalPaths
+            .Select(Path.GetFullPath)
+            .ToHashSet(comparer);
+        var actualFiles = Directory.EnumerateFiles(canonicalRoot, "*", SearchOption.AllDirectories)
+            .Select(Path.GetFullPath)
+            .ToHashSet(comparer);
+
+        var errors = actualFiles
+            .Except(declaredFiles, comparer)
+            .Select(path => $"Unowned file: {RelativePath(canonicalRoot, path)}.")
+            .Concat(
+                declaredFiles
+                    .Except(actualFiles, comparer)
+                    .Select(path => $"Declared file is missing: {RelativePath(canonicalRoot, path)}."))
+            .OrderBy(error => error, StringComparer.Ordinal)
+            .ToArray();
+        if (errors.Length != 0)
+        {
+            throw new InvalidDataException(string.Join(Environment.NewLine, errors));
+        }
+    }
+
+    private static string RelativePath(string root, string path) =>
+        Path.GetRelativePath(root, path).Replace('\\', '/');
+
     private static StringComparer PathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private sealed class TemporaryExamplesRoot : IDisposable
+    {
+        public TemporaryExamplesRoot()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-knowledge-csx-inventory-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public string WriteFile(string relativePath)
+        {
+            var path = System.IO.Path.Combine(Path, relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "// test fixture");
+            return path;
+        }
+
+        public void Dispose() => Directory.Delete(Path, recursive: true);
+    }
 }
