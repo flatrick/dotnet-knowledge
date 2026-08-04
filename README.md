@@ -62,7 +62,8 @@ dotnet run --project src/DotNetKnowledge.Mcp
 
 The example corpus is bundled and needs no setup. Upstream documentation is fetched explicitly —
 call `list_sources` to see what is available and where it is cached, then `sync_source` before an
-API lookup.
+API lookup. `sync_source` does not complete when the server runs under an MCP client; see
+[Status](#status).
 
 ## Verifying the corpus
 
@@ -88,10 +89,22 @@ dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj
 
 ## Status
 
-The corpus is complete. The server lists and synchronizes pinned upstream sources and provides
-paginated API search plus exact type/member lookup over the .NET and Roslyn ECMA XML docs. Language
-design-document queries and bundled-example queries remain future work; their intended surface is
-recorded in [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).
+The corpus is complete.
+
+The server's source and API-doc tools are implemented — listing and synchronizing pinned upstream
+sources, paginated API search, and exact type/member lookup over the .NET and Roslyn ECMA XML docs.
+**They do not currently work when the server is launched by an MCP client**: every `git` subprocess
+it starts under a stdio host hangs, which stops `sync_source` from completing and, once a source is
+present in the cache, stops `list_sources` and both query tools as well. See
+[`docs/backlog/git-subprocesses-hang-under-an-mcp-stdio-host.md`](docs/backlog/git-subprocesses-hang-under-an-mcp-stdio-host.md).
+Driven from a console process, where git behaves normally, the query tools answer correctly.
+
+Three narrower query defects are open alongside it: generic members are unreachable by name,
+`lookup_api` has no response budget, and a non-generic type shadows its generic namesake. Each is a
+file in [`docs/backlog/`](docs/backlog/README.md).
+
+Language design-document queries and bundled-example queries remain future work; their intended
+surface is recorded in [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).
 
 ## License
 

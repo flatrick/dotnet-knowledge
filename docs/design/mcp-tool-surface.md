@@ -11,8 +11,11 @@ a web search risks an answer describing a different version than the one in the 
 
 This server provides all three locally and states which revision each answer came from.
 
-The source and API-doc tools are implemented. Language-design and bundled-example tools below are
-the remaining surface.
+The source and API-doc tools are implemented; language-design and bundled-example tools below are
+the remaining surface. What is implemented does not currently function under an MCP stdio host —
+every `git` subprocess the server starts there hangs, which blocks synchronization and, once a
+source is cached, the query tools too. This document describes the intended surface throughout;
+[`docs/backlog/`](../backlog/README.md) records where the implementation departs from it.
 
 ## Two classes of source, two lifecycles
 
