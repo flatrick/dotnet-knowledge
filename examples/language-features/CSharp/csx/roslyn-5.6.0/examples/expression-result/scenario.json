@@ -15,7 +15,7 @@
       "completedSubmissionCount": 1
     },
     "csi": {
-      "exitCode": 0,
+      "exitCode": 42,
       "returnType": null,
       "returnValue": null,
       "standardOutput": [],
