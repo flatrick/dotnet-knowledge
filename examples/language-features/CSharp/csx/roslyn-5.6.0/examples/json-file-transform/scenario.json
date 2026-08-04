@@ -1,0 +1,18 @@
+{
+  "id": "json-file-transform",
+  "entry": "main.csx",
+  "supportFiles": ["input.json"],
+  "hosts": ["api"],
+  "arguments": ["input.json"],
+  "submissions": [],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": null,
+      "returnValue": null,
+      "standardOutput": ["{\"enabledNames\":[\"alpha\",\"gamma\"]}"],
+      "standardError": [],
+      "completedSubmissionCount": 1
+    }
+  }
+}

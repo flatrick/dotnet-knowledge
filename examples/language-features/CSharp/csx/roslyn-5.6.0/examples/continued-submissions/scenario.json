@@ -1,0 +1,18 @@
+{
+  "id": "continued-submissions",
+  "entry": "initialize.csx",
+  "supportFiles": ["continue.csx"],
+  "hosts": ["api"],
+  "arguments": [],
+  "submissions": ["initialize.csx", "continue.csx"],
+  "expectations": {
+    "api": {
+      "exitCode": 0,
+      "returnType": "System.Int32",
+      "returnValue": 5,
+      "standardOutput": ["5"],
+      "standardError": [],
+      "completedSubmissionCount": 2
+    }
+  }
+}

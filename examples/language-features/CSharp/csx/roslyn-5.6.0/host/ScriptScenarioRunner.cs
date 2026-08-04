@@ -17,18 +17,35 @@ internal sealed class ScriptScenarioRunner
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioDirectory);
 
-        var entryPath = Path.GetFullPath(Path.Combine(scenarioDirectory, descriptor.Entry));
+        var canonicalScenarioDirectory = Path.GetFullPath(scenarioDirectory);
+        var submissionPaths = (descriptor.Submissions.Count == 0
+                ? [descriptor.Entry]
+                : descriptor.Submissions)
+            .Select(path => Path.GetFullPath(Path.Combine(canonicalScenarioDirectory, path)))
+            .ToArray();
+        var supportFilePaths = descriptor.SupportFiles.ToDictionary(
+            path => path,
+            path => Path.GetFullPath(Path.Combine(canonicalScenarioDirectory, path)),
+            StringComparer.Ordinal);
+        var arguments = descriptor.Arguments
+            .Select(argument => supportFilePaths.TryGetValue(argument, out var supportFilePath)
+                ? supportFilePath
+                : argument)
+            .ToArray();
+        var entryPath = submissionPaths[0];
         var code = await File.ReadAllTextAsync(entryPath, cancellationToken);
         var options = ScriptOptions.Default
             .AddReferences(
                 MetadataReference.CreateFromFile(
                     System.Reflection.Assembly.Load("System.Runtime").Location),
+                MetadataReference.CreateFromFile(
+                    System.Reflection.Assembly.Load("System.Memory").Location),
                 MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(JsonDocument).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Xml.Linq.XDocument).Assembly.Location))
             .WithFilePath(entryPath)
-            .WithSourceResolver(new RestrictedSourceResolver(scenarioDirectory))
+            .WithSourceResolver(new RestrictedSourceResolver(canonicalScenarioDirectory))
             .WithMetadataResolver(new BclMetadataResolver());
 
         var standardOutput = new StringWriter(CultureInfo.InvariantCulture);
@@ -41,25 +58,30 @@ internal sealed class ScriptScenarioRunner
         try
         {
             var script = CSharpScript.Create<object?>(code, options, typeof(ScriptGlobals));
-            var diagnostics = script.Compile()
-                .Where(diagnostic => diagnostic.Severity >= DiagnosticSeverity.Warning)
-                .ToArray();
-            if (diagnostics.Length != 0)
-            {
-                throw new CompilationErrorException(
-                    "Script compilation produced diagnostics.",
-                    diagnostics.ToImmutableArray());
-            }
+            ThrowIfCompilationHasWarningsOrErrors(script);
 
             ScriptState<object?> state;
+            var completedSubmissionCount = 0;
             try
             {
                 state = await script.RunAsync(
                     new ScriptGlobals(
-                        descriptor.Arguments.ToArray(),
+                        arguments,
                         descriptor.Globals?.Prefix ?? "",
                         cancellationToken),
                     cancellationToken);
+                completedSubmissionCount++;
+
+                foreach (var submissionPath in submissionPaths.Skip(1))
+                {
+                    code = await File.ReadAllTextAsync(submissionPath, cancellationToken);
+                    var continuation = state.Script.ContinueWith<object?>(
+                        code,
+                        options.WithFilePath(submissionPath));
+                    ThrowIfCompilationHasWarningsOrErrors(continuation);
+                    state = await continuation.RunFromAsync(state, cancellationToken);
+                    completedSubmissionCount++;
+                }
             }
             catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -73,12 +95,25 @@ internal sealed class ScriptScenarioRunner
                 JsonSerializer.SerializeToElement(state.ReturnValue),
                 SplitLines(standardOutput.ToString()),
                 SplitLines(standardError.ToString()),
-                1);
+                completedSubmissionCount);
         }
         finally
         {
             Console.SetOut(originalOutput);
             Console.SetError(originalError);
+        }
+    }
+
+    private static void ThrowIfCompilationHasWarningsOrErrors(Script<object?> script)
+    {
+        var diagnostics = script.Compile()
+            .Where(diagnostic => diagnostic.Severity >= DiagnosticSeverity.Warning)
+            .ToImmutableArray();
+        if (diagnostics.Length != 0)
+        {
+            throw new CompilationErrorException(
+                "Script compilation produced diagnostics.",
+                diagnostics);
         }
     }
 

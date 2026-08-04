@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotNetKnowledge.CSharpScriptHost;
 using Microsoft.CodeAnalysis.Scripting;
 
@@ -9,6 +10,8 @@ namespace DotNetKnowledge.Corpus.Tests.CSharpScripts;
 public sealed class ScriptScenarioRunnerTests
 {
     private static readonly string[] CommandLineArgumentsOutput = ["alpha|two words"];
+    private static readonly string[] ContinuedSubmissionOutput = ["5"];
+    private static readonly string[] FileArgumentOutput = ["input payload"];
     private static readonly string[] LoadedValueOutput = ["loaded value: 42"];
     private static readonly string[] RootOutput = ["root"];
     private static readonly string[] TypedGlobalsOutput = ["agent: ready"];
@@ -65,6 +68,98 @@ public sealed class ScriptScenarioRunnerTests
         var descriptor = ScenarioDescriptorLoader.Load(CSharpScriptTestPaths.Descriptor("typed-globals"));
 
         Assert.IsFalse(descriptor.Hosts.Contains(ScriptHostKind.Csi));
+    }
+
+    [TestMethod]
+    public async Task RunAsyncCarriesStateAcrossOrderedSubmissions()
+    {
+        using var scenario = new TemporaryScenario(
+            """
+            var count = 2;
+            int Add(int left, int right) => left + right;
+            """,
+            new Dictionary<string, string>
+            {
+                ["continue.csx"] =
+                    """
+                    count = Add(count, 3);
+                    System.Console.WriteLine(count);
+                    count
+                    """
+            },
+            submissions: ["main.csx", "continue.csx"]);
+
+        var result = await RunFromOutsideScenarioAsync(scenario);
+
+        Assert.AreEqual("System.Int32", result.ReturnType);
+        Assert.AreEqual("5", result.ReturnValue.GetRawText());
+        CollectionAssert.AreEqual(ContinuedSubmissionOutput, result.StandardOutput.ToArray());
+        Assert.AreEqual(2, result.CompletedSubmissionCount);
+    }
+
+    [TestMethod]
+    public async Task RunAsyncCanonicalizesDeclaredSupportFileArgumentsOutsideTheScenarioDirectory()
+    {
+        using var scenario = new TemporaryScenario(
+            "System.Console.WriteLine(System.IO.File.ReadAllText(Args[0]));",
+            new Dictionary<string, string>
+            {
+                ["input.txt"] = "input payload"
+            },
+            arguments: ["input.txt"]);
+
+        var result = await RunFromOutsideScenarioAsync(scenario);
+
+        CollectionAssert.AreEqual(FileArgumentOutput, result.StandardOutput.ToArray());
+    }
+
+    [TestMethod]
+    public async Task RunAsyncRejectsAContinuationBeforeExecutingItWhenCompilationFails()
+    {
+        using var scenario = new TemporaryScenario(
+            "var initialized = true;",
+            new Dictionary<string, string>
+            {
+                ["continue.csx"] =
+                    """
+                    System.IO.File.WriteAllText(Args[0], "executed");
+                    MissingSymbol();
+                    """
+            },
+            arguments: ["must-not-exist.txt"],
+            submissions: ["main.csx", "continue.csx"]);
+
+        var exception = await Assert.ThrowsExactlyAsync<CompilationErrorException>(() =>
+            RunFromOutsideScenarioAsync(scenario));
+
+        Assert.IsTrue(exception.Diagnostics.Any(diagnostic => diagnostic.Id == "CS0103"));
+        Assert.IsFalse(File.Exists(Path.Combine(scenario.RootDirectory, "must-not-exist.txt")));
+    }
+
+    [TestMethod]
+    [Timeout(3000)]
+    public async Task RunAsyncRestoresConsoleWritersWhenAContinuationIsCanceled()
+    {
+        using var scenario = new TemporaryScenario(
+            "var initialized = true;",
+            new Dictionary<string, string>
+            {
+                ["continue.csx"] =
+                    "await System.Threading.Tasks.Task.Delay(System.Threading.Timeout.Infinite, CancellationToken);"
+            },
+            submissions: ["main.csx", "continue.csx"]);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var originalOutput = Console.Out;
+        var originalError = Console.Error;
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            new ScriptScenarioRunner().RunAsync(
+                scenario.Descriptor,
+                scenario.DirectoryPath,
+                cancellation.Token));
+
+        Assert.AreSame(originalOutput, Console.Out);
+        Assert.AreSame(originalError, Console.Error);
     }
 
     [TestMethod]
@@ -201,7 +296,9 @@ public sealed class ScriptScenarioRunnerTests
     {
         public TemporaryScenario(
             string script,
-            IReadOnlyDictionary<string, string>? supportFiles = null)
+            IReadOnlyDictionary<string, string>? supportFiles = null,
+            IReadOnlyList<string>? arguments = null,
+            IReadOnlyList<string>? submissions = null)
         {
             RootDirectory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-csx-{Guid.NewGuid():N}");
             DirectoryPath = Path.Combine(RootDirectory, "scenario");
@@ -212,9 +309,9 @@ public sealed class ScriptScenarioRunnerTests
                 File.WriteAllText(Path.Combine(DirectoryPath, supportFile.Key), supportFile.Value);
             }
 
-            var supportFileNames = supportFiles is null
-                ? "[]"
-                : $"[{string.Join(", ", supportFiles.Keys.Select(path => $"\"{path}\""))}]";
+            var supportFileNames = JsonSerializer.Serialize(supportFiles?.Keys ?? []);
+            var descriptorArguments = JsonSerializer.Serialize(arguments ?? []);
+            var descriptorSubmissions = JsonSerializer.Serialize(submissions ?? []);
             File.WriteAllText(
                 Path.Combine(DirectoryPath, "scenario.json"),
                 $$"""
@@ -223,8 +320,8 @@ public sealed class ScriptScenarioRunnerTests
                   "entry": "main.csx",
                   "supportFiles": {{supportFileNames}},
                   "hosts": ["api"],
-                  "arguments": [],
-                  "submissions": [],
+                  "arguments": {{descriptorArguments}},
+                  "submissions": {{descriptorSubmissions}},
                   "expectations": {
                     "api": {
                       "exitCode": 0,
