@@ -118,6 +118,61 @@ public sealed class LanguageDocsQueryService
             searchedSources);
     }
 
+    public async Task<LanguageDocContentResult> GetDocAsync(
+        string path,
+        string source,
+        string? section,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        ValidateSource(source);
+        if (limit is < 1000 or > 50000)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1000 and 50000.");
+
+        var (text, provenance) = await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
+        var lines = text.ReplaceLineEndings("\n").Split('\n');
+
+        int rangeStart;
+        int rangeEndExclusive;
+        if (section is not null)
+        {
+            var heading = MarkdownOutline.Extract(text)
+                .FirstOrDefault(candidate => string.Equals(candidate.Path, section, StringComparison.Ordinal));
+            if (heading is null)
+                throw new LanguageDocSectionNotFoundException(section, path, source);
+            rangeStart = heading.StartLine;
+            rangeEndExclusive = heading.EndLine;
+        }
+        else
+        {
+            rangeStart = 1;
+            rangeEndExclusive = lines.Length + 1;
+        }
+
+        var atomicBlocks = MarkdownAtomicBlocks.Find(text);
+        var revisions = new[] { RevisionKey(provenance) };
+        var scope = EncodeScope(source, path, section ?? string.Empty);
+        var decodedStartLine = DecodeCursor(cursor, "lang-doc", scope, revisions);
+        var startLine = cursor is null ? rangeStart : decodedStartLine;
+        if (startLine < rangeStart || startLine >= rangeEndExclusive)
+            throw new ArgumentException("cursor points outside the requested section.", nameof(cursor));
+
+        var (endLineExclusive, isPartial) = MarkdownPager.Page(
+            lines, atomicBlocks, startLine, rangeEndExclusive, limit);
+        var pageText = string.Join('\n', lines[(startLine - 1)..(endLineExclusive - 1)]);
+
+        return new LanguageDocContentResult(
+            path,
+            provenance,
+            section,
+            pageText,
+            startLine,
+            endLineExclusive - 1,
+            isPartial,
+            isPartial ? EncodeCursor("lang-doc", scope, endLineExclusive, revisions) : null);
+    }
+
     private async Task<(string Text, SourceProvenance Provenance)> ReadDocumentAsync(
         string source, string path, CancellationToken cancellationToken)
     {

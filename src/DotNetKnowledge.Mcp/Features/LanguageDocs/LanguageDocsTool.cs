@@ -65,6 +65,55 @@ public sealed class LanguageDocsTool
         }
     }
 
+    [McpServerTool(Name = "get_language_doc", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Fetch a synchronized C# or VB.NET language-design document by its repo-relative path. " +
+        "Pass section as a heading path exactly as returned by search_language_docs or " +
+        "get_language_doc_outline to fetch just that section; omit it for the whole document. " +
+        "Pages by an approximate character budget (limit) that never splits a fenced code block " +
+        "or a table.")]
+    public static async Task<string> GetLanguageDoc(
+        string path,
+        string source,
+        LanguageDocsQueryService service,
+        CancellationToken cancellationToken,
+        string? section = null,
+        int? limit = null,
+        string? cursor = null)
+    {
+        try
+        {
+            var result = await service.GetDocAsync(
+                path,
+                source,
+                section,
+                limit ?? 8000,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Serialize(result, WriteOptions);
+        }
+        catch (LanguageDocSectionNotFoundException exception)
+        {
+            return SerializeError("section_not_found", exception.Message);
+        }
+        catch (LanguageDocPathNotFoundException exception)
+        {
+            return SerializeError("path_not_found", exception.Message);
+        }
+        catch (SourceNotSyncedException exception)
+        {
+            return SerializeSourceNotSynced(exception);
+        }
+        catch (ArgumentException exception)
+        {
+            return SerializeArgumentException(exception);
+        }
+        catch (TimeoutException exception)
+        {
+            return SerializeError("git_timeout", exception.Message);
+        }
+    }
+
     [McpServerTool(Name = "get_language_doc_outline", ReadOnly = true, Idempotent = true)]
     [Description(
         "Return a synchronized C# or VB.NET language-design document's heading tree, no bodies: " +

@@ -121,6 +121,28 @@ public sealed class LanguageDocsToolTests
         }
     }
 
+    [TestMethod]
+    public async Task GetLanguageDocReturnsSectionNotFoundNamingTheOutlineTool()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var json = await LanguageDocsTool.GetLanguageDoc(
+                "docs/proposal-a.md", "csharplang", service, CancellationToken.None, section: "No Such Section");
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("section_not_found", document.RootElement.GetProperty("error").GetString());
+            StringAssert.Contains(document.RootElement.GetProperty("message").GetString(), "get_language_doc_outline");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");

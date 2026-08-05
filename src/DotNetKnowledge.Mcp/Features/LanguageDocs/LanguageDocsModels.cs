@@ -15,6 +15,16 @@ public sealed record LanguageDocSearchResult(
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);
 
+public sealed record LanguageDocContentResult(
+    string Path,
+    SourceProvenance Source,
+    string? Section,
+    string Text,
+    int StartLine,
+    int EndLine,
+    bool IsPartial,
+    string? NextPageToken);
+
 public sealed record LanguageDocOutlineEntry(int Level, string Text, string Path);
 
 public sealed record LanguageDocOutlineResult(
@@ -33,6 +43,22 @@ public sealed class LanguageDocPathNotFoundException : Exception
         SourceName = sourceName;
     }
 
+    public string Path { get; }
+    public string SourceName { get; }
+}
+
+public sealed class LanguageDocSectionNotFoundException : Exception
+{
+    public LanguageDocSectionNotFoundException(string section, string path, string sourceName)
+        : base($"Section '{section}' was not found in '{path}' ({sourceName}). " +
+               "Call get_language_doc_outline to see valid section paths for this document.")
+    {
+        Section = section;
+        Path = path;
+        SourceName = sourceName;
+    }
+
+    public string Section { get; }
     public string Path { get; }
     public string SourceName { get; }
 }

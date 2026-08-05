@@ -192,6 +192,61 @@ public sealed class LanguageDocsQueryServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task GetDocAsyncReturnsAWholeSectionAndRejectsAnUnknownSection()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var section = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "Feature A > Motivation", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.AreEqual("Feature A > Motivation", section.Section);
+            StringAssert.Contains(section.Text, "Some motivating prose about feature A.");
+            Assert.IsFalse(section.Text.Contains("Detailed design"));
+            Assert.IsFalse(section.IsPartial);
+
+            var exception = await Assert.ThrowsExactlyAsync<LanguageDocSectionNotFoundException>(() => service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "No Such Section", limit: 8000, cursor: null,
+                CancellationToken.None));
+            StringAssert.Contains(exception.Message, "get_language_doc_outline");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncPagesByCharacterBudgetWithoutSplittingAFencedCodeBlock()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            // "## Detailed design" section is: heading, blank, ```csharp, class Foo { }, ```, blank.
+            // A budget that would naively cut inside the fence must extend past it instead.
+            var page = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "Feature A > Detailed design", limit: 1000, cursor: null,
+                CancellationToken.None);
+
+            StringAssert.Contains(page.Text, "```csharp");
+            StringAssert.Contains(page.Text, "class Foo { }");
+            StringAssert.Contains(page.Text, "```");
+            Assert.IsFalse(page.IsPartial);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");
