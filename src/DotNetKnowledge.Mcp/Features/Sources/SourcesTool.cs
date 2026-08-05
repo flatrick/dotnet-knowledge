@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotNetKnowledge.Mcp.Sources;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
 namespace DotNetKnowledge.Mcp.Features.Sources;
@@ -106,12 +107,30 @@ public sealed class SourcesTool
     public static async Task<string> SyncSource(
         string name,
         SourceSynchronizer synchronizer,
+        IProgress<ProgressNotificationValue> progress,
         CancellationToken cancellationToken,
         string? @ref = null)
     {
+        // Five known stages, so the client sees liveness with a real denominator rather than a
+        // spinner. The SDK supplies a no-op reporter when the client sent no progress token.
+        var stages = new[] { "clone", "sparse-checkout", "fetch", "checkout", "validate" };
+        var completed = 0;
+        var stageProgress = new Progress<string>(stage =>
+        {
+            completed++;
+            progress.Report(new ProgressNotificationValue
+            {
+                Progress = completed,
+                Total = stages.Length,
+                Message = $"{name}: {stage}",
+            });
+        });
+
         try
         {
-            var result = await synchronizer.SyncAsync(name, @ref, cancellationToken).ConfigureAwait(false);
+            var result = await synchronizer
+                .SyncAsync(name, @ref, cancellationToken, stageProgress)
+                .ConfigureAwait(false);
             return JsonSerializer.Serialize(
                 new
                 {
