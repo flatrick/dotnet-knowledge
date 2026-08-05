@@ -53,29 +53,51 @@ internal sealed class GitCommandRunner
         var stdoutTask = process.StandardOutput.ReadToEndAsync(linked.Token);
         var stderrTask = process.StandardError.ReadToEndAsync(linked.Token);
 
+        // The caller's cancellation and an expired tier both surface as OperationCanceledException.
+        // Only the second is a fault worth naming; the first is the caller getting what it asked
+        // for. Both outcomes must kill the tree, so the decision is factored rather than repeated.
+        void KillIfRunning()
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+
+        bool TierExpired() =>
+            expiry.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+
+        TimeoutException Expired() =>
+            new($"git {string.Join(' ', arguments)} exceeded its {ceiling.TotalSeconds:0.##}s "
+                + $"{kind} timeout and was terminated.");
+
         try
         {
             await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-
-            // The caller's cancellation and an expired tier both surface here. Only the second is a
-            // fault worth naming; the first is the caller getting what it asked for.
-            if (expiry.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                throw new TimeoutException(
-                    $"git {string.Join(' ', arguments)} exceeded its {ceiling.TotalSeconds:0.##}s "
-                        + $"{kind} timeout and was terminated.");
-            }
-
+            KillIfRunning();
+            if (TierExpired())
+                throw Expired();
             throw;
         }
 
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
+        string stdout;
+        string stderr;
+        try
+        {
+            stdout = await stdoutTask.ConfigureAwait(false);
+            stderr = await stderrTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // git itself exited inside its ceiling, but a descendant inherited the redirected pipes
+            // and kept them open, so the reads outlived the process.
+            KillIfRunning();
+            if (TierExpired())
+                throw Expired();
+            throw;
+        }
+
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(

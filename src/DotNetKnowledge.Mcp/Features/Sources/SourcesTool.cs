@@ -30,27 +30,40 @@ public sealed class SourcesTool
         SourceSynchronizer synchronizer,
         CancellationToken cancellationToken)
     {
-        var sourceDefinitions = catalog.Sources
-            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
-            .ToList();
-        var sources = await Task.WhenAll(sourceDefinitions.Select(entry => GetSourceStatusAsync(
-            entry.Key,
-            entry.Value,
-            cache,
-            synchronizer,
-            cancellationToken))).ConfigureAwait(false);
+        try
+        {
+            var sourceDefinitions = catalog.Sources
+                .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .ToList();
+            var sources = await Task.WhenAll(sourceDefinitions.Select(entry => GetSourceStatusAsync(
+                entry.Key,
+                entry.Value,
+                cache,
+                synchronizer,
+                cancellationToken))).ConfigureAwait(false);
 
-        var unsynced = sources.Where(source => !source.Synced).Select(source => source.Name).ToList();
+            var unsynced = sources.Where(source => !source.Synced).Select(source => source.Name).ToList();
 
-        return JsonSerializer.Serialize(
-            new ListSourcesResult(
-                CacheRoot: cache.Root,
-                Sources: sources,
-                NextStep: unsynced.Count == 0
-                    ? null
-                    : $"Not synced: {string.Join(", ", unsynced)}. " +
-                      $"Call sync_source(name: \"{unsynced[0]}\") before querying it."),
-            WriteOptions);
+            return JsonSerializer.Serialize(
+                new ListSourcesResult(
+                    CacheRoot: cache.Root,
+                    Sources: sources,
+                    NextStep: unsynced.Count == 0
+                        ? null
+                        : $"Not synced: {string.Join(", ", unsynced)}. " +
+                          $"Call sync_source(name: \"{unsynced[0]}\") before querying it."),
+                WriteOptions);
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
     }
 
     private static async Task<SourceStatus> GetSourceStatusAsync(
@@ -60,7 +73,16 @@ public sealed class SourcesTool
         SourceSynchronizer synchronizer,
         CancellationToken cancellationToken)
     {
-        var state = await synchronizer.TryGetCurrentStateAsync(name, cancellationToken).ConfigureAwait(false);
+        SourceSyncState? state;
+        try
+        {
+            state = await synchronizer.TryGetCurrentStateAsync(name, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"{name}: {exception.Message}", exception);
+        }
+
         return new SourceStatus(
             Name: name,
             Repository: definition.Repository,
