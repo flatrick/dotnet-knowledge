@@ -24,6 +24,12 @@ and the entry links there.
 
 ---
 
+### 2026-08-05 · Git timeout tiers are named for duration, not for the network
+
+`GitCommandKind.Quick`/`Bulk` name what a command is expected to cost, because `sparse-checkout set`
+and `checkout --detach FETCH_HEAD` write an ~806 MB working tree while using no network at all.
+Rejected: the spec's `local`/`network` split, which leaves both of those commands unclassified.
+
 ### 2026-08-05 · Decisions and gotchas are append-only ledgers
 
 Both files record entries permanently; supersession is declared forward by the newer entry.

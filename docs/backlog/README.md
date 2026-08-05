@@ -8,10 +8,7 @@ file when the item is resolved; `git log` is the record.
 
 | Item | Area | Why it is deferred |
 |---|---|---|
-| [Git subprocesses hang under an MCP stdio host](git-subprocesses-hang-under-an-mcp-stdio-host.md) | server | Not deferred — blocks every tool that touches a synced source; the mechanism is still open |
-| [Generic members are unreachable by name](generic-members-are-unreachable-by-name.md) | server | Needs a member-matching rule and a corrected `not_found` remedy |
-| [lookup_api has no response budget](lookup-api-has-no-response-budget.md) | server | Needs a detail level and pagination on the lookup surface |
-| [A non-generic type shadows its generic namesake](a-non-generic-type-shadows-its-generic-namesake.md) | server | Reachable via the backtick spelling `search_api` already returns |
+| [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
 | [Under-placement is unguarded](under-placement-is-unguarded.md) | corpus, tooling | Needs a new probe outcome; the tree is correct today |
 | [The floor cache's scope key is unverified](floor-cache-scope-is-unverified.md) | tooling | Pre-existing; safe only by coincidence |
 | [Probe detail strings are nondeterministic](probe-detail-is-nondeterministic.md) | tooling | Fix changes every compile in both languages |

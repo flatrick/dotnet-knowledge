@@ -260,6 +260,11 @@ These are correctness obligations, not preferences:
 - **Search tools return names and locations, never bodies.** `search_api` returns fully-qualified
   names; `search_language_docs` returns `path:line` hits. The agent then spends context on a single
   `lookup_api` or `get_language_doc`.
+- **Every subprocess this server starts redirects standard input.** Git blocks during process
+  startup when it inherits a piped stdin handle that the parent is concurrently reading — not from
+  a piped stdin alone, which is harmless and measured at 34 ms. An MCP stdio server always has that
+  read pending, because the read *is* the JSON-RPC transport. `GitCommandRunner` redirects standard
+  input; anything else that starts a process must too. `docs/gotchas.md` records the evidence.
 
 ## Licensing — never commit upstream content
 
