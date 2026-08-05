@@ -317,3 +317,8 @@ for turning Actions on.
 4. **LF line endings, UTF-8**, enforced by `.gitattributes`.
 5. Nothing is shared back to `flatrick/dotnet-mcp`, where this content originated. The extraction
    was one-way and final — never set up synchronization or copy files back.
+6. **`.scratch/` at the repository root is the scratch folder**, gitignored and never committed. Any
+   throwaway working file belongs there — build and test logs, diagnostic scripts, probe programs,
+   intermediate data — not logs alone, and in preference to any session or temporary directory
+   outside the repository. Anything that must survive or reach another machine is not scratch:
+   tracked diagnostic tooling goes in [`scripts/probes/`](scripts/probes/README.md).

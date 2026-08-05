@@ -13,7 +13,8 @@ msbuild.log
 # global packages folder instead — this covers a packages.config project being added later.
 packages/
 
-# Local scratch — never commit run output
+# Local scratch. `.scratch/` takes any throwaway working file — build and test logs, diagnostic
+# scripts, probe programs, intermediate data — not run output alone. None of it is ever committed.
 .artifacts/
 .scratch/
 .worktrees/
