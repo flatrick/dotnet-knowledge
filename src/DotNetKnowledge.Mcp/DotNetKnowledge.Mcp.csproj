@@ -55,4 +55,8 @@
     <Content Include="../../sources.json" Link="sources.json" CopyToOutputDirectory="PreserveNewest" Pack="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetKnowledge.Markdown\DotNetKnowledge.Markdown.csproj" />
+  </ItemGroup>
+
 </Project>
