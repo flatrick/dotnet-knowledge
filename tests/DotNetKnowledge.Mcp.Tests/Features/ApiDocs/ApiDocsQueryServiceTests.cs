@@ -11,6 +11,7 @@ public sealed class ApiDocsQueryServiceTests
     private static readonly string[] ExpectedFirstPageNames = ["System.AlphaWidget", "System.BetaWidget"];
     private static readonly string[] ExpectedSecondPageNames = ["System.GammaWidget"];
     private static readonly string[] ExpectedResolvedTypeNames = ["System.Widget"];
+    private static readonly string[] ExpectedHolderTypes = ["System.Holder", "System.Holder<T>"];
 
     [TestMethod]
     public async Task SearchAsyncReturnsDeterministicPagesWithoutBodies()
@@ -276,6 +277,50 @@ public sealed class ApiDocsQueryServiceTests
 
         Assert.AreEqual(0, process.ExitCode, $"git {string.Join(' ', arguments)} failed: {stderr}");
         return stdout;
+    }
+
+    [TestMethod]
+    public async Task LookupAsyncReturnsBothTheNonGenericTypeAndItsGenericNamesake()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = Path.Combine(root, "origin");
+            var namespaceDirectory = Path.Combine(repository, "xml", "System");
+            Directory.CreateDirectory(namespaceDirectory);
+            await RunGitAsync(null, "init", "--initial-branch=main", repository);
+            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Tests");
+            await File.WriteAllTextAsync(
+                Path.Combine(namespaceDirectory, "Holder.xml"),
+                "<Type Name=\"Holder\" FullName=\"System.Holder\" />");
+            await File.WriteAllTextAsync(
+                Path.Combine(namespaceDirectory, "Holder`1.xml"),
+                "<Type Name=\"Holder`1\" FullName=\"System.Holder&lt;T&gt;\" />");
+            await RunGitAsync(repository, "add", ".");
+            await RunGitAsync(repository, "commit", "-m", "docs");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteCatalogAsync(catalogPath, repository, pin);
+            var catalog = new SourceCatalog(catalogPath);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(catalog, cache);
+            await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
+            var service = new ApiDocsQueryService(catalog, cache, synchronizer);
+
+            var result = await service.LookupAsync("Holder", "dotnet-api-docs", CancellationToken.None);
+
+            Assert.AreEqual(ApiLookupOutcome.Found, result.Outcome);
+            CollectionAssert.AreEqual(
+                ExpectedHolderTypes,
+                result.Matches.Select(match => match.FullName).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
     }
 
     private static void DeleteDirectory(string path)

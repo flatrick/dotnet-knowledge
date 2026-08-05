@@ -254,13 +254,18 @@ public sealed class ApiDocsQueryService
         if (!Directory.Exists(namespaceDirectory))
             return [];
 
+        // Both, not one or the other. A namespace holding SyntaxList and SyntaxList`1 would
+        // otherwise answer for the plain name with the smaller type and say nothing about the
+        // larger one, which reads as a complete result.
+        var files = new List<string>();
         var exact = Path.Combine(namespaceDirectory, simpleName + ".xml");
         if (File.Exists(exact))
-            return [exact];
+            files.Add(exact);
 
-        return Directory.EnumerateFiles(namespaceDirectory, simpleName + "`*.xml")
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToArray();
+        files.AddRange(Directory
+            .EnumerateFiles(namespaceDirectory, simpleName + "`*.xml")
+            .OrderBy(path => path, StringComparer.Ordinal));
+        return files.ToArray();
     }
 
     /// <summary>
