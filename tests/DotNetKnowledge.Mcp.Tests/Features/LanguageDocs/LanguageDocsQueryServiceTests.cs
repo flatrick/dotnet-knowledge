@@ -39,6 +39,54 @@ public sealed class LanguageDocsQueryServiceTests
 
     private static readonly string[] ExpectedMultiSourceRepos = ["test/csharplang", "test/vblang"];
 
+    // A section long enough (well over the 1000-char minimum limit) that a single call cannot
+    // return it in one page, with no fenced code or tables so pagination/cursor mechanics are
+    // exercised in isolation from the atomic-block extension logic.
+    private static readonly string FeatureCDocument = BuildFeatureCDocument();
+
+    // A section shaped so the pager's naive per-line budget accumulation lands inside the fenced
+    // code block (after the opening ``` but before the closing one), and only the atomic-block
+    // extension logic in MarkdownPager.Page saves it from splitting the fence.
+    private static readonly string FeatureDDocument = BuildFeatureDDocument();
+
+    private static string BuildFeatureCDocument()
+    {
+        var filler = string.Concat(Enumerable.Range(1, 20).Select(i =>
+            $"This is filler prose line number {i,2} used only to pad the character budget for a pagination test.\n"));
+
+        return
+            "# Feature C\n" +
+            "\n" +
+            "## Long Section\n" +
+            "\n" +
+            filler +
+            "\n" +
+            "## Trailing Section\n" +
+            "\n" +
+            "Trailing text so Long Section has a bounded EndLine.\n";
+    }
+
+    private static string BuildFeatureDDocument()
+    {
+        var prose = string.Concat(Enumerable.Range(1, 12).Select(i =>
+            $"Prose padding line {i,2} before the fence starts, kept short-ish on purpose here.\n"));
+        var fenceBody = string.Concat(Enumerable.Range(1, 6).Select(i =>
+            $"line {i} of fenced content padding out the block\n"));
+
+        return
+            "# Feature D\n" +
+            "\n" +
+            "## Boundary Section\n" +
+            "\n" +
+            prose +
+            "\n" +
+            "```text\n" +
+            fenceBody +
+            "```\n" +
+            "\n" +
+            "More text after the fence to prove the page still reaches past it.\n";
+    }
+
     [TestMethod]
     public async Task GetOutlineAsyncReturnsHeadingsAndPaginates()
     {
@@ -227,24 +275,89 @@ public sealed class LanguageDocsQueryServiceTests
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
         {
-            var service = await CreateServiceAsync(root);
+            var service = await CreateServiceWithDocumentAsync(root, "proposal-d.md", FeatureDDocument);
 
-            // "## Detailed design" section is: heading, blank, ```csharp, class Foo { }, ```, blank.
-            // A budget that would naively cut inside the fence must extend past it instead.
+            // Twelve prose lines exhaust most of a 1000-char budget before the fence even starts,
+            // so the naive per-line accumulation breaks right after the opening ``` marker (line
+            // 18 of the fixed fixture) - inside the fence, not past it. Only the atomic-block
+            // extension in MarkdownPager.Page can carry the page out to the closing marker (line
+            // 25); without it this test fails, because the naive break leaves the fence unclosed.
             var page = await service.GetDocAsync(
-                "docs/proposal-a.md", "csharplang", "Feature A > Detailed design", limit: 1000, cursor: null,
+                "docs/proposal-d.md", "csharplang", "Feature D > Boundary Section", limit: 1000, cursor: null,
                 CancellationToken.None);
 
-            StringAssert.Contains(page.Text, "```csharp");
-            StringAssert.Contains(page.Text, "class Foo { }");
-            StringAssert.Contains(page.Text, "```");
-            Assert.IsFalse(page.IsPartial);
+            StringAssert.Contains(page.Text, "```text");
+            StringAssert.Contains(page.Text, "line 1 of fenced content padding out the block");
+            StringAssert.Contains(page.Text, "line 6 of fenced content padding out the block");
+            Assert.IsTrue(page.Text.EndsWith("```", StringComparison.Ordinal));
+            Assert.AreEqual(25, page.EndLine);
+            Assert.IsFalse(page.Text.Contains("More text after the fence"));
+            Assert.IsTrue(page.IsPartial);
+            Assert.IsNotNull(page.NextPageToken);
+
+            var second = await service.GetDocAsync(
+                "docs/proposal-d.md", "csharplang", "Feature D > Boundary Section", limit: 1000, page.NextPageToken,
+                CancellationToken.None);
+
+            Assert.AreEqual(page.EndLine + 1, second.StartLine);
+            StringAssert.Contains(second.Text, "More text after the fence to prove the page still reaches past it.");
+            Assert.IsFalse(second.IsPartial);
+            Assert.IsNull(second.NextPageToken);
         }
         finally
         {
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncPaginatesAcrossMultipleCallsWithACursor()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "proposal-c.md", FeatureCDocument);
+
+            var full = await service.GetDocAsync(
+                "docs/proposal-c.md", "csharplang", "Feature C > Long Section", limit: 50000, cursor: null,
+                CancellationToken.None);
+            Assert.IsFalse(full.IsPartial);
+
+            var first = await service.GetDocAsync(
+                "docs/proposal-c.md", "csharplang", "Feature C > Long Section", limit: 1000, cursor: null,
+                CancellationToken.None);
+            Assert.IsTrue(first.IsPartial);
+            Assert.IsNotNull(first.NextPageToken);
+
+            var second = await service.GetDocAsync(
+                "docs/proposal-c.md", "csharplang", "Feature C > Long Section", limit: 1000, first.NextPageToken,
+                CancellationToken.None);
+            Assert.IsFalse(second.IsPartial);
+            Assert.IsNull(second.NextPageToken);
+
+            Assert.AreEqual(first.EndLine + 1, second.StartLine);
+            Assert.AreEqual(full.Text, first.Text + "\n" + second.Text);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    private static async Task<LanguageDocsQueryService> CreateServiceWithDocumentAsync(
+        string root, string fileName, string content)
+    {
+        var repository = Path.Combine(root, "origin");
+        var pin = await InitDocsRepositoryAsync(repository, fileName, content);
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(catalogPath, repository, pin);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(catalog, cache);
+        await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
+        return new LanguageDocsQueryService(catalog, cache, synchronizer);
     }
 
     private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
