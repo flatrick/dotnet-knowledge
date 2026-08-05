@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotNetKnowledge.Markdown;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
@@ -52,6 +53,71 @@ public sealed class LanguageDocsQueryService
             isPartial ? EncodeCursor("lang-outline", scope, nextOffset, revisions) : null);
     }
 
+    public async Task<LanguageDocSearchResult> SearchAsync(
+        string query,
+        bool regex,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
+
+        // Validate once, up front: an invalid pattern must fail the same way regardless of how
+        // many markdown files a source happens to hold, rather than only surfacing on whichever
+        // file MarkdownLineSearch happens to reach first.
+        if (regex)
+            _ = new Regex(query, RegexOptions.NonBacktracking);
+
+        var sourceNames = ResolveSourceNames(source);
+        var hits = new List<LanguageDocLineHit>();
+        var searchedSources = new List<SourceProvenance>();
+
+        foreach (var sourceName in sourceNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceSearchRead read;
+            try
+            {
+                read = await _synchronizer.ReadCurrentSourceAsync(
+                    sourceName,
+                    (definition, state, directory) => ReadSearchSource(directory, definition, state, query, regex),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new SourceNotSyncedException(sourceName, exception);
+            }
+
+            searchedSources.Add(read.Provenance);
+            hits.AddRange(read.Hits);
+        }
+
+        var ordered = hits
+            .OrderBy(hit => hit.Path, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Line)
+            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+
+        var revisions = searchedSources.Select(RevisionKey).ToArray();
+        var scope = EncodeScope(query, regex, source ?? string.Empty);
+        var offset = DecodeCursor(cursor, "lang-search", scope, revisions);
+        if (offset > ordered.Length)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = ordered.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < ordered.Length;
+
+        return new LanguageDocSearchResult(
+            page,
+            isPartial,
+            isPartial ? EncodeCursor("lang-search", scope, nextOffset, revisions) : null,
+            searchedSources);
+    }
+
     private async Task<(string Text, SourceProvenance Provenance)> ReadDocumentAsync(
         string source, string path, CancellationToken cancellationToken)
     {
@@ -80,6 +146,31 @@ public sealed class LanguageDocsQueryService
         return new DocumentRead(File.ReadAllText(fullPath), ToProvenance(definition, state));
     }
 
+    private sealed record SourceSearchRead(SourceProvenance Provenance, IReadOnlyList<LanguageDocLineHit> Hits);
+
+    private static SourceSearchRead ReadSearchSource(
+        string directory, SourceDefinition definition, SourceSyncState state, string query, bool regex)
+    {
+        var provenance = ToProvenance(definition, state);
+        var fullRoot = Path.GetFullPath(directory);
+        var hits = new List<LanguageDocLineHit>();
+
+        foreach (var file in Directory.EnumerateFiles(fullRoot, "*.md", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+            var outline = MarkdownOutline.Extract(text);
+            var relativePath = Path.GetRelativePath(fullRoot, file).Replace('\\', '/');
+
+            foreach (var hit in MarkdownLineSearch.Search(text, outline, query, regex))
+            {
+                var truncated = hit.Text.Length > 300 ? hit.Text[..300] + "…" : hit.Text;
+                hits.Add(new LanguageDocLineHit(relativePath, hit.Line, truncated, hit.SectionPath, provenance));
+            }
+        }
+
+        return new SourceSearchRead(provenance, hits);
+    }
+
     private static string ResolveFullPath(string directory, string source, string path)
     {
         var fullRoot = Path.GetFullPath(directory);
@@ -96,6 +187,20 @@ public sealed class LanguageDocsQueryService
         }
 
         return candidate;
+    }
+
+    private string[] ResolveSourceNames(string? source)
+    {
+        if (source is not null)
+        {
+            ValidateSource(source);
+            return [source];
+        }
+
+        return SupportedSources
+            .Where(_catalog.Sources.ContainsKey)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private void ValidateSource(string source)

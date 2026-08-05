@@ -79,6 +79,48 @@ public sealed class LanguageDocsToolTests
         }
     }
 
+    [TestMethod]
+    public async Task SearchLanguageDocsReturnsInvalidRegexForAnUnsupportedConstruct()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var json = await LanguageDocsTool.SearchLanguageDocs(
+                @"(\w+)\s+\1", service, CancellationToken.None, regex: true);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("invalid_regex", document.RootElement.GetProperty("error").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchLanguageDocsReturnsInvalidRequestForAnUnrecognizedSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var json = await LanguageDocsTool.SearchLanguageDocs(
+                "prose", service, CancellationToken.None, source: "not-a-real-source");
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("invalid_request", document.RootElement.GetProperty("error").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");

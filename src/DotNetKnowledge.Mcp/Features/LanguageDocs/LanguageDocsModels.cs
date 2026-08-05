@@ -2,6 +2,19 @@ using DotNetKnowledge.Mcp.Features.ApiDocs;
 
 namespace DotNetKnowledge.Mcp.Features.LanguageDocs;
 
+public sealed record LanguageDocLineHit(
+    string Path,
+    int Line,
+    string Text,
+    string SectionPath,
+    SourceProvenance Source);
+
+public sealed record LanguageDocSearchResult(
+    IReadOnlyList<LanguageDocLineHit> Hits,
+    bool IsPartial,
+    string? NextPageToken,
+    IReadOnlyList<SourceProvenance> SearchedSources);
+
 public sealed record LanguageDocOutlineEntry(int Level, string Text, string Path);
 
 public sealed record LanguageDocOutlineResult(

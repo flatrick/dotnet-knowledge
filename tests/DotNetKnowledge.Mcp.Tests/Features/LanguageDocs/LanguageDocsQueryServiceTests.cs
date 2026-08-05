@@ -35,6 +35,8 @@ public sealed class LanguageDocsQueryServiceTests
         "\n" +
         "Summary text mentioning FeatureA for cross-file search.\n";
 
+    private static readonly string[] ExpectedRegexHitPaths = ["docs/proposal-a.md", "docs/proposal-b.md"];
+
     [TestMethod]
     public async Task GetOutlineAsyncReturnsHeadingsAndPaginates()
     {
@@ -104,6 +106,37 @@ public sealed class LanguageDocsQueryServiceTests
             var exception = await Assert.ThrowsExactlyAsync<SourceNotSyncedException>(() => service.GetOutlineAsync(
                 "docs/proposal-a.md", "csharplang", limit: 20, cursor: null, CancellationToken.None));
             Assert.AreEqual("csharplang", exception.SourceName);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncMatchesLiteralAndRegexAcrossFilesAndOrdersDeterministically()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var literal = await service.SearchAsync(
+                "FeatureA", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+            Assert.HasCount(1, literal.Hits);
+            Assert.AreEqual("docs/proposal-b.md", literal.Hits[0].Path);
+            Assert.AreEqual("Feature B > Summary", literal.Hits[0].SectionPath);
+
+            var regex = await service.SearchAsync(
+                "Feature [AB]", regex: true, source: null, limit: 20, cursor: null, CancellationToken.None);
+            Assert.HasCount(2, regex.Hits);
+            CollectionAssert.AreEqual(
+                ExpectedRegexHitPaths,
+                regex.Hits.Select(hit => hit.Path).ToArray());
+
+            await Assert.ThrowsExactlyAsync<NotSupportedException>(() => service.SearchAsync(
+                @"(\w+)\s+\1", regex: true, source: null, limit: 20, cursor: null, CancellationToken.None));
         }
         finally
         {

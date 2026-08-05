@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using ModelContextProtocol.Server;
 
@@ -15,6 +16,54 @@ public sealed class LanguageDocsTool
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
+
+    [McpServerTool(Name = "search_language_docs", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Search synchronized C# and VB.NET language-design documents (proposals, spec, LDM " +
+        "meeting notes) by literal substring or, with regex: true, a .NET regex evaluated with " +
+        "the non-backtracking engine. Returns path:line hits with the matched line and a " +
+        "server-issued section heading path, never file bodies; call get_language_doc for content.")]
+    public static async Task<string> SearchLanguageDocs(
+        string query,
+        LanguageDocsQueryService service,
+        CancellationToken cancellationToken,
+        bool? regex = null,
+        string? source = null,
+        int? limit = null,
+        string? cursor = null)
+    {
+        try
+        {
+            var result = await service.SearchAsync(
+                query,
+                regex ?? false,
+                source,
+                limit ?? 20,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Serialize(result, WriteOptions);
+        }
+        catch (RegexParseException exception)
+        {
+            return SerializeError("invalid_regex", exception.Message);
+        }
+        catch (NotSupportedException exception)
+        {
+            return SerializeError("invalid_regex", exception.Message);
+        }
+        catch (SourceNotSyncedException exception)
+        {
+            return SerializeSourceNotSynced(exception);
+        }
+        catch (ArgumentException exception)
+        {
+            return SerializeArgumentException(exception);
+        }
+        catch (TimeoutException exception)
+        {
+            return SerializeError("git_timeout", exception.Message);
+        }
+    }
 
     [McpServerTool(Name = "get_language_doc_outline", ReadOnly = true, Idempotent = true)]
     [Description(
