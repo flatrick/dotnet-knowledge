@@ -82,7 +82,10 @@ public sealed class GitCommandRunnerTests
     {
         // A one-millisecond ceiling on a command that cannot finish before process start completes.
         // Deterministic, and it exercises the real timeout path rather than a simulated one.
-        var timeouts = new GitTimeouts(TimeSpan.FromMilliseconds(1), TimeSpan.FromMinutes(15));
+        var timeouts = new GitTimeouts(
+            TimeSpan.FromMilliseconds(1),
+            TimeSpan.FromMinutes(2),
+            TimeSpan.FromMinutes(15));
 
         var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
             GitCommandRunner.RunAsync(
@@ -93,6 +96,40 @@ public sealed class GitCommandRunnerTests
                 timeouts));
 
         StringAssert.Contains(exception.Message, "git --version");
+    }
+
+    [TestMethod]
+    public void WalkTierSitsBetweenQuickAndBulk()
+    {
+        var timeouts = GitTimeouts.Default;
+
+        // A whole-tree read is neither a metadata command nor a transfer. Collapsing it onto either
+        // neighbour is what put `git status` on a ten-second ceiling.
+        Assert.IsTrue(
+            timeouts.Quick < timeouts.Walk && timeouts.Walk < timeouts.Bulk,
+            $"Expected Quick < Walk < Bulk, got {timeouts.Quick}, {timeouts.Walk}, {timeouts.Bulk}.");
+        Assert.AreEqual(timeouts.Quick, timeouts.For(GitCommandKind.Quick));
+        Assert.AreEqual(timeouts.Walk, timeouts.For(GitCommandKind.Walk));
+        Assert.AreEqual(timeouts.Bulk, timeouts.For(GitCommandKind.Bulk));
+    }
+
+    [TestMethod]
+    public async Task TimeoutNamesTheTierThatExpired()
+    {
+        var timeouts = new GitTimeouts(
+            TimeSpan.FromMinutes(2),
+            TimeSpan.FromMilliseconds(1),
+            TimeSpan.FromMinutes(15));
+
+        var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+            GitCommandRunner.RunAsync(
+                Environment.CurrentDirectory,
+                ["--version"],
+                GitCommandKind.Walk,
+                CancellationToken.None,
+                timeouts));
+
+        StringAssert.Contains(exception.Message, "Walk timeout");
     }
 
     [TestMethod]

@@ -226,6 +226,135 @@ public sealed class SourceSynchronizerTests
         }
     }
 
+    [TestMethod]
+    public async Task ValidationStatusRunsOnTheWalkTierNotTheQuickTier()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var synchronizer = new SourceSynchronizer(catalog, cache, WalkExpiresImmediately);
+
+            var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+                synchronizer.SyncAsync("local", null, CancellationToken.None));
+
+            // Every tier here is generous except Walk. If `git status` were still Quick this sync
+            // would succeed, and the ten-second ceiling that killed a real 13,485-file checkout
+            // would be back.
+            StringAssert.Contains(exception.Message, "git status");
+            StringAssert.Contains(exception.Message, "Walk timeout");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FailedSyncKeepsItsStagingDirectoryInsteadOfDiscardingTheDownload()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var synchronizer = new SourceSynchronizer(catalog, cache, WalkExpiresImmediately);
+
+            await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+                synchronizer.SyncAsync("local", null, CancellationToken.None));
+
+            var staging = Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").ToList();
+            Assert.AreEqual(
+                1,
+                staging.Count,
+                "A failure discarded the download. For dotnet-api-docs that is 773 MB and about a "
+                    + "minute of work thrown away every retry.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(staging[0], ".git")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RetainedStagingIsResumedRatherThanClonedAgain()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+                new SourceSynchronizer(catalog, cache, WalkExpiresImmediately)
+                    .SyncAsync("local", null, CancellationToken.None));
+            var staging = Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").Single();
+
+            // Planted inside .git so it is invisible to `git status`, which the resumed attempt
+            // must still find clean. Its survival into the cache directory is what proves the
+            // download was reused rather than fetched again.
+            await File.WriteAllTextAsync(Path.Combine(staging, ".git", "resume-marker"), "resumed");
+
+            var result = await new SourceSynchronizer(catalog, cache, GitTimeouts.Default)
+                .SyncAsync("local", null, CancellationToken.None);
+
+            Assert.IsTrue(
+                File.Exists(Path.Combine(result.CacheDir, ".git", "resume-marker")),
+                "The retained staging directory was discarded and re-cloned instead of resumed.");
+            Assert.AreEqual(
+                0,
+                Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").Count(),
+                "A successful sync must leave no staging directory behind.");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SyncAppliesLargeCheckoutSettingsToTheCache()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var synchronizer = new SourceSynchronizer(catalog, cache, GitTimeouts.Default);
+
+            var result = await synchronizer.SyncAsync("local", null, CancellationToken.None);
+
+            // Set before the checkout that populates the index, so the checkout itself writes the
+            // cheaper format rather than leaving it to a later rewrite.
+            Assert.AreEqual(
+                "true",
+                (await RunGitAsync(result.CacheDir, "config", "--get", "feature.manyFiles")).Trim());
+            Assert.AreEqual(
+                "true",
+                (await RunGitAsync(result.CacheDir, "config", "--get", "core.untrackedCache")).Trim());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    /// <summary>Walk expires before git can start; every other tier is generous.</summary>
+    private static GitTimeouts WalkExpiresImmediately { get; } = new(
+        Quick: TimeSpan.FromMinutes(2),
+        Walk: TimeSpan.FromMilliseconds(1),
+        Bulk: TimeSpan.FromMinutes(2));
+
+    private static async Task<(SourceCatalog Catalog, SourceCache Cache)> CreateFixtureAsync(string root)
+    {
+        var repository = await CreateRepositoryAsync(root, "origin", "included");
+        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(catalogPath, repository, pin);
+        return (new SourceCatalog(catalogPath), new SourceCache(Path.Combine(root, "cache")));
+    }
+
     private static async Task<string> CreateRepositoryAsync(string root, string name, string contents)
     {
         var repository = Path.Combine(root, name);

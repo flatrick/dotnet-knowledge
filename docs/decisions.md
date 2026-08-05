@@ -24,6 +24,24 @@ and the entry links there.
 
 ---
 
+### 2026-08-05 · Cached clones get `feature.manyFiles`, never `core.fsmonitor`
+
+Every staging repository is configured with `feature.manyFiles` and `core.untrackedCache` before its
+checkout; these caches index tens of thousands of paths, and both settings are observed to improve
+working with this repository. Rejected: `core.fsmonitor`, which would help more and starts a
+`git fsmonitor--daemon` per repository that this server neither spawns nor supervises and that
+outlives it — the inherited-handle hazard in [`gotchas.md`](gotchas.md); and `core.commitGraph`,
+since the sync never walks history.
+
+### 2026-08-05 · A whole-tree read gets its own tier, and a failed sync keeps its download
+
+`git status --untracked-files=all` moved to `GitCommandKind.Walk` (2 min): its cost scales with the
+checkout, so the 10 s metadata ceiling killed a valid 13,485-file sync. Staging is now retained on
+failure and resumed, rather than discarding 773 MB. Rejected: raising `Quick`, which leaves
+`rev-parse` unbounded for no reason; and dropping `--untracked-files=all`, which is the check that
+catches a half-written sparse checkout. Supersedes the 2026-08-05 tier-naming entry only in count.
+
+
 ### 2026-08-05 · The source cache lives in the user data directory, not the cache directory
 
 `SourceCache` resolves `LocalApplicationData` — `~/.local/share` on Linux, `~/Library/Application

@@ -24,6 +24,14 @@ needs more.
 
 ---
 
+### 2026-08-05 · `git status` headroom is a property of the host, not of the command · environment
+
+The same `git status --porcelain --untracked-files=all` over a synced `dotnet-api-docs` measured
+0.101 s warm, 0.54 s cold, 3.34 s on a second machine, and **over 10 s** on that machine the first
+time real-time anti-virus scanned the freshly written tree — failing a valid sync at the validate
+stage and discarding 773 MB. Supersedes the "roughly 100x headroom" entry below, whose figure was a
+single warm sample on one machine. It is now `GitCommandKind.Walk`; never re-tier it from one timing.
+
 ### 2026-08-05 · Quick-tier `git status` has roughly 100x headroom · environment
 
 `git status --porcelain --untracked-files=all` against a fully synced `dotnet-api-docs`
