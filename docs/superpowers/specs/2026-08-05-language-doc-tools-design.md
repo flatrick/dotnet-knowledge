@@ -125,11 +125,17 @@ a `spec/` and a `proposals/` folder) and nothing else disambiguates it.
 ## Error taxonomy
 
 Extends the existing `source_not_synced` / `invalid_cursor` / `invalid_request` / `git_timeout`
-codes (identical meaning, identical exception mapping in the tool layer) with three new ones:
+codes (identical meaning, identical exception mapping in the tool layer) with two new ones. A
+`source` that is neither `"csharplang"` nor `"vblang"` is **not** a new code: verified against
+`ApiDocsTool`, an unrecognized `source` there is an `ArgumentException` caught by the existing
+generic mapping and reported as `invalid_request`, not `source_invalid` — that code is reserved for
+an `InvalidDataException`, a structurally broken *already-synced* source (ApiDocs' example: its
+docs-root subfolder is missing). Nothing analogous is reachable here, because a language-doc
+source's root is the sparse checkout itself with no subfolder indirection, and
+`SourceSynchronizer`'s integrity check already refuses to consider a sync complete unless every
+sparse path exists. So an unrecognized `source` for these tools reuses `invalid_request` too, and
+`source_invalid` is not part of this surface.
 
-- `source_invalid` — `source` is neither `"csharplang"` nor `"vblang"`. (The API tools already use
-  this code for their own two-source restriction; the language-doc tools reuse the name for the
-  same shape of failure against a different pair.)
 - `path_not_found` — `path` doesn't resolve to a synced markdown file: it escapes the source's
   synced root (the same traversal guard as `ApiDocsQueryService.ResolveNamespaceDirectory`), or no
   file exists there.
