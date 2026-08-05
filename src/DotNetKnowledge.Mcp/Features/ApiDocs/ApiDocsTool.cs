@@ -114,6 +114,9 @@ public sealed class ApiDocsTool
     [McpServerTool(Name = "search_api", ReadOnly = true, Idempotent = true)]
     [Description(
         "Search synchronized .NET and Roslyn ECMA XML docs by type-name fragment. " +
+        "The fragment is matched against the type name alone, never the namespace, so a " +
+        "fully-qualified pattern such as \"System.Collections.Concurrent\" matches nothing while " +
+        "\"ConcurrentDictionary\" matches; pass the type name only. " +
         "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
         "call lookup_api for documentation bodies.")]
     public static async Task<string> SearchApi(
