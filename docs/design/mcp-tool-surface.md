@@ -56,6 +56,14 @@ lookup_api(symbol, source?, limit?, cursor?)
 
 search_api(pattern, limit?, cursor?)
     → candidate fully-qualified names ONLY, no bodies
+    → pattern matches anywhere in the fully-qualified name: the whole
+      name ("System.Text.Json.JsonSerializer"), a namespace segment in
+      the middle of one ("Text" or "Json" in System.Text.Json.*), a
+      namespace prefix, or the type name alone
+    → each item states which part matched, so "every type in this
+      namespace" is distinguishable from "types whose name contains this"
+    ! today the pattern is matched against the type name alone, never
+      the namespace — see "What search_api matches" below
 
 ── language design docs ──────────────────────────────────────────────
 search_language_docs(query, regex?, source?, limit?, cursor?)
@@ -116,6 +124,36 @@ narrow for almost nothing and then spend context on a single `lookup_api`. The s
 `search_language_docs` return `path:line` hits plus the single matched line rather than matched
 files: one line per hit is the triage budget, and the agent decides what is worth reading. A search
 tool that returns bodies turns one imprecise query into an unaffordable response.
+
+### What `search_api` matches
+
+An agent looking for an API arrives holding one of several things, and all of them are the same
+question: a fully-qualified name copied from a compiler error, a namespace it wants the contents of,
+a fragment it half-remembers from the middle of a namespace path, or a bare type name. `search_api`
+must answer all four, because the caller cannot know in advance which kind of string it is holding —
+and a search tool that silently returns nothing for one of them is worse than one that refuses, since
+an empty result set reads as "no such API".
+
+Listing a *type's* members is already covered: `lookup_api` with a bare type name returns every
+member's signature. The gap is namespaces.
+
+The implementation matches the pattern against the type name alone. `ReadSearchSource` enumerates
+each namespace directory and tests the file stem, composing the namespace into the result only
+afterwards, so `search_api("System.Collections.Concurrent")` returns nothing while
+`search_api("ConcurrentDictionary")` returns the type. The tool's description states this constraint,
+which keeps the behavior honest but does not make it sufficient.
+
+The layout makes the fix cheap. Namespace directories are flat — one directory per complete namespace
+(`xml/System.Text.Json/`), never nested — so a namespace segment, a prefix, and a whole-name match are
+all string operations on a directory name that is already in hand.
+
+The question to settle before writing that code is blast radius, not feasibility. Matching a raw
+substring against the composed name means `search_api("Json")` stops meaning "types named `*Json*`"
+and starts also meaning "every type in `System.Text.Json`" — a much larger set, against a limit of
+100, where the caller cannot see why any given item matched. Two constraints follow: matching should
+be segment-aware rather than a plain `Contains` over the joined string, and each item should carry
+what it matched on. An agent that asked for a type name and received a namespace's entire contents
+has been answered a question it did not ask.
 
 ### Sections are the retrieval unit for language docs
 
