@@ -27,7 +27,9 @@ public static class MarkdownAtomicBlocks
             var rows = table.OfType<TableRow>().ToArray();
             if (rows.Length == 0)
                 continue;
-            blocks.Add((table.Line + 1, rows[^1].Line + 2));
+            var lastRowLine = rows[^1].Line;
+            var lastPhysicalLine = Math.Max(lastRowLine, table.Line + 1);
+            blocks.Add((table.Line + 1, lastPhysicalLine + 2));
         }
 
         return blocks.OrderBy(block => block.StartLine).ToArray();

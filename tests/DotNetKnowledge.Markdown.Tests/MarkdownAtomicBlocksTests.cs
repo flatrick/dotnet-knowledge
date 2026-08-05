@@ -46,4 +46,22 @@ public sealed class MarkdownAtomicBlocksTests
             blocks.OrderBy(b => b.StartLine).ToArray(),
             blocks.ToArray());
     }
+
+    [TestMethod]
+    public void FindHandlesHeaderOnlyTableCorrectly()
+    {
+        // A table with only header and separator rows (no data rows) must still cover the separator.
+        // Line numbers (1-based):
+        //  1: Before.
+        //  2:
+        //  3: | X | Y |
+        //  4: |---|---|
+        //  5:
+        //  6: After.
+        var document = "Before.\n\n| X | Y |\n|---|---|\n\nAfter.\n";
+        var blocks = MarkdownAtomicBlocks.Find(document);
+
+        var table = blocks.Single(b => b.StartLine == 3);
+        Assert.AreEqual(5, table.EndLine);
+    }
 }
