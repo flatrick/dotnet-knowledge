@@ -12,6 +12,7 @@ public sealed class ApiDocsQueryServiceTests
     private static readonly string[] ExpectedSecondPageNames = ["System.GammaWidget"];
     private static readonly string[] ExpectedResolvedTypeNames = ["System.Widget"];
     private static readonly string[] ExpectedHolderTypes = ["System.Holder", "System.Holder<T>"];
+    private static readonly string[] ExpectedWidgetTypes = ["System.Widget", "System.WidgetKit"];
 
     [TestMethod]
     public async Task SearchAsyncReturnsDeterministicPagesWithoutBodies()
@@ -175,6 +176,55 @@ public sealed class ApiDocsQueryServiceTests
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncMatchesNamespacesBySegmentAndTypeNamesBySubstring()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            // A fully-qualified name: the caller copied it out of a compiler error.
+            var byFullName = await Search(service, "System.Widget");
+            CollectionAssert.AreEqual(ExpectedResolvedTypeNames, byFullName.Select(item => item.Name).ToArray());
+            Assert.AreEqual(ApiNameMatch.FullName, byFullName[0].MatchedOn);
+
+            // A namespace names everything it holds, and says that is what it did.
+            var byNamespace = await Search(service, "System");
+            CollectionAssert.AreEqual(ExpectedWidgetTypes, byNamespace.Select(item => item.Name).ToArray());
+            Assert.IsTrue(byNamespace.All(item => item.MatchedOn == ApiNameMatch.Namespace));
+
+            // A type-name fragment still matches on any substring, and outranks the namespace
+            // reading when both apply.
+            var byFragment = await Search(service, "idget");
+            CollectionAssert.AreEqual(ExpectedWidgetTypes, byFragment.Select(item => item.Name).ToArray());
+            Assert.IsTrue(byFragment.All(item => item.MatchedOn == ApiNameMatch.Type));
+
+            // A namespace fragment that is not a whole segment names nothing. This is the blast
+            // radius the segment rule exists to prevent.
+            Assert.IsEmpty(await Search(service, "Syst"));
+
+            // A single segment equal to the type name is a type match spelled exactly, not a
+            // whole-name match.
+            Assert.AreEqual(ApiNameMatch.Type, (await Search(service, "Widget"))[0].MatchedOn);
+
+            // A pattern with an empty segment names nothing.
+            Assert.IsEmpty(await Search(service, "System..Widget"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    private static async Task<ApiSearchItem[]> Search(ApiDocsQueryService service, string pattern)
+    {
+        var result = await service.SearchAsync(pattern, limit: 100, cursor: null, CancellationToken.None);
+        return result.Items.ToArray();
     }
 
     [TestMethod]

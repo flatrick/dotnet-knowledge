@@ -113,7 +113,13 @@ public sealed class ApiDocsTool
 
     [McpServerTool(Name = "search_api", ReadOnly = true, Idempotent = true)]
     [Description(
-        "Search synchronized .NET and Roslyn ECMA XML docs by type-name fragment. " +
+        "Search synchronized .NET and Roslyn ECMA XML docs by name. The pattern matches a " +
+        "fully-qualified name (\"System.Text.Json.JsonSerializer\"), a whole namespace or a run of " +
+        "its dot-separated segments from anywhere in the path (\"System.Text.Json\", \"Text.Json\", " +
+        "\"Json\"), or a fragment of a type name (\"Concurrent\"). Namespaces match on complete " +
+        "segments, type names on any substring. Every item reports matchedOn - \"fullName\", " +
+        "\"type\" or \"namespace\" - so a namespace's entire contents is distinguishable from types " +
+        "named for the pattern. " +
         "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
         "call lookup_api for documentation bodies.")]
     public static async Task<string> SearchApi(

@@ -46,7 +46,20 @@ public sealed record ApiLookupResult(
 
 public sealed record ApiSearchItem(
     string Name,
+    string MatchedOn,
     SourceProvenance Source);
+
+/// <summary>
+/// Which part of a fully-qualified name a search pattern matched. A caller that asked for a type
+/// name and received a namespace's entire contents has been answered a question it did not ask, so
+/// the distinction belongs in the response rather than in the caller's assumptions.
+/// </summary>
+public static class ApiNameMatch
+{
+    public const string Type = "type";
+    public const string Namespace = "namespace";
+    public const string FullName = "fullName";
+}
 
 public sealed record ApiSearchResult(
     IReadOnlyList<ApiSearchItem> Items,

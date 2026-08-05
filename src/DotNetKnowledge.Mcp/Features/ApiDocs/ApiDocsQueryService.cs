@@ -254,15 +254,94 @@ public sealed class ApiDocsQueryService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var namespaceName = Path.GetFileName(namespaceDirectory);
+            var namespaceSegments = namespaceName.Split('.');
+            var patternSegments = pattern.Split('.');
             foreach (var file in Directory.EnumerateFiles(namespaceDirectory, "*.xml"))
             {
                 var typeName = Path.GetFileNameWithoutExtension(file);
-                if (typeName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                    items.Add(new ApiSearchItem($"{namespaceName}.{typeName}", provenance));
+                var matchedOn = ClassifyMatch(namespaceSegments, typeName, pattern, patternSegments);
+                if (matchedOn is not null)
+                    items.Add(new ApiSearchItem($"{namespaceName}.{typeName}", matchedOn, provenance));
             }
         }
 
         return new SourceRead<ApiSearchItem>(provenance, items);
+    }
+
+    /// <summary>
+    /// Decides which part of a fully-qualified name a pattern matched, or null for no match.
+    /// </summary>
+    /// <remarks>
+    /// A caller cannot know which kind of string it is holding — a whole name copied out of a
+    /// compiler error, a namespace, a fragment from the middle of one, or a bare type name — so all
+    /// four have to work. The namespace side matches whole dot-separated segments rather than raw
+    /// substrings: "Json" naming the <c>System.Text.Json</c> namespace is a question worth
+    /// answering, while "Jso" naming it is far more likely to be a type-name fragment, and treating
+    /// it as a namespace would bury the type the caller wanted under everything that namespace
+    /// holds.
+    /// </remarks>
+    private static string? ClassifyMatch(
+        string[] namespaceSegments,
+        string typeName,
+        string pattern,
+        string[] patternSegments)
+    {
+        // The type name is the last segment of the fully-qualified name, so a dotted pattern can
+        // legitimately end on it.
+        var fullNameSegments = new string[namespaceSegments.Length + 1];
+        namespaceSegments.CopyTo(fullNameSegments, 0);
+        fullNameSegments[^1] = typeName;
+
+        var runStart = IndexOfSegmentRun(fullNameSegments, patternSegments);
+        if (runStart >= 0)
+        {
+            var runEnd = runStart + patternSegments.Length - 1;
+            // Only a multi-segment run reaching the type name is a whole-name match. A single
+            // segment equal to the type name is just a type match spelled exactly.
+            if (runEnd == fullNameSegments.Length - 1 && patternSegments.Length > 1)
+                return ApiNameMatch.FullName;
+        }
+
+        // Substring, not segment: "Concurrent" has to keep finding ConcurrentDictionary.
+        if (typeName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            return ApiNameMatch.Type;
+
+        return runStart >= 0 ? ApiNameMatch.Namespace : null;
+    }
+
+    /// <summary>
+    /// Finds where <paramref name="run"/> occurs as consecutive whole segments of
+    /// <paramref name="segments"/>, or -1.
+    /// </summary>
+    private static int IndexOfSegmentRun(string[] segments, string[] run)
+    {
+        if (run.Length == 0 || run.Length > segments.Length)
+            return -1;
+
+        // A pattern with an empty segment ("System..Text", or a trailing dot) names nothing.
+        foreach (var segment in run)
+        {
+            if (segment.Length == 0)
+                return -1;
+        }
+
+        for (var start = 0; start <= segments.Length - run.Length; start++)
+        {
+            var matched = true;
+            for (var offset = 0; offset < run.Length; offset++)
+            {
+                if (!string.Equals(segments[start + offset], run[offset], StringComparison.OrdinalIgnoreCase))
+                {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched)
+                return start;
+        }
+
+        return -1;
     }
 
     private static string ResolveDocsRoot(string sourceName, string directory)

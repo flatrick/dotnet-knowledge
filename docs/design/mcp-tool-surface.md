@@ -60,10 +60,10 @@ search_api(pattern, limit?, cursor?)
       name ("System.Text.Json.JsonSerializer"), a namespace segment in
       the middle of one ("Text" or "Json" in System.Text.Json.*), a
       namespace prefix, or the type name alone
-    → each item states which part matched, so "every type in this
-      namespace" is distinguishable from "types whose name contains this"
-    ! today the pattern is matched against the type name alone, never
-      the namespace — see "What search_api matches" below
+    → namespaces match on complete segments, type names on any substring
+    → matchedOn: "fullName" | "type" | "namespace" — so "every type in
+      this namespace" is distinguishable from "types whose name contains
+      this"
     ! nothing here searches API documentation TEXT — summaries, remarks,
       parameters — see "Searching API documentation text" below
 
@@ -139,23 +139,24 @@ an empty result set reads as "no such API".
 Listing a *type's* members is already covered: `lookup_api` with a bare type name returns every
 member's signature. The gap is namespaces.
 
-The implementation matches the pattern against the type name alone. `ReadSearchSource` enumerates
-each namespace directory and tests the file stem, composing the namespace into the result only
-afterwards, so `search_api("System.Collections.Concurrent")` returns nothing while
-`search_api("ConcurrentDictionary")` returns the type. The tool's description states this constraint,
-which keeps the behavior honest but does not make it sufficient.
+The layout keeps this cheap. Namespace directories are flat — one directory per complete namespace
+(`xml/System.Text.Json/`), never nested — so a namespace segment, a run of segments, and a whole-name
+match are all operations on a directory name already in hand.
 
-The layout makes the fix cheap. Namespace directories are flat — one directory per complete namespace
-(`xml/System.Text.Json/`), never nested — so a namespace segment, a prefix, and a whole-name match are
-all string operations on a directory name that is already in hand.
+**The two sides of a name match differently, and deliberately.** A type name matches on any
+substring, because `Concurrent` must keep finding `ConcurrentDictionary`. A namespace matches only on
+complete dot-separated segments, because the alternative has an unacceptable blast radius: a raw
+`Contains` over the joined name makes `search_api("Json")` mean "every type in `System.Text.Json`" as
+well as "types named `*Json*`", and `Jso` mean it too, against a limit of 100. Whole-segment matching
+keeps `Json` naming the namespace — a question worth answering — while `Jso` stays what it almost
+certainly was, a type-name fragment.
 
-The question to settle before writing that code is blast radius, not feasibility. Matching a raw
-substring against the composed name means `search_api("Json")` stops meaning "types named `*Json*`"
-and starts also meaning "every type in `System.Text.Json`" — a much larger set, against a limit of
-100, where the caller cannot see why any given item matched. Two constraints follow: matching should
-be segment-aware rather than a plain `Contains` over the joined string, and each item should carry
-what it matched on. An agent that asked for a type name and received a namespace's entire contents
-has been answered a question it did not ask.
+Even so, `Json` legitimately matches both ways, which is why every item carries `matchedOn`. An agent
+that asked for a type name and received a namespace's entire contents has been answered a question it
+did not ask, and it cannot tell without being told. `fullName` outranks `type`, which outranks
+`namespace`, so the most specific reading an item supports is the one reported; a multi-segment run
+reaching the type name is `fullName`, while a single segment equal to the type name is just `type`
+spelled exactly.
 
 ### Searching API documentation text
 
