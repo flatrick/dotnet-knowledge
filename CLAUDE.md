@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Orientation
 
-Read [`AGENTS.md`](AGENTS.md) first, then [`docs/HANDOFF.md`](docs/HANDOFF.md) for current build
-state and next steps. This file covers commands and the cross-file architecture; AGENTS.md carries
-the corpus rules and the reasoning behind them.
+Read [`AGENTS.md`](AGENTS.md) first; it carries the corpus rules and the reasoning behind them. This
+file covers commands and the cross-file architecture. For current state, [`README.md`](README.md)
+has the status summary and [`docs/backlog/`](docs/backlog/README.md) holds one file per known issue.
 
 The repository is two halves serving one purpose — version-pinned, local answers about C#, VB.NET
 and Roslyn:
@@ -233,9 +233,9 @@ Cache location defaults to `%LOCALAPPDATA%\dotnet-knowledge\sources` (XDG equiva
 overridable with `DOTNET_KNOWLEDGE_CACHE`. It sits outside any repository so one download serves
 every clone and worktree on the machine.
 
-Current state: `list_sources` works. `sync_source`, the API-doc lookups, and the example queries are
-not built yet — build order and porting notes are in `docs/HANDOFF.md`, the tool surface in
-`docs/design/mcp-tool-surface.md`.
+Implemented: `list_sources`, `sync_source`, `search_api` and `lookup_api`. Language design-document
+queries and bundled-example queries are future work. The intended surface for all of them is in
+`docs/design/mcp-tool-surface.md`; known defects are one file each in `docs/backlog/`.
 
 ### Non-negotiables for every tool
 
