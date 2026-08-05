@@ -72,6 +72,7 @@ console host, so no existing test can catch this; the regression test needs its 
 - Modify: `tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj`
 - Create: `tests/DotNetKnowledge.Mcp.Tests/Sources/GitCommandRunnerTests.cs`
 - Modify: `.github/workflows/corpus-tests.yml`
+- Modify: `docs/gotchas.md` (append-only — add an entry, edit nothing)
 
 **Interfaces:**
 - Consumes: `GitCommandRunner.RunAsync(string?, IReadOnlyList<string>, CancellationToken)` — unchanged
@@ -110,12 +111,22 @@ Create `tests/DotNetKnowledge.Mcp.Tests.GitRunnerHost/Program.cs`:
 using System.Diagnostics;
 using DotNetKnowledge.Mcp.Sources;
 
-// Calls git from a process whose standard streams are pipes, which is the only configuration in
-// which the inherited-stdin hang appears. `runner` goes through the real GitCommandRunner; `inherit`
-// deliberately bypasses it with a raw ProcessStartInfo, and exists to prove this harness reproduces
-// the fault the runner is supposed to prevent.
+// Calls git from a process that reproduces the fault condition: standard input is a pipe, and this
+// process has an outstanding read on it. Both halves are required. A piped stdin alone does not
+// hang git — measured at 34 ms — but a piped stdin the parent is concurrently reading hangs it
+// indefinitely. An MCP stdio server always has a read pending on stdin, because that read is the
+// transport, which is why the fault appears there and nowhere else.
+//
+// `runner` goes through the real GitCommandRunner. `inherit` deliberately bypasses it with a raw
+// ProcessStartInfo, and exists to prove this harness still reproduces the fault the runner prevents.
 
 var mode = args.Length > 0 ? args[0] : "runner";
+
+// The transport-shaped read. Without it neither mode reproduces anything and `runner` passes for
+// the wrong reason. Nothing ever writes to this pipe, so the read never completes — which is the
+// point.
+_ = Task.Run(() => Console.In.ReadToEndAsync());
+await Task.Delay(300);
 
 switch (mode)
 {
@@ -322,7 +333,23 @@ Run: `dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.cspr
 Expected: PASS, 26 tests. The control test still takes about 10 s, which is the cost of a
 regression test known to be capable of failing.
 
-- [ ] **Step 9: Add the MCP suite to CI**
+- [ ] **Step 9: Correct the gotchas entry for the real trigger**
+
+`docs/gotchas.md` records the condition as an inherited piped stdin handle. That is necessary but
+not sufficient: a piped stdin alone completes in about 34 ms, and only a piped stdin the parent is
+concurrently reading hangs. The file is **append-only** — add this entry at the top of the entry
+list, directly under the `---`, and edit nothing below it:
+
+```markdown
+### 2026-08-05 · git hangs only when the parent is *reading* the inherited stdin · environment
+
+A piped stdin alone does not hang git — measured at 34 ms. It hangs when the parent has an
+outstanding read on the same handle, which an MCP stdio server always does because that read is the
+transport. Supersedes the earlier 2026-08-05 entry, which named the pipe alone as the cause.
+`RedirectStandardInput = true` remains the fix. Reproduce: `tests/DotNetKnowledge.Mcp.Tests.GitRunnerHost`.
+```
+
+- [ ] **Step 10: Add the MCP suite to CI**
 
 The regression test protects nothing if CI never runs it — today `.github/workflows/corpus-tests.yml`
 runs only the corpus suite. Add a step after the existing corpus test step, matching its style:
@@ -333,7 +360,7 @@ runs only the corpus suite. Add a step after the existing corpus test step, matc
           & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
 ```
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add src/DotNetKnowledge.Mcp/Sources/GitCommandRunner.cs \
@@ -341,7 +368,7 @@ git add src/DotNetKnowledge.Mcp/Sources/GitCommandRunner.cs \
         tests/DotNetKnowledge.Mcp.Tests.GitRunnerHost/ \
         tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj \
         tests/DotNetKnowledge.Mcp.Tests/Sources/GitCommandRunnerTests.cs \
-        .github/workflows/corpus-tests.yml
+        .github/workflows/corpus-tests.yml \n        docs/gotchas.md
 git commit -m "fix: redirect git's standard input so it cannot inherit a piped handle"
 ```
 
