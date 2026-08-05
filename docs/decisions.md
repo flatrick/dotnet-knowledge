@@ -41,6 +41,42 @@ failure and resumed, rather than discarding 773 MB. Rejected: raising `Quick`, w
 `rev-parse` unbounded for no reason; and dropping `--untracked-files=all`, which is the check that
 catches a half-written sparse checkout. Supersedes the 2026-08-05 tier-naming entry only in count.
 
+### 2026-08-05 · The markdown-searchable source set is a `sources.json` field, not a hardcoded list
+
+`SourceDefinition.Markdown` (JSON `"markdown"`) marks which sources
+`search_language_docs`/`get_language_doc`/`get_language_doc_outline` can reach; `LanguageDocsQueryService`
+reads it instead of intersecting a hardcoded `["csharplang", "vblang"]` array against the catalog.
+This also unlocked `roslyn-wiki`, already configured in `sources.json` as a pure-markdown source with
+no code path that could reach it. Rejected: the hardcoded allowlist, which the design doc already
+claimed was "configuration, not code" while the code said otherwise.
+
+### 2026-08-05 · Markdown parsing lives in its own library, not inside the server
+
+`DotNetKnowledge.Markdown` holds heading extraction, atomic-block detection, character-budget
+paging, and line search, with no dependency on the MCP server, `SourceCache`, or JSON. Rejected:
+building this directly in `Features/LanguageDocs/`, which would make it unreusable and untestable
+without the server's other dependencies.
+
+### 2026-08-05 · `get_language_doc` pages by a character budget, not a line count
+
+A budget bounds response size predictably regardless of how prose-heavy or grammar-production-heavy
+a section is; it snaps to the nearest line boundary and never splits a fenced code block or a
+table. Rejected: line-count paging, whose response size varies enormously between a one-sentence
+paragraph and a wide grammar production.
+
+### 2026-08-05 · A section-path collision gets a suffix only when it actually collides
+
+Two headings with the exact same full ancestor-chain text (a rare but real case, e.g. a repeated
+template section) get `Path` and `Path (2)`; every non-colliding path is untouched. Rejected:
+unconditionally numbering every heading by sibling position, which makes the overwhelming majority
+of paths — the ones that never collide — more verbose for no reason.
+
+### 2026-08-05 · Language-doc retrieval addresses heading sections, not line ranges
+
+`search_language_docs` hits and outline entries carry a server-issued heading path, and
+`get_language_doc` returns that complete section — complete by construction, where a line range
+returns what the caller guessed. Rejected: line-range parameters, GitHub anchor slugs (lossy and
+collision-prone), and paragraph-level IDs, which markdown gives no native identity to.
 
 ### 2026-08-05 · The source cache lives in the user data directory, not the cache directory
 
