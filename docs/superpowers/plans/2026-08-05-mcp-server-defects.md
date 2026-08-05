@@ -564,29 +564,53 @@ Replace the body of `GitCommandRunner.RunAsync` from its signature through the e
         var stdoutTask = process.StandardOutput.ReadToEndAsync(linked.Token);
         var stderrTask = process.StandardError.ReadToEndAsync(linked.Token);
 
+        // The caller's cancellation and an expired tier both surface as OperationCanceledException.
+        // Only the second is a fault worth naming; the first is the caller getting what it asked
+        // for. Both outcomes must kill the tree, so the decision is factored rather than repeated.
+        void KillIfRunning()
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+
+        bool TierExpired() =>
+            expiry.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+
+        TimeoutException Expired() =>
+            new($"git {string.Join(' ', arguments)} exceeded its {ceiling.TotalSeconds:0.##}s "
+                + $"{kind} timeout and was terminated.");
+
         try
         {
             await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-
-            // The caller's cancellation and an expired tier both surface here. Only the second is a
-            // fault worth naming; the first is the caller getting what it asked for.
-            if (expiry.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                throw new TimeoutException(
-                    $"git {string.Join(' ', arguments)} exceeded its {ceiling.TotalSeconds:0.##}s "
-                        + $"{kind} timeout and was terminated.");
-            }
-
+            KillIfRunning();
+            if (TierExpired())
+                throw Expired();
             throw;
         }
 
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
+        string stdout;
+        string stderr;
+        try
+        {
+            stdout = await stdoutTask.ConfigureAwait(false);
+            stderr = await stderrTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // git itself exited inside its ceiling, but a descendant — a credential helper, a
+            // background `gc --auto` — inherited the redirected pipes and kept them open, so the
+            // reads outlived the process. Unguarded, this escapes as a raw cancellation that no
+            // tool translates, and it skips the kill, leaking the descendant.
+            KillIfRunning();
+            if (TierExpired())
+                throw Expired();
+            throw;
+        }
+
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
@@ -700,8 +724,51 @@ this catch to **both** `LookupApi` and `SearchApi`, immediately before the exist
         }
 ```
 
-And in `src/DotNetKnowledge.Mcp/Features/Sources/SourcesTool.cs`, add the same catch to `SyncSource`
-immediately before its `catch (InvalidOperationException ...)`:
+`ListSources` needs it too, and it is the most exposed of the four: it fans out over *every*
+configured source, and each one runs three `Quick`-tier commands through `TryGetCurrentStateAsync`.
+It currently has no `try`/`catch` at all, so a timeout escapes unhandled from the one tool that
+works today. Name the source, which `Task.WhenAll` would otherwise lose — in
+`src/DotNetKnowledge.Mcp/Features/Sources/SourcesTool.cs`, wrap the body of `GetSourceStatusAsync`:
+
+```csharp
+        SourceSyncState? state;
+        try
+        {
+            state = await synchronizer.TryGetCurrentStateAsync(name, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            // Task.WhenAll would otherwise surface a message naming the git command but not which
+            // source it was validating, and this tool touches all of them.
+            throw new TimeoutException($"{name}: {exception.Message}", exception);
+        }
+```
+
+and wrap `ListSources`'s body from `var sourceDefinitions = ...` through its `return` in:
+
+```csharp
+        try
+        {
+            // ... existing body ...
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+```
+
+A partial listing is not offered here on purpose: a source that silently reported "not synced"
+because its validation timed out is exactly the plausible-absence failure this server is built to
+avoid.
+
+And add the same catch to `SyncSource` immediately before its
+`catch (InvalidOperationException ...)`:
 
 ```csharp
         catch (TimeoutException exception)
