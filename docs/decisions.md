@@ -41,6 +41,12 @@ failure and resumed, rather than discarding 773 MB. Rejected: raising `Quick`, w
 `rev-parse` unbounded for no reason; and dropping `--untracked-files=all`, which is the check that
 catches a half-written sparse checkout. Supersedes the 2026-08-05 tier-naming entry only in count.
 
+### 2026-08-05 · Language-doc retrieval addresses heading sections, not line ranges
+
+`search_language_docs` hits and outline entries carry a server-issued heading path, and
+`get_language_doc` returns that complete section — complete by construction, where a line range
+returns what the caller guessed. Rejected: line-range parameters, GitHub anchor slugs (lossy and
+collision-prone), and paragraph-level IDs, which markdown gives no native identity to.
 
 ### 2026-08-05 · The source cache lives in the user data directory, not the cache directory
 

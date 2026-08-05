@@ -58,11 +58,29 @@ search_api(pattern, limit?, cursor?)
     → candidate fully-qualified names ONLY, no bodies
 
 ── language design docs ──────────────────────────────────────────────
-search_language_docs(query, source?, limit?, cursor?)
-    → path + line hits, no file bodies
+search_language_docs(query, regex?, source?, limit?, cursor?)
+    query: a literal substring; regex: true switches to full .NET
+      regex, evaluated with the non-backtracking engine so no
+      caller-supplied pattern can stall the server
+    → hits: path, line, the matched line's text (length-capped), and a
+      server-issued section heading path — no file bodies
+    → searches every markdown source the tool supports (csharplang and
+      vblang today; the supported set is configuration, not code);
+      source restricts
 
-get_language_doc(path, source)
-    → the document's contents
+get_language_doc(path, source, section?, limit?, cursor?)
+    section: a heading path exactly as issued by a search hit or an
+      outline entry ("Metadata > Ref fields", disambiguated when a
+      heading text repeats) — callers round-trip it, never construct it
+    → with section: that complete heading section, paged only when it
+      is genuinely large
+    → without: the whole document, paged from the top
+    → no size cap and no refusal; every page states whether more
+      remains and carries the cursor for the next one
+
+get_language_doc_outline(path, source)
+    → the document's heading tree with section IDs, no bodies — the
+      map an agent reads before spending context on content
 
 ── examples (bundled) ────────────────────────────────────────────────
 list_examples(kind?, language?, version?, feature?)
@@ -89,9 +107,23 @@ dedicated `MANIFEST.md` table supplies discovery metadata and must agree with th
 
 An agent pays for every token it receives. `search_api` returning fully-qualified names lets it
 narrow for almost nothing and then spend context on a single `lookup_api`. The same reasoning makes
-`search_language_docs` return `path:line` hits rather than matched files: the agent decides what is
-worth reading. A search tool that returns bodies turns one imprecise query into an unaffordable
-response.
+`search_language_docs` return `path:line` hits plus the single matched line rather than matched
+files: one line per hit is the triage budget, and the agent decides what is worth reading. A search
+tool that returns bodies turns one imprecise query into an unaffordable response.
+
+### Sections are the retrieval unit for language docs
+
+A line range returns what the caller guessed; a heading section — the heading and everything until
+the next heading of the same or higher level — is complete by construction. Section IDs are
+therefore heading paths issued by the server and round-tripped verbatim, in the same spirit as
+cursors. Sections are also the floor: markdown gives a paragraph no identity, so paragraph-level
+IDs would be synthetic and churn with every upstream edit. Heading extraction uses Markdig's AST
+rather than hand-rolled scanning, because a heading is only a heading outside a code fence and both
+ATX and setext forms occur in these repositories.
+
+These tools must stand alone for a sandboxed agent. The `cacheDir` escape hatch assumes the caller
+can reach the per-user cache with its own tools; an agent confined to its workspace cannot, and for
+it a structured search that falls short has no fallback.
 
 ## The provenance envelope
 
