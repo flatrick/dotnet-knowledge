@@ -191,9 +191,19 @@ both, it is `INCONCLUSIVE`, because the harness rather than the pin is what fail
 
 ## Continuous integration
 
-**A green CI run does not mean a commit was gated.** `.github/workflows/corpus-tests.yml` runs on
-every pull request to `main`, but nothing blocks a merge on its result and nothing blocks a direct
-push to `main` — required status checks need a ruleset, which GitHub withholds while this
-repository is private on the Free plan. Do not infer from a commit's presence on `main` that
-verification passed for it; read the run. [`docs/design/ci.md`](docs/design/ci.md) has the
-reasoning and the runbook to activate the gate once the repository is public.
+**No CI runs. Actions is disabled for this repository, and verification is whatever you run
+locally.** Workflow configuration is still maintained — `.github/workflows/corpus-tests.yml` is
+current and a new job should be added when new tests are — but nothing executes it. Minutes cost
+money on a private repository, and while this is a personal project that cost buys nothing a local
+run does not already provide.
+
+Two consequences follow, and both are easy to get wrong:
+
+- **A commit's presence on `main` says nothing about whether it was verified.** Not "the gate is
+  advisory" — there is no run to read. If you need to know whether something passes, run it.
+- **Adding a test does not make it run anywhere.** A suite nobody invokes locally is dead weight
+  dressed as coverage, so a new suite needs an entry in [`CLAUDE.md`](CLAUDE.md)'s command list, not
+  only a workflow step.
+
+[`docs/design/ci.md`](docs/design/ci.md) has the workflow's design and the runbook for turning
+Actions on and activating a merge gate, for whenever that becomes worth paying for.

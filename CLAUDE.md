@@ -287,6 +287,19 @@ The default scan covers the tracked tree; `--history` covers every blob in every
 file does not remove it from the repository, so a finding from `--history` means rewriting history,
 not deleting a file — which is why it is much cheaper to not commit the content in the first place.
 
+## Continuous integration — configured, not running
+
+**Actions is disabled for this repository. No workflow executes, and local runs are the only
+verification there is.** Keep the workflow configuration current, and add a job when you add a
+suite, so turning Actions on is a settings change rather than a project — but never treat a
+workflow step as the thing that runs a test. Minutes cost money on a private repository, and while
+this is a personal project that cost buys nothing a local run does not.
+
+So: a commit on `main` carries no evidence that anything passed, because there is no run to read;
+and a new suite needs an entry in the command list above, not only a workflow step, or nothing will
+ever invoke it. [`docs/design/ci.md`](docs/design/ci.md) has the workflow's design and the runbook
+for turning Actions on.
+
 ## Conventions
 
 1. **Tooling is single-file C#, never a shell script.** No `.sh`, `.ps1`, `.bat`, or `.py` — every

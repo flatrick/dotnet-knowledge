@@ -24,6 +24,13 @@ and the entry links there.
 
 ---
 
+### 2026-08-05 · CI is configured but disabled; local runs are the only verification
+
+Actions is off for this repository, so no workflow executes and nothing on `main` carries evidence
+that it passed. The configuration is kept current so enabling it is a settings change, not a project.
+Rejected: running the workflow for visibility, which costs private-repo minutes to tell us what a
+local run already does.
+
 ### 2026-08-05 · Git timeout tiers are named for duration, not for the network
 
 `GitCommandKind.Quick`/`Bulk` name what a command is expected to cost, because `sparse-checkout set`
