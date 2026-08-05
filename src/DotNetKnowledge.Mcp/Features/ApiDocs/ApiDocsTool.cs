@@ -10,7 +10,8 @@ public sealed class ApiDocsTool
 {
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
-        WriteIndented = true,
+        // Indentation is roughly a fifth of every response's bytes and buys an agent nothing.
+        WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
@@ -18,26 +19,42 @@ public sealed class ApiDocsTool
     [McpServerTool(Name = "lookup_api", ReadOnly = true, Idempotent = true)]
     [Description(
         "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
-        "Use TypeName or TypeName.MemberName; pass source to restrict the lookup to " +
-        "dotnet-api-docs or roslyn-api-docs. Returns signatures and documentation with provenance.")]
+        "TypeName returns every member's signature only; TypeName.MemberName returns full " +
+        "documentation for that member. Pass source to restrict the lookup to dotnet-api-docs or " +
+        "roslyn-api-docs, and limit/cursor to page. Returns provenance with every match.")]
     public static async Task<string> LookupApi(
         string symbol,
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
-        string? source = null)
+        string? source = null,
+        int? limit = null,
+        string? cursor = null)
     {
         try
         {
-            var result = await service.LookupAsync(symbol, source, cancellationToken).ConfigureAwait(false);
+            var result = await service.LookupAsync(
+                symbol,
+                source,
+                limit ?? 20,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
             if (result.Matches.Count == 0)
             {
+                // Directing a caller to search_api is right when the type was not found and wrong
+                // when the type resolved: search_api enumerates file names and never opens a
+                // document, so no search of it can surface a member.
+                var memberMissing = result.Outcome == ApiLookupOutcome.MemberNotFound;
                 return JsonSerializer.Serialize(
                     new
                     {
-                        error = "not_found",
-                        message = $"API symbol '{symbol}' was not found in the selected synchronized source(s). " +
-                            "Call search_api with a type-name fragment to find candidates.",
+                        error = memberMissing ? "member_not_found" : "not_found",
+                        message = memberMissing
+                            ? $"No member of '{string.Join("', '", result.ResolvedTypeNames)}' matches "
+                                + $"'{symbol}'. Call lookup_api with just the type name to list its members."
+                            : $"API symbol '{symbol}' was not found in the selected synchronized source(s). "
+                                + "Call search_api with a type-name fragment to find candidates.",
                         symbol,
+                        resolvedTypes = memberMissing ? result.ResolvedTypeNames : null,
                         searchedSources = result.SearchedSources,
                     },
                     WriteOptions);
@@ -56,12 +73,24 @@ public sealed class ApiDocsTool
                 },
                 WriteOptions);
         }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
         catch (ArgumentException exception)
         {
             return JsonSerializer.Serialize(
                 new
                 {
-                    error = "invalid_request",
+                    error = string.Equals(exception.ParamName, "cursor", StringComparison.Ordinal)
+                        ? "invalid_cursor"
+                        : "invalid_request",
                     message = exception.Message,
                 },
                 WriteOptions);
@@ -111,6 +140,16 @@ public sealed class ApiDocsTool
                     error = "source_not_synced",
                     message = exception.Message,
                     source = exception.SourceName,
+                },
+                WriteOptions);
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
                 },
                 WriteOptions);
         }

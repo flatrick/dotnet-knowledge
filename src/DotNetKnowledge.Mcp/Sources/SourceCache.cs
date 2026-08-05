@@ -99,8 +99,11 @@ public sealed class SourceCache
         if (!string.IsNullOrWhiteSpace(configured))
             return Path.GetFullPath(configured);
 
-        // SpecialFolder.LocalApplicationData maps to %LOCALAPPDATA% on Windows and to
-        // $XDG_CACHE_HOME (falling back to ~/.local/share or ~/.cache) elsewhere.
+        // SpecialFolder.LocalApplicationData maps to %LOCALAPPDATA% on Windows, to
+        // $XDG_DATA_HOME (falling back to ~/.local/share) on Linux, and to
+        // ~/Library/Application Support on macOS. That is the user *data* directory, not the
+        // XDG cache directory, deliberately: a synced pin must survive cache cleaners, because
+        // query tools treat an absent source as "call sync_source", never as a silent refetch.
         var baseDirectory = Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData,
             Environment.SpecialFolderOption.Create);

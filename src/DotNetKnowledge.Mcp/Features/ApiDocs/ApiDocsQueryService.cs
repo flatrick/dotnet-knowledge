@@ -30,18 +30,24 @@ public sealed class ApiDocsQueryService
     public async Task<ApiLookupResult> LookupAsync(
         string symbol,
         string? source,
+        int limit,
+        string? cursor,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
         ValidateSymbol(symbol);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
         var sourceNames = ResolveSourceNames(source);
         var matches = new List<ApiTypeDocumentation>();
+        var resolvedTypeNames = new List<string>();
         var searchedSources = new List<SourceProvenance>();
+        var reads = new List<LookupRead>();
 
         foreach (var sourceName in sourceNames)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SourceRead<ApiTypeDocumentation> read;
+            LookupRead read;
             try
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
@@ -56,16 +62,78 @@ public sealed class ApiDocsQueryService
             }
 
             searchedSources.Add(read.Provenance);
-            matches.AddRange(read.Items);
+            reads.Add(read);
+            matches.AddRange(read.Matches);
+            resolvedTypeNames.AddRange(read.ResolvedTypeNames);
         }
 
+        var ordered = matches
+            .OrderBy(match => match.FullName, StringComparer.Ordinal)
+            .ThenBy(match => match.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+        var outcome = ordered.Length > 0
+            ? ApiLookupOutcome.Found
+            : resolvedTypeNames.Count > 0
+                ? ApiLookupOutcome.MemberNotFound
+                : ApiLookupOutcome.TypeNotFound;
+        var distinctTypeNames = resolvedTypeNames.Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        // A bare type name asks for an inventory; naming a member asks for its documentation. The
+        // symbol is the whole selector, so the expensive response is unreachable rather than
+        // merely opt-out. The reads already answered this question when they resolved the symbol,
+        // so it is carried out rather than recomputed — recomputing risks the two disagreeing.
+        var signaturesOnly = reads.Any(read => read.Matches.Count > 0 && !read.SymbolNamedAMember);
+
+        // Paging runs over one flat, ordinally-ordered member sequence across every match, so a
+        // three-type result such as List has one pagination state rather than three. A type with
+        // no members (a bare-type-name match against a marker type, or a namesake pair like
+        // Holder/Holder<T> where one arity carries no documented members) still occupies one slot
+        // in the sequence via a null placeholder — otherwise it would contribute nothing to any
+        // page and silently disappear from every response.
+        var pairs = ordered
+            .SelectMany(type => type.Members.Count > 0
+                ? type.Members
+                    .OrderBy(member => member.Name, StringComparer.Ordinal)
+                    .ThenBy(member => member.Signature, StringComparer.Ordinal)
+                    .Select(member => (Type: type, Member: (ApiMemberDocumentation?)member))
+                : [(Type: type, Member: (ApiMemberDocumentation?)null)])
+            .ToArray();
+
+        var revisions = searchedSources
+            .Select(searched => searched.Repo + "@" + searched.Ref + "@" + searched.Commit)
+            .ToArray();
+        var offset = DecodeCursor(cursor, "lookup", symbol, revisions);
+        if (offset > pairs.Length)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = pairs.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < pairs.Length;
+
+        var paged = page
+            .GroupBy(pair => (pair.Type.FullName, pair.Type.Source.Repo))
+            .Select(group => group.First().Type with
+            {
+                Members = group
+                    .Where(pair => pair.Member is not null)
+                    .Select(pair => signaturesOnly ? ToSignature(pair.Member!) : pair.Member!)
+                    .ToArray(),
+            })
+            .ToArray();
+
         return new ApiLookupResult(
-            matches
-                .OrderBy(match => match.FullName, StringComparer.Ordinal)
-                .ThenBy(match => match.Source.Repo, StringComparer.Ordinal)
-                .ToArray(),
-            searchedSources);
+            paged,
+            searchedSources,
+            outcome,
+            distinctTypeNames,
+            isPartial,
+            isPartial ? EncodeCursor("lookup", symbol, nextOffset, revisions) : null);
     }
+
+    private static ApiMemberDocumentation ToSignature(ApiMemberDocumentation member) =>
+        new(member.Name, member.Signature, Summary: null, Parameters: null, Returns: null, Remarks: null);
 
     public async Task<ApiSearchResult> SearchAsync(
         string pattern,
@@ -103,7 +171,7 @@ public sealed class ApiDocsQueryService
         var revisions = searchedSources
             .Select(source => source.Repo + "@" + source.Ref + "@" + source.Commit)
             .ToArray();
-        var offset = DecodeCursor(cursor, pattern, revisions);
+        var offset = DecodeCursor(cursor, "search", pattern, revisions);
 
         var ordered = items
             .OrderBy(item => item.Name, StringComparer.Ordinal)
@@ -118,7 +186,7 @@ public sealed class ApiDocsQueryService
         return new ApiSearchResult(
             Items: page,
             IsPartial: isPartial,
-            NextPageToken: isPartial ? EncodeCursor(pattern, nextOffset, revisions) : null,
+            NextPageToken: isPartial ? EncodeCursor("search", pattern, nextOffset, revisions) : null,
             SearchedSources: searchedSources);
     }
 
@@ -142,7 +210,7 @@ public sealed class ApiDocsQueryService
             .ToArray();
     }
 
-    private static SourceRead<ApiTypeDocumentation> ReadLookupSource(
+    private static LookupRead ReadLookupSource(
         string sourceName,
         string directory,
         string symbol,
@@ -151,12 +219,25 @@ public sealed class ApiDocsQueryService
     {
         var docsRoot = ResolveDocsRoot(sourceName, directory);
         var (files, memberName) = ResolveSymbol(docsRoot, symbol);
-        var items = files
+        var documented = files
             .Select(file => ReadType(file, memberName, definition, state))
-            .Where(documentation => memberName is null || documentation.Members.Count > 0)
             .ToArray();
-        return new SourceRead<ApiTypeDocumentation>(ToProvenance(definition, state), items);
+
+        return new LookupRead(
+            ToProvenance(definition, state),
+            documented.Where(type => memberName is null || type.Members.Count > 0).ToArray(),
+
+            // Every type whose name matched, before member filtering. This is what distinguishes
+            // "no such type" from "the type exists and the member did not match".
+            documented.Select(type => type.FullName).ToArray(),
+            memberName is not null);
     }
+
+    private sealed record LookupRead(
+        SourceProvenance Provenance,
+        IReadOnlyList<ApiTypeDocumentation> Matches,
+        IReadOnlyList<string> ResolvedTypeNames,
+        bool SymbolNamedAMember);
 
     private static SourceRead<ApiSearchItem> ReadSearchSource(
         string sourceName,
@@ -230,13 +311,35 @@ public sealed class ApiDocsQueryService
         if (!Directory.Exists(namespaceDirectory))
             return [];
 
+        // Both, not one or the other. A namespace holding SyntaxList and SyntaxList`1 would
+        // otherwise answer for the plain name with the smaller type and say nothing about the
+        // larger one, which reads as a complete result.
+        var files = new List<string>();
         var exact = Path.Combine(namespaceDirectory, simpleName + ".xml");
         if (File.Exists(exact))
-            return [exact];
+            files.Add(exact);
 
-        return Directory.EnumerateFiles(namespaceDirectory, simpleName + "`*.xml")
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToArray();
+        files.AddRange(Directory
+            .EnumerateFiles(namespaceDirectory, simpleName + "`*.xml")
+            .OrderBy(path => path, StringComparer.Ordinal));
+        return files.ToArray();
+    }
+
+    /// <summary>
+    /// ECMA XML spells a generic member's MemberName with its type-parameter list, so
+    /// "Select&lt;TSource,TResult&gt;" is what an agent asking for "Select" must match. The fully
+    /// specified form is still accepted, which is how a caller selects one arity.
+    /// </summary>
+    private static bool MemberNameMatches(string? attributeValue, string requested)
+    {
+        if (attributeValue is null)
+            return false;
+        if (string.Equals(attributeValue, requested, StringComparison.Ordinal))
+            return true;
+
+        var typeParameters = attributeValue.IndexOf('<', StringComparison.Ordinal);
+        return typeParameters > 0
+            && string.Equals(attributeValue[..typeParameters], requested, StringComparison.Ordinal);
     }
 
     private static ApiTypeDocumentation ReadType(
@@ -252,7 +355,7 @@ public sealed class ApiDocsQueryService
             ?? Path.GetFileNameWithoutExtension(path);
         var members = root.Descendants("Member")
             .Where(member => memberName is null
-                || string.Equals(member.Attribute("MemberName")?.Value, memberName, StringComparison.Ordinal))
+                || MemberNameMatches(member.Attribute("MemberName")?.Value, memberName))
             .Select(ReadMember)
             .Where(member => member is not null)
             .Cast<ApiMemberDocumentation>()
@@ -342,16 +445,17 @@ public sealed class ApiDocsQueryService
     private static SourceProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
         new(definition.Repository, state.Ref, state.Commit, state.FetchedAt);
 
-    private static string EncodeCursor(string pattern, int offset, IReadOnlyList<string> revisions)
+    private static string EncodeCursor(string kind, string scope, int offset, IReadOnlyList<string> revisions)
     {
-        var json = JsonSerializer.Serialize(new SearchCursor(Version: 1, Pattern: pattern, Offset: offset, Revisions: revisions));
+        var json = JsonSerializer.Serialize(
+            new PageCursor(Version: 1, Kind: kind, Scope: scope, Offset: offset, Revisions: revisions));
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json))
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
     }
 
-    private static int DecodeCursor(string? cursor, string pattern, IReadOnlyList<string> revisions)
+    private static int DecodeCursor(string? cursor, string kind, string scope, IReadOnlyList<string> revisions)
     {
         if (cursor is null)
             return 0;
@@ -360,16 +464,21 @@ public sealed class ApiDocsQueryService
         {
             var base64 = cursor.Replace('-', '+').Replace('_', '/');
             base64 = base64.PadRight(base64.Length + ((4 - (base64.Length % 4)) % 4), '=');
-            var decoded = JsonSerializer.Deserialize<SearchCursor>(
+            var decoded = JsonSerializer.Deserialize<PageCursor>(
                 Encoding.UTF8.GetString(Convert.FromBase64String(base64)));
+
+            // Kind keeps a search cursor from being honored by a lookup; scope keeps a cursor for
+            // one symbol or pattern from being honored for another; revisions keep any cursor from
+            // surviving a re-synchronization that changes what it points at.
             if (decoded is null
                 || decoded.Version != 1
                 || decoded.Offset < 0
-                || !string.Equals(decoded.Pattern, pattern, StringComparison.Ordinal)
+                || !string.Equals(decoded.Kind, kind, StringComparison.Ordinal)
+                || !string.Equals(decoded.Scope, scope, StringComparison.Ordinal)
                 || decoded.Revisions is null
                 || !decoded.Revisions.SequenceEqual(revisions, StringComparer.Ordinal))
             {
-                throw new ArgumentException("cursor does not match this search.", nameof(cursor));
+                throw new ArgumentException("cursor does not match this request.", nameof(cursor));
             }
 
             return decoded.Offset;
@@ -380,6 +489,12 @@ public sealed class ApiDocsQueryService
         }
     }
 
-    private sealed record SearchCursor(int Version, string Pattern, int Offset, IReadOnlyList<string> Revisions);
+    private sealed record PageCursor(
+        int Version,
+        string Kind,
+        string Scope,
+        int Offset,
+        IReadOnlyList<string> Revisions);
+
     private sealed record SourceRead<T>(SourceProvenance Provenance, IReadOnlyList<T> Items);
 }

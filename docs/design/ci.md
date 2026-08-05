@@ -1,6 +1,14 @@
 # Continuous integration
 
-One workflow, `.github/workflows/corpus-tests.yml`, running one job, `corpus-tests`.
+One workflow, `.github/workflows/corpus-tests.yml`, running one job, `corpus-tests`, whose steps
+cover the corpus suite, the MCP server suite, and the vendored-content guard.
+
+**Nothing here currently executes.** Actions is disabled for this repository, so no trigger below
+fires and verification is whatever is run locally. Minutes cost money on a private repository, and
+while this is a personal project that cost buys nothing a local run does not. The configuration is
+kept current anyway, so enabling Actions is a settings change rather than a project.
+
+The rest of this document describes what would run once Actions is enabled.
 
 ## What runs, and when
 
@@ -113,8 +121,10 @@ staleness the pin exists to prevent.
 
 ## The merge gate is not active
 
-**A green run does not gate anything.** The workflow runs on every pull request to `main`, but
-nothing blocks a merge on its result, and nothing blocks a direct push to `main` either.
+**Nothing gates anything, at two independent levels.** Actions is disabled, so no run is produced
+at all; and even with it enabled, nothing would block a merge on a result or block a direct push to
+`main`. Enabling Actions therefore buys visibility, not enforcement — the gate below is a separate
+step.
 
 Required status checks are the only mechanism GitHub offers for blocking a merge on a workflow
 result, and they need a ruleset or branch protection. Both endpoints refuse while this repository

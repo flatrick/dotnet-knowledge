@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
 public sealed record SourceProvenance(
@@ -14,7 +16,7 @@ public sealed record ApiMemberDocumentation(
     string Name,
     string Signature,
     string? Summary,
-    IReadOnlyList<ApiParameterDocumentation> Parameters,
+    IReadOnlyList<ApiParameterDocumentation>? Parameters,
     string? Returns,
     string? Remarks);
 
@@ -23,9 +25,24 @@ public sealed record ApiTypeDocumentation(
     IReadOnlyList<ApiMemberDocumentation> Members,
     SourceProvenance Source);
 
+/// <summary>
+/// Why a lookup returned nothing. A type that does not exist and a member that does not exist need
+/// different remedies, and only the second is answerable with another lookup.
+/// </summary>
+public enum ApiLookupOutcome
+{
+    Found,
+    TypeNotFound,
+    MemberNotFound,
+}
+
 public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<SourceProvenance> SearchedSources,
+    [property: JsonIgnore] ApiLookupOutcome Outcome,
+    IReadOnlyList<string> ResolvedTypeNames,
+    bool IsPartial,
+    string? NextPageToken);
 
 public sealed record ApiSearchItem(
     string Name,

@@ -12,10 +12,8 @@ a web search risks an answer describing a different version than the one in the 
 This server provides all three locally and states which revision each answer came from.
 
 The source and API-doc tools are implemented; language-design and bundled-example tools below are
-the remaining surface. What is implemented does not currently function under an MCP stdio host —
-every `git` subprocess the server starts there hangs, which blocks synchronization and, once a
-source is cached, the query tools too. This document describes the intended surface throughout;
-[`docs/backlog/`](../backlog/README.md) records where the implementation departs from it.
+the remaining surface. This document describes the intended surface throughout;
+[`docs/backlog/`](../backlog/README.md) records deferred work against it.
 
 ## Two classes of source, two lifecycles
 
@@ -42,9 +40,19 @@ sync_source(name, ref?)
     → returns the resolved commit and the on-disk path
 
 ── API docs ──────────────────────────────────────────────────────────
-lookup_api(symbol, source?)
+lookup_api(symbol, source?, limit?, cursor?)
     symbol: "SymbolFinder" | "SymbolFinder.FindCallersAsync"
-    → signatures, parameters, returns, summary, remarks
+    → a bare type name returns each matching member's name and signature
+      only, across every matching type; naming a member ("Type.Member")
+      returns that member's full documentation — summary, parameters,
+      returns, and remarks
+    → limit: 1-100, default 20, over one flat member sequence across all
+      matched types; cursor: opaque, bound to the symbol and to the
+      searched sources' revisions, so a cursor from before a
+      re-synchronization is rejected rather than silently misread
+    → resolvedTypeNames lists every type the symbol matched, so a caller
+      can see the full matched set even when a page shows only some of
+      their members
 
 search_api(pattern, limit?, cursor?)
     → candidate fully-qualified names ONLY, no bodies
@@ -140,10 +148,15 @@ It never searches only the available subset, because an incomplete result set lo
 
 ## The cache lives outside any repository
 
-Default location, overridable by config:
+Default location, overridable with `DOTNET_KNOWLEDGE_CACHE`:
 
 - Windows — `%LOCALAPPDATA%\dotnet-knowledge\sources\<name>\`
-- otherwise — `$XDG_CACHE_HOME/dotnet-knowledge/sources/<name>/` (or `~/.cache/...`)
+- Linux — `$XDG_DATA_HOME/dotnet-knowledge/sources/<name>/` (or `~/.local/share/...`)
+- macOS — `~/Library/Application Support/dotnet-knowledge/sources/<name>/`
+
+The user *data* directory, not the XDG cache directory, deliberately: a synced pin must survive
+cache cleaners, because query tools treat an absent source as "call `sync_source`", never as
+something to refetch silently ([`docs/decisions.md`](../decisions.md)).
 
 One download then serves every repository and every git worktree on the machine. That is the
 concrete advantage over the git-submodule arrangement this replaces, where the content was

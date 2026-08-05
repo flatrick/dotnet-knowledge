@@ -2,12 +2,22 @@ using System.Text.Json;
 using System.Diagnostics;
 using DotNetKnowledge.Mcp.Features.Sources;
 using DotNetKnowledge.Mcp.Sources;
+using ModelContextProtocol;
 
 namespace DotNetKnowledge.Mcp.Tests.Features.Sources;
 
 [TestClass]
 public sealed class SourcesToolTests
 {
+    private static readonly string[] ExpectedStages =
+        ["clone", "sparse-checkout", "fetch", "checkout", "validate"];
+
+    // These tests call the static tool method directly rather than through the MCP SDK's
+    // parameter injection, so they must supply a progress reporter themselves; nothing here
+    // reads it.
+    private static readonly IProgress<ProgressNotificationValue> NoOpProgress =
+        new Progress<ProgressNotificationValue>();
+
     [TestMethod]
     public async Task SyncSourceDoesNotPublishFailedGitOperation()
     {
@@ -27,6 +37,7 @@ public sealed class SourcesToolTests
             var json = await SourcesTool.SyncSource(
                 "local",
                 synchronizer,
+                NoOpProgress,
                 CancellationToken.None,
                 @ref: null);
 
@@ -57,6 +68,7 @@ public sealed class SourcesToolTests
             await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => SourcesTool.SyncSource(
                 "csharplang",
                 synchronizer,
+                NoOpProgress,
                 cancellation.Token,
                 @ref: null));
         }
@@ -80,6 +92,7 @@ public sealed class SourcesToolTests
             var json = await SourcesTool.SyncSource(
                 "csharplang",
                 synchronizer,
+                NoOpProgress,
                 CancellationToken.None,
                 @ref: "main");
 
@@ -118,6 +131,7 @@ public sealed class SourcesToolTests
             var json = await SourcesTool.SyncSource(
                 "local",
                 synchronizer,
+                NoOpProgress,
                 CancellationToken.None,
                 @ref: null);
 
@@ -129,6 +143,55 @@ public sealed class SourcesToolTests
             Assert.AreEqual("pinned", source.GetProperty("ref").GetString());
             Assert.AreEqual(pin, source.GetProperty("commit").GetString());
             Assert.IsTrue(source.TryGetProperty("fetchedAt", out _));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SyncSourcePublishesProgressNotificationsInStageOrder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = Path.Combine(root, "origin");
+            Directory.CreateDirectory(Path.Combine(repository, "docs"));
+            await RunGitAsync(null, "init", "--initial-branch=main", repository);
+            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Tests");
+            await File.WriteAllTextAsync(Path.Combine(repository, "docs", "included.md"), "included");
+            await RunGitAsync(repository, "add", ".");
+            await RunGitAsync(repository, "commit", "-m", "initial");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteCatalogAsync(catalogPath, repository, pin);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(new SourceCatalog(catalogPath), cache);
+
+            // SourcesTool.SyncSource used to wrap its stage reporter in System.Progress<T>, whose
+            // callbacks post to the thread pool when there is no synchronization context, as here.
+            // A recording IProgress<T> that runs inline is the only way to pin down stage order and
+            // the running count without a race.
+            var recorder = new RecordingProgressNotifications();
+            await SourcesTool.SyncSource(
+                "local",
+                synchronizer,
+                recorder,
+                CancellationToken.None,
+                @ref: null);
+
+            Assert.HasCount(5, recorder.Notifications);
+            for (var index = 0; index < ExpectedStages.Length; index++)
+            {
+                var notification = recorder.Notifications[index];
+                Assert.AreEqual((float)(index + 1), notification.Progress);
+                Assert.AreEqual(5f, notification.Total);
+                StringAssert.Contains(notification.Message, "local");
+            }
         }
         finally
         {
@@ -176,6 +239,52 @@ public sealed class SourcesToolTests
     }
 
     [TestMethod]
+    public async Task SyncAsyncReportsEveryStageInOrder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = Path.Combine(root, "origin");
+            var contentDirectory = Path.Combine(repository, "docs");
+            Directory.CreateDirectory(contentDirectory);
+            await RunGitAsync(null, "init", "--initial-branch=main", repository);
+            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Tests");
+            await File.WriteAllTextAsync(
+                Path.Combine(contentDirectory, "Widget.xml"),
+                "<Type Name=\"Widget\" FullName=\"System.Widget\" />");
+            await RunGitAsync(repository, "add", ".");
+            await RunGitAsync(repository, "commit", "-m", "docs");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteCatalogAsync(catalogPath, repository, pin);
+            var synchronizer = new SourceSynchronizer(
+                new SourceCatalog(catalogPath),
+                new SourceCache(Path.Combine(root, "cache")));
+
+            // A plain IProgress<T> that records inline. System.Progress<T> posts its callbacks
+            // through the synchronization context, so a test using it would have to sleep before
+            // asserting and would still be racy.
+            var recorder = new RecordingProgress();
+            await synchronizer.SyncAsync(
+                "local",
+                requestedRef: null,
+                CancellationToken.None,
+                recorder);
+
+            CollectionAssert.AreEqual(
+                ExpectedStages,
+                recorder.Stages.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task SyncSourceReturnsStructuredUnknownSourceError()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -188,6 +297,7 @@ public sealed class SourcesToolTests
             var json = await SourcesTool.SyncSource(
                 "missing",
                 synchronizer,
+                NoOpProgress,
                 CancellationToken.None,
                 @ref: null);
 
@@ -259,5 +369,19 @@ public sealed class SourcesToolTests
             File.SetAttributes(file, FileAttributes.Normal);
 
         Directory.Delete(path, recursive: true);
+    }
+
+    private sealed class RecordingProgress : IProgress<string>
+    {
+        public List<string> Stages { get; } = [];
+
+        public void Report(string value) => Stages.Add(value);
+    }
+
+    private sealed class RecordingProgressNotifications : IProgress<ProgressNotificationValue>
+    {
+        public List<ProgressNotificationValue> Notifications { get; } = [];
+
+        public void Report(ProgressNotificationValue value) => Notifications.Add(value);
     }
 }

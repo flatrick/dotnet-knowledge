@@ -9,5 +9,17 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotNetKnowledge.Mcp\DotNetKnowledge.Mcp.csproj" />
+    <!--
+      ReferenceOutputAssembly="false" because the test drives the fixture as a process rather than
+      calling into it. The reference exists for build ordering. The path points at the fixture's own
+      output directory, where its .runtimeconfig.json sits beside the .dll, so `dotnet <dll>` works.
+    -->
+    <ProjectReference
+      Include="..\DotNetKnowledge.Mcp.Tests.GitRunnerHost\DotNetKnowledge.Mcp.Tests.GitRunnerHost.csproj"
+      ReferenceOutputAssembly="false" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>GitRunnerHostPath</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)..\DotNetKnowledge.Mcp.Tests.GitRunnerHost\bin\$(Configuration)\net10.0\DotNetKnowledge.Mcp.Tests.GitRunnerHost.dll</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

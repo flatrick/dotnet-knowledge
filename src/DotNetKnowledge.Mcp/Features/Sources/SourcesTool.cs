@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotNetKnowledge.Mcp.Sources;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
 namespace DotNetKnowledge.Mcp.Features.Sources;
@@ -11,7 +12,8 @@ public sealed class SourcesTool
 {
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
-        WriteIndented = true,
+        // Indentation is roughly a fifth of every response's bytes and buys an agent nothing.
+        WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
@@ -30,27 +32,52 @@ public sealed class SourcesTool
         SourceSynchronizer synchronizer,
         CancellationToken cancellationToken)
     {
-        var sourceDefinitions = catalog.Sources
-            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
-            .ToList();
-        var sources = await Task.WhenAll(sourceDefinitions.Select(entry => GetSourceStatusAsync(
-            entry.Key,
-            entry.Value,
-            cache,
-            synchronizer,
-            cancellationToken))).ConfigureAwait(false);
+        try
+        {
+            var sourceDefinitions = catalog.Sources
+                .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .ToList();
+            var sources = await Task.WhenAll(sourceDefinitions.Select(entry => GetSourceStatusAsync(
+                entry.Key,
+                entry.Value,
+                cache,
+                synchronizer,
+                cancellationToken))).ConfigureAwait(false);
 
-        var unsynced = sources.Where(source => !source.Synced).Select(source => source.Name).ToList();
+            var unsynced = sources.Where(source => !source.Synced).Select(source => source.Name).ToList();
 
-        return JsonSerializer.Serialize(
-            new ListSourcesResult(
-                CacheRoot: cache.Root,
-                Sources: sources,
-                NextStep: unsynced.Count == 0
-                    ? null
-                    : $"Not synced: {string.Join(", ", unsynced)}. " +
-                      $"Call sync_source(name: \"{unsynced[0]}\") before querying it."),
-            WriteOptions);
+            return JsonSerializer.Serialize(
+                new ListSourcesResult(
+                    CacheRoot: cache.Root,
+                    Sources: sources,
+                    NextStep: unsynced.Count == 0
+                        ? null
+                        : $"Not synced: {string.Join(", ", unsynced)}. " +
+                          $"Call sync_source(name: \"{unsynced[0]}\") before querying it."),
+                WriteOptions);
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                    cacheRoot = cache.Root,
+                },
+                WriteOptions);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_invalid",
+                    message = exception.Message,
+                    cacheRoot = cache.Root,
+                },
+                WriteOptions);
+        }
     }
 
     private static async Task<SourceStatus> GetSourceStatusAsync(
@@ -60,7 +87,16 @@ public sealed class SourcesTool
         SourceSynchronizer synchronizer,
         CancellationToken cancellationToken)
     {
-        var state = await synchronizer.TryGetCurrentStateAsync(name, cancellationToken).ConfigureAwait(false);
+        SourceSyncState? state;
+        try
+        {
+            state = await synchronizer.TryGetCurrentStateAsync(name, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new TimeoutException($"{name}: {exception.Message}", exception);
+        }
+
         return new SourceStatus(
             Name: name,
             Repository: definition.Repository,
@@ -83,12 +119,20 @@ public sealed class SourcesTool
     public static async Task<string> SyncSource(
         string name,
         SourceSynchronizer synchronizer,
+        IProgress<ProgressNotificationValue> progress,
         CancellationToken cancellationToken,
         string? @ref = null)
     {
+        // Five known stages, so the client sees liveness with a real denominator rather than a
+        // spinner. The SDK supplies a no-op reporter when the client sent no progress token.
+        var stages = new[] { "clone", "sparse-checkout", "fetch", "checkout", "validate" };
+        var stageProgress = new StageReporter(name, stages.Length, progress);
+
         try
         {
-            var result = await synchronizer.SyncAsync(name, @ref, cancellationToken).ConfigureAwait(false);
+            var result = await synchronizer
+                .SyncAsync(name, @ref, cancellationToken, stageProgress)
+                .ConfigureAwait(false);
             return JsonSerializer.Serialize(
                 new
                 {
@@ -126,6 +170,17 @@ public sealed class SourcesTool
                 },
                 WriteOptions);
         }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                    source = name,
+                },
+                WriteOptions);
+        }
         catch (InvalidOperationException exception)
         {
             return JsonSerializer.Serialize(
@@ -148,6 +203,26 @@ public sealed class SourcesTool
                 },
                 WriteOptions);
         }
+    }
+
+    /// <summary>
+    /// Reports stages inline rather than through <see cref="Progress{T}"/>, whose callbacks post to
+    /// the thread pool when there is no synchronization context — as in this stdio host. That would
+    /// make the running count a non-atomic read-modify-write and let notifications overtake the
+    /// sequential stages they describe.
+    /// </summary>
+    private sealed class StageReporter(string sourceName, int totalStages, IProgress<ProgressNotificationValue> progress)
+        : IProgress<string>
+    {
+        private int _completed;
+
+        public void Report(string stage) =>
+            progress.Report(new ProgressNotificationValue
+            {
+                Progress = ++_completed,
+                Total = totalStages,
+                Message = $"{sourceName}: {stage}",
+            });
     }
 
     private sealed record SourceStatus(

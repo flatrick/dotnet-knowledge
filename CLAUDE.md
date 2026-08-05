@@ -4,9 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Orientation
 
-Read [`AGENTS.md`](AGENTS.md) first, then [`docs/HANDOFF.md`](docs/HANDOFF.md) for current build
-state and next steps. This file covers commands and the cross-file architecture; AGENTS.md carries
-the corpus rules and the reasoning behind them.
+Read [`AGENTS.md`](AGENTS.md) first; it carries the corpus rules and the reasoning behind them. This
+file covers commands and the cross-file architecture. For current state, [`README.md`](README.md)
+has the status summary and [`docs/backlog/`](docs/backlog/README.md) holds one file per known issue.
+
+Before working on something that looks already-settled or surprisingly awkward, read
+[`docs/decisions.md`](docs/decisions.md) and [`docs/gotchas.md`](docs/gotchas.md). They are
+append-only and newest-first: decisions record what was rejected and why, gotchas record facts that
+cost real time and are not inferable from the code.
 
 The repository is two halves serving one purpose — version-pinned, local answers about C#, VB.NET
 and Roslyn:
@@ -229,13 +234,15 @@ assembly scan.
 corrupts the session and surfaces as an opaque client-side parse error. Logging is configured for
 this in `Program.cs` — do not add a console provider that writes to stdout.
 
-Cache location defaults to `%LOCALAPPDATA%\dotnet-knowledge\sources` (XDG equivalent elsewhere),
-overridable with `DOTNET_KNOWLEDGE_CACHE`. It sits outside any repository so one download serves
-every clone and worktree on the machine.
+Cache location defaults to `%LOCALAPPDATA%\dotnet-knowledge\sources` — the per-user *data*
+directory elsewhere: `$XDG_DATA_HOME`/`~/.local/share` on Linux, `~/Library/Application Support` on
+macOS — overridable with `DOTNET_KNOWLEDGE_CACHE`. It sits outside any repository so one download
+serves every clone and worktree on the machine, and it is deliberately not the XDG *cache*
+directory: a synced pin must survive cache cleaners (`docs/decisions.md`).
 
-Current state: `list_sources` works. `sync_source`, the API-doc lookups, and the example queries are
-not built yet — build order and porting notes are in `docs/HANDOFF.md`, the tool surface in
-`docs/design/mcp-tool-surface.md`.
+Implemented: `list_sources`, `sync_source`, `search_api` and `lookup_api`. Language design-document
+queries and bundled-example queries are future work. The intended surface for all of them is in
+`docs/design/mcp-tool-surface.md`; known defects are one file each in `docs/backlog/`.
 
 ### Non-negotiables for every tool
 
@@ -255,6 +262,11 @@ These are correctness obligations, not preferences:
 - **Search tools return names and locations, never bodies.** `search_api` returns fully-qualified
   names; `search_language_docs` returns `path:line` hits. The agent then spends context on a single
   `lookup_api` or `get_language_doc`.
+- **Every subprocess this server starts redirects standard input.** Git blocks during process
+  startup when it inherits a piped stdin handle that the parent is concurrently reading — not from
+  a piped stdin alone, which is harmless and measured at 34 ms. An MCP stdio server always has that
+  read pending, because the read *is* the JSON-RPC transport. `GitCommandRunner` redirects standard
+  input; anything else that starts a process must too. `docs/gotchas.md` records the evidence.
 
 ## Licensing — never commit upstream content
 
@@ -277,6 +289,19 @@ The default scan covers the tracked tree; `--history` covers every blob in every
 file does not remove it from the repository, so a finding from `--history` means rewriting history,
 not deleting a file — which is why it is much cheaper to not commit the content in the first place.
 
+## Continuous integration — configured, not running
+
+**Actions is disabled for this repository. No workflow executes, and local runs are the only
+verification there is.** Keep the workflow configuration current, and add a job when you add a
+suite, so turning Actions on is a settings change rather than a project — but never treat a
+workflow step as the thing that runs a test. Minutes cost money on a private repository, and while
+this is a personal project that cost buys nothing a local run does not.
+
+So: a commit on `main` carries no evidence that anything passed, because there is no run to read;
+and a new suite needs an entry in the command list above, not only a workflow step, or nothing will
+ever invoke it. [`docs/design/ci.md`](docs/design/ci.md) has the workflow's design and the runbook
+for turning Actions on.
+
 ## Conventions
 
 1. **Tooling is single-file C#, never a shell script.** No `.sh`, `.ps1`, `.bat`, or `.py` — every
@@ -284,6 +309,9 @@ not deleting a file — which is why it is much cheaper to not commit the conten
    the production analyzer settings for these.
 2. **State current truth only.** Documents do not narrate their own history; `git log` is the
    changelog. No "previously said X" footers, no dated verification stamps.
+   [`docs/decisions.md`](docs/decisions.md) and [`docs/gotchas.md`](docs/gotchas.md) are the two
+   deliberate exceptions: they are append-only, dated, and never edited, because a superseded entry
+   is what stops a settled question being reopened. Do not tidy them.
 3. **American English** for identifiers, comments, and prose, except where an external standard
    specifies otherwise (MCP's `notifications/cancelled` stays as spelled).
 4. **LF line endings, UTF-8**, enforced by `.gitattributes`.

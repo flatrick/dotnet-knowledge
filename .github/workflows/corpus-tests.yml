@@ -1,8 +1,14 @@
-# This workflow runs on every pull request to main, but its result does not
-# block a merge. Required status checks need a ruleset, and the API refuses to
-# create one while this repository is private on the Free plan. The check
-# context to require, once the repository is public, is `corpus-tests` — the
-# job ID below, so renaming that job disables the future gate.
+# This workflow does not run. Actions is disabled for this repository, because
+# minutes cost money on a private repo and buy nothing a local run does not.
+# It is kept current so that enabling Actions is a settings change, not a
+# project — but no test here is invoked by anything until then. Run the suites
+# locally; CLAUDE.md lists the commands.
+#
+# Even with Actions enabled, a result would not block a merge: required status
+# checks need a ruleset, and the API refuses to create one while this
+# repository is private on the Free plan. The check context to require, once
+# that changes, is `corpus-tests` — the job ID below, so renaming that job
+# disables the future gate.
 # Activation runbook and the reasoning for every pin: docs/design/ci.md
 name: Corpus verification
 
@@ -44,6 +50,10 @@ jobs:
         run: |
           $env:DOTNET_HOST_PATH = (Resolve-Path .artifacts\dotnet\dotnet.exe)
           & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --configuration Release --nologo --no-restore --logger "trx;LogFileName=corpus-tests.trx"
+
+      - name: Test the MCP server
+        shell: pwsh
+        run: dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
 
       - name: Verify no vendored content
         run: dotnet scripts/verify-no-vendored-content.cs

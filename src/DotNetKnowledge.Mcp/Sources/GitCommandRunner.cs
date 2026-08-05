@@ -7,8 +7,11 @@ internal sealed class GitCommandRunner
     public static async Task<string> RunAsync(
         string? workingDirectory,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        GitCommandKind kind,
+        CancellationToken cancellationToken,
+        GitTimeouts? timeouts = null)
     {
+        var ceiling = (timeouts ?? GitTimeouts.Default).For(kind);
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -17,6 +20,12 @@ internal sealed class GitCommandRunner
                 WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+
+                // Git blocks during process startup when it inherits a piped stdin handle from a
+                // parent whose own streams are pipes — which is what an MCP client creates. Even
+                // `git --version` hangs. Redirecting is what fixes it; the stream is closed below
+                // so no future invocation can block on a handle that never reaches end of file.
+                RedirectStandardInput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             },
@@ -37,22 +46,58 @@ internal sealed class GitCommandRunner
             throw new InvalidOperationException("Could not start git. Install Git and ensure it is on PATH.", exception);
         }
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        process.StandardInput.Close();
 
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
+        using var expiry = new CancellationTokenSource(ceiling);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(linked.Token);
+        var stderrTask = process.StandardError.ReadToEndAsync(linked.Token);
+
+        // The caller's cancellation and an expired tier both surface as OperationCanceledException.
+        // Only the second is a fault worth naming; the first is the caller getting what it asked
+        // for. Both outcomes must kill the tree, so the decision is factored rather than repeated.
+        void KillIfRunning()
         {
             if (!process.HasExited)
                 process.Kill(entireProcessTree: true);
+        }
+
+        bool TierExpired() =>
+            expiry.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+
+        TimeoutException Expired() =>
+            new($"git {string.Join(' ', arguments)} exceeded its {ceiling.TotalSeconds:0.##}s "
+                + $"{kind} timeout and was terminated.");
+
+        try
+        {
+            await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            KillIfRunning();
+            if (TierExpired())
+                throw Expired();
             throw;
         }
 
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
+        string stdout;
+        string stderr;
+        try
+        {
+            stdout = await stdoutTask.ConfigureAwait(false);
+            stderr = await stderrTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // git itself exited inside its ceiling, but a descendant inherited the redirected pipes
+            // and kept them open, so the reads outlived the process.
+            KillIfRunning();
+            if (TierExpired())
+                throw Expired();
+            throw;
+        }
+
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(

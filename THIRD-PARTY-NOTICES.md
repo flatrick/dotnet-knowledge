@@ -37,7 +37,7 @@ large diff. The guard exists so the tree is checked rather than trusted.
 
 `sources.json` pins a commit for each upstream repository. The MCP server clones them **at runtime**
 into a per-user cache outside any working tree — `%LOCALAPPDATA%\dotnet-knowledge\sources` on
-Windows, the XDG cache directory elsewhere.
+Windows, the per-user data directory (`~/.local/share`, `~/Library/Application Support`) elsewhere.
 
 | Source | Upstream repository |
 |---|---|

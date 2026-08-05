@@ -19,7 +19,8 @@ public sealed class SourceSynchronizer
     public async Task<SourceSyncResult> SyncAsync(
         string name,
         string? requestedRef,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<string>? progress = null)
     {
         if (!_catalog.TryGet(name, out var definition))
             throw new ArgumentException($"Unknown source '{name}'. Call list_sources to see valid names.", nameof(name));
@@ -28,7 +29,7 @@ public sealed class SourceSynchronizer
             throw new ArgumentException("ref must be omitted or \"head\".", nameof(requestedRef));
 
         await using var sourceLock = await AcquireLockAsync(name, cancellationToken).ConfigureAwait(false);
-        return await SyncCoreAsync(name, definition, requestedRef, cancellationToken).ConfigureAwait(false);
+        return await SyncCoreAsync(name, definition, requestedRef, progress, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<SourceSyncState?> TryGetCurrentStateAsync(
@@ -86,14 +87,17 @@ public sealed class SourceSynchronizer
             var actualCommit = (await GitCommandRunner.RunAsync(
                 directory,
                 ["rev-parse", "HEAD"],
+                GitCommandKind.Quick,
                 cancellationToken).ConfigureAwait(false)).Trim();
             var origin = (await GitCommandRunner.RunAsync(
                 directory,
                 ["config", "--get", "remote.origin.url"],
+                GitCommandKind.Quick,
                 cancellationToken).ConfigureAwait(false)).Trim();
             var status = await GitCommandRunner.RunAsync(
                 directory,
                 ["status", "--porcelain", "--untracked-files=all"],
+                GitCommandKind.Quick,
                 cancellationToken).ConfigureAwait(false);
             var sparseRootsExist = definition.Sparse.All(path =>
                 Directory.Exists(Path.Combine(directory, path))
@@ -115,6 +119,7 @@ public sealed class SourceSynchronizer
         string name,
         SourceDefinition definition,
         string? requestedRef,
+        IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
         var refLabel = requestedRef is null ? "pinned" : $"head:{definition.Head}";
@@ -127,9 +132,11 @@ public sealed class SourceSynchronizer
 
         try
         {
+            progress?.Report("clone");
             await GitCommandRunner.RunAsync(
                 null,
                 ["clone", "--filter=blob:none", "--no-checkout", "--sparse", "--quiet", "--", definition.Url, staging],
+                GitCommandKind.Bulk,
                 cancellationToken).ConfigureAwait(false);
             repositoryDirectory = staging;
 
@@ -137,6 +144,7 @@ public sealed class SourceSynchronizer
                 repositoryDirectory,
                 definition,
                 target,
+                progress,
                 cancellationToken).ConfigureAwait(false);
             var fetchedAt = DateTimeOffset.UtcNow;
 
@@ -191,32 +199,43 @@ public sealed class SourceSynchronizer
         string repositoryDirectory,
         SourceDefinition definition,
         string target,
+        IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        progress?.Report("sparse-checkout");
         await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["sparse-checkout", "set", .. definition.Sparse],
+            GitCommandKind.Bulk,
             cancellationToken).ConfigureAwait(false);
+        progress?.Report("fetch");
         await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["fetch", "--depth", "1", "--quiet", "origin", target],
+            GitCommandKind.Bulk,
             cancellationToken).ConfigureAwait(false);
+        progress?.Report("checkout");
         await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["checkout", "--detach", "--quiet", "FETCH_HEAD"],
+            GitCommandKind.Bulk,
             cancellationToken).ConfigureAwait(false);
 
+        progress?.Report("validate");
         var commit = (await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["rev-parse", "HEAD"],
+            GitCommandKind.Quick,
             cancellationToken).ConfigureAwait(false)).Trim();
         var origin = (await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["config", "--get", "remote.origin.url"],
+            GitCommandKind.Quick,
             cancellationToken).ConfigureAwait(false)).Trim();
         var status = await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["status", "--porcelain", "--untracked-files=all"],
+            GitCommandKind.Quick,
             cancellationToken).ConfigureAwait(false);
         if (!OriginsMatch(origin, definition.Url)
             || !string.IsNullOrWhiteSpace(status)
