@@ -47,6 +47,20 @@ swallows the server's stdout entirely and reads as a server fault.
 They are populated from per-request metadata, which the HTTP transports carry and stdio does not;
 the `rawRequest` dump is the reliable field.
 
+## probe-sync.cs
+
+Not an MCP server. A plain console program that runs the five stages of
+`SourceSynchronizer.SyncCoreAsync` — clone, sparse-checkout, fetch, checkout, validate — with the
+same argv, environment, stream redirection and per-stage timeout tiers as `GitCommandRunner`, timing
+each stage and flagging any `Quick`-tier command past half its ceiling. Unlike the server it never
+deletes its staging directory, so a failed run leaves the downloaded tree on disk for inspection.
+
+**It cannot reproduce any fault that requires the client.** Run from a terminal, stdin is a console
+and no parent is reading it, so the piped-stdin hang below cannot occur and no client-side timeout
+applies. A green run establishes that git, the network and the disk are healthy on that machine —
+and nothing at all about how the same commands behave under a stdio host. Use `probe-mcp-host.cs`
+for that; it is the only instrument here that runs inside a real client.
+
 `probe_process` established that git hangs indefinitely when it inherits a piped stdin handle —
 `git --version` included, so it is git's startup rather than any repository work — and completes in
 about 30 ms when standard input is redirected. That is the whole of the fault that made every
