@@ -67,6 +67,7 @@ search_language_docs(query, regex?, source?, limit?, cursor?)
     → searches every markdown source the tool supports (csharplang and
       vblang today; the supported set is configuration, not code);
       source restricts
+    → limit: 1-100, default 20
 
 get_language_doc(path, source, section?, limit?, cursor?)
     section: a heading path exactly as issued by a search hit or an
@@ -77,8 +78,12 @@ get_language_doc(path, source, section?, limit?, cursor?)
     → without: the whole document, paged from the top
     → no size cap and no refusal; every page states whether more
       remains and carries the cursor for the next one
+    → limit is a character budget, not an item count: 1000-50000,
+      default 8000, snapped to a line boundary and never splitting
+      a fenced code block or a table
 
-get_language_doc_outline(path, source)
+get_language_doc_outline(path, source, limit?, cursor?)
+    → limit: 1-500, default 100
     → the document's heading tree with section IDs, no bodies — the
       map an agent reads before spending context on content
 

@@ -41,6 +41,27 @@ failure and resumed, rather than discarding 773 MB. Rejected: raising `Quick`, w
 `rev-parse` unbounded for no reason; and dropping `--untracked-files=all`, which is the check that
 catches a half-written sparse checkout. Supersedes the 2026-08-05 tier-naming entry only in count.
 
+### 2026-08-05 · Markdown parsing lives in its own library, not inside the server
+
+`DotNetKnowledge.Markdown` holds heading extraction, atomic-block detection, character-budget
+paging, and line search, with no dependency on the MCP server, `SourceCache`, or JSON. Rejected:
+building this directly in `Features/LanguageDocs/`, which would make it unreusable and untestable
+without the server's other dependencies.
+
+### 2026-08-05 · `get_language_doc` pages by a character budget, not a line count
+
+A budget bounds response size predictably regardless of how prose-heavy or grammar-production-heavy
+a section is; it snaps to the nearest line boundary and never splits a fenced code block or a
+table. Rejected: line-count paging, whose response size varies enormously between a one-sentence
+paragraph and a wide grammar production.
+
+### 2026-08-05 · A section-path collision gets a suffix only when it actually collides
+
+Two headings with the exact same full ancestor-chain text (a rare but real case, e.g. a repeated
+template section) get `Path` and `Path (2)`; every non-colliding path is untouched. Rejected:
+unconditionally numbering every heading by sibling position, which makes the overwhelming majority
+of paths — the ones that never collide — more verbose for no reason.
+
 ### 2026-08-05 · Language-doc retrieval addresses heading sections, not line ranges
 
 `search_language_docs` hits and outline entries carry a server-issued heading path, and
