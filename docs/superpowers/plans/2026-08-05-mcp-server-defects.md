@@ -356,9 +356,15 @@ runs only the corpus suite. Add a step after the existing corpus test step, matc
 
 ```yaml
       - name: Test the MCP server
-        run: |
-          & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
+        shell: pwsh
+        run: dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
 ```
+
+Use plain `dotnet`, not `$env:DOTNET_HOST_PATH`. That variable is re-derived inside each step that
+needs it, because a `$env:` assignment does not survive from one workflow step's process into the
+next — a step referencing it without setting it invokes an empty command and fails every run. The
+MCP tests do not need the private corpus SDK host regardless: they target `net10.0` and run on the
+SDK `actions/setup-dotnet` installed, exactly like the `Verify no vendored content` step below.
 
 - [ ] **Step 11: Commit**
 
