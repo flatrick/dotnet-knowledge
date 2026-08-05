@@ -179,6 +179,7 @@ public sealed class LanguageDocsToolTests
                     head = "main",
                     sparse = new[] { "docs" },
                     purpose = "Test language docs.",
+                    markdown = true,
                 },
             },
         };

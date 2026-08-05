@@ -135,8 +135,14 @@ an `InvalidDataException`, a structurally broken *already-synced* source (ApiDoc
 docs-root subfolder is missing). Nothing analogous is reachable here, because a language-doc
 source's root is the sparse checkout itself with no subfolder indirection, and
 `SourceSynchronizer`'s integrity check already refuses to consider a sync complete unless every
-sparse path exists. So an unrecognized `source` for these tools reuses `invalid_request` too, and
-`source_invalid` is not part of this surface.
+sparse path exists. So an unrecognized `source` for these tools reuses `invalid_request` too.
+
+`source_invalid` *is* used here, but for a narrower case than the one just ruled out: a plain I/O
+failure while reading an already-synced source's files — a locked file, a permissions error, the
+cache directory removed mid-enumeration. `File.ReadAllText` and `Directory.EnumerateFiles` can raise
+`IOException`/`UnauthorizedAccessException` for reasons that have nothing to do with a malformed
+`source` argument or a stale sync, so `LanguageDocsTool` maps them to `source_invalid` the same way
+`ApiDocsTool` already does.
 
 - `path_not_found` — `path` doesn't resolve to a synced markdown file: it escapes the source's
   synced root (the same traversal guard as `ApiDocsQueryService.ResolveNamespaceDirectory`), or no

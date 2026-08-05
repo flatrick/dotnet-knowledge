@@ -11,13 +11,19 @@ namespace DotNetKnowledge.Mcp.Sources;
 /// <param name="Head">The branch a caller reaches by asking for <c>head</c>, opting into drift.</param>
 /// <param name="Sparse">Paths to sparse-checkout; the rest of the tree is never fetched.</param>
 /// <param name="Purpose">One line on what the source answers, surfaced by <c>list_sources</c>.</param>
+/// <param name="Markdown">
+/// Whether <c>search_language_docs</c>/<c>get_language_doc</c>/<c>get_language_doc_outline</c> can
+/// search and fetch this source's content. Defaults to <c>false</c> so an XML-docs source such as
+/// <c>dotnet-api-docs</c> needs no entry to stay excluded.
+/// </param>
 public sealed record SourceDefinition(
     [property: JsonPropertyName("repository")] string Repository,
     [property: JsonPropertyName("url")] string Url,
     [property: JsonPropertyName("pin")] string Pin,
     [property: JsonPropertyName("head")] string Head,
     [property: JsonPropertyName("sparse")] IReadOnlyList<string> Sparse,
-    [property: JsonPropertyName("purpose")] string Purpose);
+    [property: JsonPropertyName("purpose")] string Purpose,
+    [property: JsonPropertyName("markdown")] bool Markdown = false);
 
 internal sealed record SourcesFile(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,

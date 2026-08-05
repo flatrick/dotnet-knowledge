@@ -63,6 +63,10 @@ public sealed class LanguageDocsTool
         {
             return SerializeError("git_timeout", exception.Message);
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
     }
 
     [McpServerTool(Name = "get_language_doc", ReadOnly = true, Idempotent = true)]
@@ -112,6 +116,10 @@ public sealed class LanguageDocsTool
         {
             return SerializeError("git_timeout", exception.Message);
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
     }
 
     [McpServerTool(Name = "get_language_doc_outline", ReadOnly = true, Idempotent = true)]
@@ -153,7 +161,14 @@ public sealed class LanguageDocsTool
         {
             return SerializeError("git_timeout", exception.Message);
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
     }
+
+    private static string SerializeSourceInvalid(Exception exception) =>
+        SerializeError("source_invalid", exception.Message);
 
     private static string SerializeSourceNotSynced(SourceNotSyncedException exception) =>
         JsonSerializer.Serialize(

@@ -64,9 +64,10 @@ search_language_docs(query, regex?, source?, limit?, cursor?)
       caller-supplied pattern can stall the server
     → hits: path, line, the matched line's text (length-capped), and a
       server-issued section heading path — no file bodies
-    → searches every markdown source the tool supports (csharplang and
-      vblang today; the supported set is configuration, not code);
-      source restricts
+    → searches every markdown source the tool supports (csharplang,
+      vblang, and roslyn-wiki today; the supported set is configuration,
+      not code — see the "markdown" field in sources.json); source
+      restricts
     → limit: 1-100, default 20
 
 get_language_doc(path, source, section?, limit?, cursor?)

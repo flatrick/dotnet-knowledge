@@ -241,6 +241,73 @@ public sealed class LanguageDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task SearchAsyncOnlySearchesMarkdownFlaggedSourcesAndRejectsANonMarkdownSourceName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var csharplangRepository = Path.Combine(root, "csharplang-origin");
+            var vblangRepository = Path.Combine(root, "vblang-origin");
+            var apiRepository = Path.Combine(root, "api-origin");
+
+            var csharplangPin = await InitDocsRepositoryAsync(
+                csharplangRepository, "shared.md", "# Shared\n\nCSharp note about SharedTopic.\n");
+            var vblangPin = await InitDocsRepositoryAsync(
+                vblangRepository, "shared.md", "# Shared\n\nVB note about SharedTopic.\n");
+            var apiPin = await InitDocsRepositoryAsync(
+                apiRepository, "shared.md", "# Shared\n\nAPI note about SharedTopic.\n");
+
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteThreeSourceCatalogAsync(
+                catalogPath, csharplangRepository, csharplangPin, vblangRepository, vblangPin, apiRepository, apiPin);
+            var catalog = new SourceCatalog(catalogPath);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(catalog, cache);
+            await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
+            await synchronizer.SyncAsync("vblang", requestedRef: null, CancellationToken.None);
+            // "roslyn-api-docs" is deliberately left unsynced: rejecting it as a non-markdown
+            // source must happen at source validation, before sync state is ever consulted.
+            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+
+            var result = await service.SearchAsync(
+                "SharedTopic", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(2, result.Hits);
+            CollectionAssert.AreEquivalent(
+                ExpectedMultiSourceRepos,
+                result.SearchedSources.Select(source => source.Repo).ToArray());
+
+            var exception = await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.SearchAsync(
+                "SharedTopic", regex: false, source: "roslyn-api-docs", limit: 20, cursor: null,
+                CancellationToken.None));
+            Assert.AreEqual("source", exception.ParamName);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineAsyncRejectsANonMarkdownFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "notes.txt", "Not markdown at all.\n");
+
+            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+                "docs/notes.txt", "csharplang", limit: 20, cursor: null, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetDocAsyncReturnsAWholeSectionAndRejectsAnUnknownSection()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -397,6 +464,7 @@ public sealed class LanguageDocsQueryServiceTests
                     head = "main",
                     sparse = new[] { "docs" },
                     purpose = "Test language docs.",
+                    markdown = true,
                 },
             },
         };
@@ -437,6 +505,7 @@ public sealed class LanguageDocsQueryServiceTests
                     head = "main",
                     sparse = new[] { "docs" },
                     purpose = "Test language docs.",
+                    markdown = true,
                 },
                 ["vblang"] = new
                 {
@@ -446,6 +515,58 @@ public sealed class LanguageDocsQueryServiceTests
                     head = "main",
                     sparse = new[] { "docs" },
                     purpose = "Test language docs.",
+                    markdown = true,
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    private static async Task WriteThreeSourceCatalogAsync(
+        string path,
+        string csharplangRepository,
+        string csharplangPin,
+        string vblangRepository,
+        string vblangPin,
+        string apiRepository,
+        string apiPin)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["csharplang"] = new
+                {
+                    repository = "test/csharplang",
+                    url = csharplangRepository,
+                    pin = csharplangPin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Test language docs.",
+                    markdown = true,
+                },
+                ["vblang"] = new
+                {
+                    repository = "test/vblang",
+                    url = vblangRepository,
+                    pin = vblangPin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Test language docs.",
+                    markdown = true,
+                },
+                // Simulates roslyn-api-docs/dotnet-api-docs: declared, but with no "markdown" field
+                // at all, so it must default to false and stay unreachable by these tools.
+                ["roslyn-api-docs"] = new
+                {
+                    repository = "test/roslyn-api-docs",
+                    url = apiRepository,
+                    pin = apiPin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Test API docs.",
                 },
             },
         };

@@ -41,6 +41,15 @@ failure and resumed, rather than discarding 773 MB. Rejected: raising `Quick`, w
 `rev-parse` unbounded for no reason; and dropping `--untracked-files=all`, which is the check that
 catches a half-written sparse checkout. Supersedes the 2026-08-05 tier-naming entry only in count.
 
+### 2026-08-05 · The markdown-searchable source set is a `sources.json` field, not a hardcoded list
+
+`SourceDefinition.Markdown` (JSON `"markdown"`) marks which sources
+`search_language_docs`/`get_language_doc`/`get_language_doc_outline` can reach; `LanguageDocsQueryService`
+reads it instead of intersecting a hardcoded `["csharplang", "vblang"]` array against the catalog.
+This also unlocked `roslyn-wiki`, already configured in `sources.json` as a pure-markdown source with
+no code path that could reach it. Rejected: the hardcoded allowlist, which the design doc already
+claimed was "configuration, not code" while the code said otherwise.
+
 ### 2026-08-05 · Markdown parsing lives in its own library, not inside the server
 
 `DotNetKnowledge.Markdown` holds heading extraction, atomic-block detection, character-budget
