@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj" />
+  <Project Path="tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj" />
+  <Project Path="tests/DotNetKnowledge.Mcp.Tests.GitRunnerHost/DotNetKnowledge.Mcp.Tests.GitRunnerHost.csproj" />
+  <Project Path="tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj" />
+</Solution>
