@@ -31,13 +31,21 @@ public sealed class ApiDocsTool
             var result = await service.LookupAsync(symbol, source, cancellationToken).ConfigureAwait(false);
             if (result.Matches.Count == 0)
             {
+                // Directing a caller to search_api is right when the type was not found and wrong
+                // when the type resolved: search_api enumerates file names and never opens a
+                // document, so no search of it can surface a member.
+                var memberMissing = result.Outcome == ApiLookupOutcome.MemberNotFound;
                 return JsonSerializer.Serialize(
                     new
                     {
-                        error = "not_found",
-                        message = $"API symbol '{symbol}' was not found in the selected synchronized source(s). " +
-                            "Call search_api with a type-name fragment to find candidates.",
+                        error = memberMissing ? "member_not_found" : "not_found",
+                        message = memberMissing
+                            ? $"No member of '{string.Join("', '", result.ResolvedTypeNames)}' matches "
+                                + $"'{symbol}'. Call lookup_api with just the type name to list its members."
+                            : $"API symbol '{symbol}' was not found in the selected synchronized source(s). "
+                                + "Call search_api with a type-name fragment to find candidates.",
                         symbol,
+                        resolvedTypes = memberMissing ? result.ResolvedTypeNames : null,
                         searchedSources = result.SearchedSources,
                     },
                     WriteOptions);

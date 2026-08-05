@@ -10,6 +10,7 @@ public sealed class ApiDocsQueryServiceTests
 {
     private static readonly string[] ExpectedFirstPageNames = ["System.AlphaWidget", "System.BetaWidget"];
     private static readonly string[] ExpectedSecondPageNames = ["System.GammaWidget"];
+    private static readonly string[] ExpectedResolvedTypeNames = ["System.Widget"];
 
     [TestMethod]
     public async Task SearchAsyncReturnsDeterministicPagesWithoutBodies()
@@ -88,6 +89,32 @@ public sealed class ApiDocsQueryServiceTests
         }
     }
 
+    private const string WidgetXml = """
+        <Type Name="Widget" FullName="System.Widget">
+          <Members>
+            <Member MemberName="Create">
+              <MemberSignature Language="C#" Value="public static System.Widget Create(string name);" />
+              <Parameters><Parameter Name="name" Type="System.String" /></Parameters>
+              <ReturnValue><ReturnType>System.Widget</ReturnType></ReturnValue>
+              <Docs>
+                <summary>Creates a widget.</summary>
+                <param name="name">The widget name.</param>
+                <returns>The new widget.</returns>
+                <remarks>Names are case-sensitive.</remarks>
+              </Docs>
+            </Member>
+            <Member MemberName="Convert&lt;TResult&gt;">
+              <MemberSignature Language="C#" Value="public TResult Convert&lt;TResult&gt;();" />
+              <Docs><summary>Converts to one type.</summary></Docs>
+            </Member>
+            <Member MemberName="Convert&lt;TResult,TState&gt;">
+              <MemberSignature Language="C#" Value="public TResult Convert&lt;TResult,TState&gt;(TState state);" />
+              <Docs><summary>Converts with state.</summary></Docs>
+            </Member>
+          </Members>
+        </Type>
+        """;
+
     [TestMethod]
     public async Task LookupAsyncReturnsDocumentedMemberWithProvenance()
     {
@@ -95,39 +122,11 @@ public sealed class ApiDocsQueryServiceTests
 
         try
         {
-            var repository = Path.Combine(root, "origin");
-            var namespaceDirectory = Path.Combine(repository, "xml", "System");
-            Directory.CreateDirectory(namespaceDirectory);
-            await RunGitAsync(null, "init", "--initial-branch=main", repository);
-            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
-            await RunGitAsync(repository, "config", "user.name", "Tests");
-            await File.WriteAllTextAsync(Path.Combine(namespaceDirectory, "Widget.xml"), """
-                <Type Name="Widget" FullName="System.Widget">
-                  <Members>
-                    <Member MemberName="Create">
-                      <MemberSignature Language="C#" Value="public static System.Widget Create(string name);" />
-                      <Parameters><Parameter Name="name" Type="System.String" /></Parameters>
-                      <ReturnValue><ReturnType>System.Widget</ReturnType></ReturnValue>
-                      <Docs>
-                        <summary>Creates a widget.</summary>
-                        <param name="name">The widget name.</param>
-                        <returns>The new widget.</returns>
-                        <remarks>Names are case-sensitive.</remarks>
-                      </Docs>
-                    </Member>
-                  </Members>
-                </Type>
-                """);
-            await RunGitAsync(repository, "add", ".");
-            await RunGitAsync(repository, "commit", "-m", "docs");
-            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
-            var catalogPath = Path.Combine(root, "sources.json");
-            await WriteCatalogAsync(catalogPath, repository, pin);
-            var catalog = new SourceCatalog(catalogPath);
-            var cache = new SourceCache(Path.Combine(root, "cache"));
-            var synchronizer = new SourceSynchronizer(catalog, cache);
-            await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
-            var service = new ApiDocsQueryService(catalog, cache, synchronizer);
+            var service = await CreateWidgetServiceAsync(root);
+
+            // The helper commits the fixture and computes its own pin internally; fetch it
+            // independently here so the assertions below can still verify it end-to-end.
+            var pin = (await RunGitAsync(Path.Combine(root, "origin"), "rev-parse", "HEAD")).Trim();
 
             var result = await service.LookupAsync(
                 "Widget.Create",
@@ -169,6 +168,66 @@ public sealed class ApiDocsQueryServiceTests
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
+    }
+
+    [TestMethod]
+    public async Task LookupAsyncMatchesGenericMembersByPlainNameAndSeparatesMissingKinds()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            // Every arity of a requested name comes back. A caller asking for "Convert" cannot
+            // otherwise discover which arities exist.
+            var byPlainName = await service.LookupAsync("Widget.Convert", "dotnet-api-docs", CancellationToken.None);
+            Assert.AreEqual(ApiLookupOutcome.Found, byPlainName.Outcome);
+            Assert.HasCount(2, byPlainName.Matches[0].Members);
+
+            // The fully-specified form still matches, and selects one arity.
+            var bySpecificArity = await service.LookupAsync(
+                "Widget.Convert<TResult>", "dotnet-api-docs", CancellationToken.None);
+            Assert.AreEqual(ApiLookupOutcome.Found, bySpecificArity.Outcome);
+            Assert.HasCount(1, bySpecificArity.Matches[0].Members);
+
+            // A type that does not exist and a member that does not exist are different failures.
+            var noSuchType = await service.LookupAsync(
+                "System.MissingWidget", "dotnet-api-docs", CancellationToken.None);
+            Assert.AreEqual(ApiLookupOutcome.TypeNotFound, noSuchType.Outcome);
+            Assert.IsEmpty(noSuchType.ResolvedTypeNames);
+
+            var noSuchMember = await service.LookupAsync(
+                "Widget.NotAMember", "dotnet-api-docs", CancellationToken.None);
+            Assert.AreEqual(ApiLookupOutcome.MemberNotFound, noSuchMember.Outcome);
+            CollectionAssert.AreEqual(ExpectedResolvedTypeNames, noSuchMember.ResolvedTypeNames.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    private static async Task<ApiDocsQueryService> CreateWidgetServiceAsync(string root)
+    {
+        var repository = Path.Combine(root, "origin");
+        var namespaceDirectory = Path.Combine(repository, "xml", "System");
+        Directory.CreateDirectory(namespaceDirectory);
+        await RunGitAsync(null, "init", "--initial-branch=main", repository);
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        await File.WriteAllTextAsync(Path.Combine(namespaceDirectory, "Widget.xml"), WidgetXml);
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "docs");
+        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(catalogPath, repository, pin);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(catalog, cache);
+        await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
+        return new ApiDocsQueryService(catalog, cache, synchronizer);
     }
 
     private static async Task WriteCatalogAsync(string path, string repository, string pin)

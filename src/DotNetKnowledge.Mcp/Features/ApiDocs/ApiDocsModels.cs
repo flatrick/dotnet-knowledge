@@ -23,9 +23,22 @@ public sealed record ApiTypeDocumentation(
     IReadOnlyList<ApiMemberDocumentation> Members,
     SourceProvenance Source);
 
+/// <summary>
+/// Why a lookup returned nothing. A type that does not exist and a member that does not exist need
+/// different remedies, and only the second is answerable with another lookup.
+/// </summary>
+public enum ApiLookupOutcome
+{
+    Found,
+    TypeNotFound,
+    MemberNotFound,
+}
+
 public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<SourceProvenance> SearchedSources,
+    ApiLookupOutcome Outcome,
+    IReadOnlyList<string> ResolvedTypeNames);
 
 public sealed record ApiSearchItem(
     string Name,

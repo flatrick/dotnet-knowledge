@@ -36,12 +36,13 @@ public sealed class ApiDocsQueryService
         ValidateSymbol(symbol);
         var sourceNames = ResolveSourceNames(source);
         var matches = new List<ApiTypeDocumentation>();
+        var resolvedTypeNames = new List<string>();
         var searchedSources = new List<SourceProvenance>();
 
         foreach (var sourceName in sourceNames)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SourceRead<ApiTypeDocumentation> read;
+            LookupRead read;
             try
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
@@ -56,15 +57,27 @@ public sealed class ApiDocsQueryService
             }
 
             searchedSources.Add(read.Provenance);
-            matches.AddRange(read.Items);
+            matches.AddRange(read.Matches);
+            resolvedTypeNames.AddRange(read.ResolvedTypeNames);
         }
 
+        var ordered = matches
+            .OrderBy(match => match.FullName, StringComparer.Ordinal)
+            .ThenBy(match => match.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+        var outcome = ordered.Length > 0
+            ? ApiLookupOutcome.Found
+            : resolvedTypeNames.Count > 0
+                ? ApiLookupOutcome.MemberNotFound
+                : ApiLookupOutcome.TypeNotFound;
+
         return new ApiLookupResult(
-            matches
-                .OrderBy(match => match.FullName, StringComparer.Ordinal)
-                .ThenBy(match => match.Source.Repo, StringComparer.Ordinal)
-                .ToArray(),
-            searchedSources);
+            ordered,
+            searchedSources,
+            outcome,
+            resolvedTypeNames.Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray());
     }
 
     public async Task<ApiSearchResult> SearchAsync(
@@ -142,7 +155,7 @@ public sealed class ApiDocsQueryService
             .ToArray();
     }
 
-    private static SourceRead<ApiTypeDocumentation> ReadLookupSource(
+    private static LookupRead ReadLookupSource(
         string sourceName,
         string directory,
         string symbol,
@@ -151,12 +164,23 @@ public sealed class ApiDocsQueryService
     {
         var docsRoot = ResolveDocsRoot(sourceName, directory);
         var (files, memberName) = ResolveSymbol(docsRoot, symbol);
-        var items = files
+        var documented = files
             .Select(file => ReadType(file, memberName, definition, state))
-            .Where(documentation => memberName is null || documentation.Members.Count > 0)
             .ToArray();
-        return new SourceRead<ApiTypeDocumentation>(ToProvenance(definition, state), items);
+
+        return new LookupRead(
+            ToProvenance(definition, state),
+            documented.Where(type => memberName is null || type.Members.Count > 0).ToArray(),
+
+            // Every type whose name matched, before member filtering. This is what distinguishes
+            // "no such type" from "the type exists and the member did not match".
+            documented.Select(type => type.FullName).ToArray());
     }
+
+    private sealed record LookupRead(
+        SourceProvenance Provenance,
+        IReadOnlyList<ApiTypeDocumentation> Matches,
+        IReadOnlyList<string> ResolvedTypeNames);
 
     private static SourceRead<ApiSearchItem> ReadSearchSource(
         string sourceName,
@@ -239,6 +263,23 @@ public sealed class ApiDocsQueryService
             .ToArray();
     }
 
+    /// <summary>
+    /// ECMA XML spells a generic member's MemberName with its type-parameter list, so
+    /// "Select&lt;TSource,TResult&gt;" is what an agent asking for "Select" must match. The fully
+    /// specified form is still accepted, which is how a caller selects one arity.
+    /// </summary>
+    private static bool MemberNameMatches(string? attributeValue, string requested)
+    {
+        if (attributeValue is null)
+            return false;
+        if (string.Equals(attributeValue, requested, StringComparison.Ordinal))
+            return true;
+
+        var typeParameters = attributeValue.IndexOf('<', StringComparison.Ordinal);
+        return typeParameters > 0
+            && string.Equals(attributeValue[..typeParameters], requested, StringComparison.Ordinal);
+    }
+
     private static ApiTypeDocumentation ReadType(
         string path,
         string? memberName,
@@ -252,7 +293,7 @@ public sealed class ApiDocsQueryService
             ?? Path.GetFileNameWithoutExtension(path);
         var members = root.Descendants("Member")
             .Where(member => memberName is null
-                || string.Equals(member.Attribute("MemberName")?.Value, memberName, StringComparison.Ordinal))
+                || MemberNameMatches(member.Attribute("MemberName")?.Value, memberName))
             .Select(ReadMember)
             .Where(member => member is not null)
             .Cast<ApiMemberDocumentation>()
