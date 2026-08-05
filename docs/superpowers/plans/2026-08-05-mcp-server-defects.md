@@ -1639,13 +1639,18 @@ Add to `tests/DotNetKnowledge.Mcp.Tests/Features/Sources/SourcesToolTests.cs`:
         try
         {
             var repository = Path.Combine(root, "origin");
-            var namespaceDirectory = Path.Combine(repository, "xml", "System");
-            Directory.CreateDirectory(namespaceDirectory);
+
+            // `docs`, not `xml/System`, and the source is named `local` below: this file's own
+            // WriteCatalogAsync declares one source keyed "local" with sparse = ["docs"], and
+            // SourceCatalog loads exactly what the catalog file holds with no defaults merged.
+            // ApiDocsQueryServiceTests has a differently configured helper; do not mix them.
+            var contentDirectory = Path.Combine(repository, "docs");
+            Directory.CreateDirectory(contentDirectory);
             await RunGitAsync(null, "init", "--initial-branch=main", repository);
             await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
             await RunGitAsync(repository, "config", "user.name", "Tests");
             await File.WriteAllTextAsync(
-                Path.Combine(namespaceDirectory, "Widget.xml"),
+                Path.Combine(contentDirectory, "Widget.xml"),
                 "<Type Name=\"Widget\" FullName=\"System.Widget\" />");
             await RunGitAsync(repository, "add", ".");
             await RunGitAsync(repository, "commit", "-m", "docs");
@@ -1661,7 +1666,7 @@ Add to `tests/DotNetKnowledge.Mcp.Tests/Features/Sources/SourcesToolTests.cs`:
             // asserting and would still be racy.
             var recorder = new RecordingProgress();
             await synchronizer.SyncAsync(
-                "dotnet-api-docs",
+                "local",
                 requestedRef: null,
                 CancellationToken.None,
                 recorder);
