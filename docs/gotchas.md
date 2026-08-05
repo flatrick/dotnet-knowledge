@@ -6,14 +6,18 @@ fact goes stale when a toolchain moves, a codebase fact when the code does.
 
 **Append-only.** Never edit or delete an entry. A fact that turns out to be wrong is corrected by a
 new entry naming the one it supersedes — a bare deletion loses the reason the wrong answer looked
-right, which is the part that stops it being reached twice. Newest first.
+right, which is the part that stops it being reached twice. Newest first. This preamble is not an
+entry and may be revised.
 
 This file is exempt from convention 3 in [`AGENTS.md`](../AGENTS.md).
 
-**Write an entry when** something took more than about fifteen minutes to work out and the next
-reader would not infer it. A rule for how to work in this repository graduates into
-[`CLAUDE.md`](../CLAUDE.md) or [`AGENTS.md`](../AGENTS.md); this file holds discovered facts and
-their evidence.
+**A gotcha is not a rule.** A rule is an obligation — always do this — and lives in
+[`AGENTS.md`](../AGENTS.md) or [`CLAUDE.md`](../CLAUDE.md). A gotcha is a hazard: this may break, or
+behave in a way you would not predict. A gotcha frequently justifies a rule, and then both exist and
+the rule cites it. It does not become the rule, and it is not moved when one is written.
+
+**Write an entry when** something behaved unexpectedly, cost more than about fifteen minutes to work
+out, and the next reader would not infer it from the code.
 
 **Four lines per entry**, linking to a spec or a [`docs/backlog/`](backlog/README.md) file if it
 needs more.

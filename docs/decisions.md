@@ -5,10 +5,16 @@ would cost real work — the value is the rejected options, not the chosen one.
 
 **Append-only.** Never edit or delete an entry. A decision that no longer holds is replaced by a new
 entry naming the one it supersedes, so the record of having already asked survives. Newest first, so
-reading downward reaches current truth before it reaches anything corrected.
+reading downward reaches current truth before it reaches anything corrected. This preamble is not an
+entry and may be revised.
 
 This file is exempt from convention 3 in [`AGENTS.md`](../AGENTS.md) — a standing decision is a live
 constraint, not narration of history.
+
+**A decision is not a rule.** A rule is an obligation that always applies and lives in
+[`AGENTS.md`](../AGENTS.md) or [`CLAUDE.md`](../CLAUDE.md). A decision records what was chosen over
+what, and why. A decision may impose a rule, and then both exist and the rule cites it.
+A hazard rather than a choice is a [gotcha](gotchas.md).
 
 **Write an entry when** a spec, review, or experiment chose between real alternatives.
 
