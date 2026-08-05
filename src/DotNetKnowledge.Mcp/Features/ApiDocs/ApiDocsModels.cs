@@ -67,6 +67,19 @@ public sealed record ApiSearchResult(
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);
 
+public sealed record ApiTextHit(
+    string Symbol,
+    string Element,
+    string Text,
+    bool IsTruncated,
+    SourceProvenance Source);
+
+public sealed record ApiTextSearchResult(
+    IReadOnlyList<ApiTextHit> Hits,
+    bool IsPartial,
+    string? NextPageToken,
+    IReadOnlyList<SourceProvenance> SearchedSources);
+
 public sealed class SourceNotSyncedException : InvalidOperationException
 {
     public SourceNotSyncedException(string sourceName, Exception? innerException = null)

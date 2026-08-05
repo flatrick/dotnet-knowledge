@@ -64,8 +64,16 @@ search_api(pattern, limit?, cursor?)
     → matchedOn: "fullName" | "type" | "namespace" — so "every type in
       this namespace" is distinguishable from "types whose name contains
       this"
-    ! nothing here searches API documentation TEXT — summaries, remarks,
-      parameters — see "Searching API documentation text" below
+search_api_text(query, source?, limit?, cursor?)
+    query: a literal, case-insensitive substring — no regex, see
+      "Searching API documentation text" below
+    → searches summary, remarks, returns, value, param, typeparam and
+      exception text, matched AFTER reference elements are resolved, so
+      what was searched is what comes back
+    → hits: the owning symbol ("Type" or "Type.Member"), which element
+      matched ("summary", "param:name", …), and the matched text capped
+      at 300 characters with isTruncated stating it — never bodies
+    → limit: 1-100, default 20
 
 ── language design docs ──────────────────────────────────────────────
 search_language_docs(query, regex?, source?, limit?, cursor?)
@@ -160,33 +168,47 @@ spelled exactly.
 
 ### Searching API documentation text
 
-Content search exists for the markdown sources and is missing for the XML ones.
-`search_language_docs` searches the text of every language-design document, literally or by regex.
-Nothing reads the prose inside `dotnet-api-docs` or `roslyn-api-docs`: `search_api` matches names,
-`lookup_api` needs the symbol already, and neither opens a `<summary>`, `<remarks>`, `<param>`, or
-`<returns>`. The two halves do not cross over — `search_language_docs` refuses a non-markdown source
-outright, which is correct, since a markdown line-and-heading model has nothing to say about ECMA
-XML.
+"Which API mentions this behavior?" is the question an agent asks when it knows what it needs and not
+what it is called, and it is the one shape `lookup_api` structurally cannot serve, because it takes
+the name as input. `search_api_text` answers it.
 
-So "which API mentions this behavior?" — the question an agent asks when it knows what it needs and
-not what it is called — has no answer on the tool surface. That is the one shape of question
-`lookup_api` structurally cannot serve, because it requires the name as input.
+Text-searching `cacheDir` also answers it, and that remains a reason `list_sources` returns the path.
+It is not a substitute: the escape hatch assumes the caller can run a process on the machine holding
+the cache, which is true of a local coding agent and false of a sandboxed one or of any client
+talking to a server hosted elsewhere.
 
-Text-searching `cacheDir` covers it, and that is a reason `list_sources` returns the path rather than
-an accident of it. Ripgrep finds a phrase in the 457 MB, 11,359-file `dotnet-api-docs` tree in under
-a second, and a full miss costs about five — fast enough to be a workflow rather than a formality.
+**Every documented element is searchable**, remarks included. Leaving the largest and least specific
+text out would keep responses smaller and would answer "no" to questions whose answer is in the
+corpus — a plausible absence, which this server treats as the dangerous failure. Noise is handled
+where it does no harm instead: each hit names the element it matched, so a caller can tell a summary
+hit from a remarks hit and narrow without a second round trip.
 
-What it does not cover is a caller without a filesystem. The escape hatch assumes the agent can run
-a process on the machine holding the cache, which is true of a local coding agent and false of a
-sandboxed one or of any client talking to a server hosted elsewhere. For those callers API prose is
-not merely awkward to search, it is unreachable, and no amount of documenting `cacheDir` changes
-that.
+**Matching runs on rendered text, not on the raw file.** A phrase like "value into a System.String"
+exists only once a `<see cref>` has been resolved; in the file, an element sits in the middle of it.
+Searching the raw XML would miss it, and would also match attribute noise no reader ever sees.
 
-A tool closing this would search element text rather than whole files, and return the same shape as
-every other search here — the owning symbol and the matched text, never bodies — so that the answer
-remains a name to hand to `lookup_api`. Which elements are searchable (summary only, or remarks and
-parameters too) decides both the index size and how noisy the result set is, and wants settling
-before implementation: remarks are the largest text in the corpus and the least specific.
+That forces the scan to be a two-phase one, because parsing 460 MB of XML per query is not
+affordable and reading it is: a parallel raw-text prefilter rejects almost every file, and only
+survivors are parsed and rendered. The prefilter tests **the longest whitespace-delimited token of
+the query**, never the whole query, and that is a correctness requirement rather than a heuristic.
+Every word of the rendered text comes from somewhere in the raw file — a text node copied verbatim,
+or the attribute a rendered symbol name is built from — so a single token is a sound superset, while
+the whole phrase is not.
+
+**This is also why the tool takes a literal substring and not a regex**, unlike
+`search_language_docs`. No cheap prefilter is a sound superset of an arbitrary pattern, so regex
+would mean parsing the entire corpus per query or silently missing matches, and a search tool that
+silently misses is the failure mode this server exists to avoid.
+
+Measured on the pinned corpus: a full scan of 11,359 files costs about 0.5-0.7 s in parallel against
+2.1 s serially, and a query answers end to end through the MCP host in roughly 0.7-3.6 s depending on
+how many files survive to be parsed. No index is needed, and adding one would put a build step
+between a sync and a correct answer.
+
+Hits are deduplicated on symbol, element and text. Overloads each carry their own `Docs` under one
+`MemberName`, so identical prose on `Create(a)` and `Create(a, b)` would otherwise arrive as
+repeated hits a caller cannot tell apart; prose that genuinely differs between overloads survives,
+because the text is part of the key.
 
 ### Sections are the retrieval unit for language docs
 

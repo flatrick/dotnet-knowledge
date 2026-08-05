@@ -187,6 +187,82 @@ public sealed class ApiDocsTool
         }
     }
 
+    [McpServerTool(Name = "search_api_text", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Search the PROSE inside synchronized .NET and Roslyn ECMA XML docs - summaries, remarks, " +
+        "returns, parameter and exception descriptions - by literal case-insensitive substring. " +
+        "This is the tool for \"which API mentions this behavior?\", the question lookup_api cannot " +
+        "answer because it takes the name as input; use search_api when you have a name. " +
+        "Returns the owning symbol, which documentation element matched, and the matched text " +
+        "capped at 300 characters with isTruncated saying so - never whole documents. Feed the " +
+        "returned symbol to lookup_api for the full entry. Regex is not supported here.")]
+    public static async Task<string> SearchApiText(
+        string query,
+        ApiDocsQueryService service,
+        CancellationToken cancellationToken,
+        string? source = null,
+        int? limit = null,
+        string? cursor = null)
+    {
+        try
+        {
+            var result = await service.SearchTextAsync(
+                query,
+                source,
+                limit ?? 20,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Serialize(result, WriteOptions);
+        }
+        catch (SourceNotSyncedException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_not_synced",
+                    message = exception.Message,
+                    source = exception.SourceName,
+                },
+                WriteOptions);
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (ArgumentException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = string.Equals(exception.ParamName, "cursor", StringComparison.Ordinal)
+                        ? "invalid_cursor"
+                        : "invalid_request",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (InvalidDataException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_invalid",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
+    }
+
     private static string SerializeSourceInvalid(Exception exception) =>
         JsonSerializer.Serialize(
             new

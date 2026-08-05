@@ -98,9 +98,9 @@ dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj
 The corpus is complete.
 
 The server's source, API-doc, and language-doc tools are implemented and work under an MCP client:
-`list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_language_docs`,
-`get_language_doc`, and `get_language_doc_outline` all answer correctly over stdio,
-including a first sync of a large upstream repository.
+`list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
+`search_language_docs`, `get_language_doc`, and `get_language_doc_outline` all answer correctly over
+stdio, including a first sync of a large upstream repository.
 
 Bundled-example queries remain future work; their intended surface is recorded in
 [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).

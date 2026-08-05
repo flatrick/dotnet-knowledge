@@ -238,6 +238,61 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task SearchTextAsyncMatchesRenderedProseAndNamesTheOwningSymbol()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var bySummary = await SearchText(service, "Creates a widget");
+            Assert.HasCount(1, bySummary);
+            Assert.AreEqual("System.Widget.Create", bySummary[0].Symbol);
+            Assert.AreEqual("summary", bySummary[0].Element);
+            Assert.AreEqual("Creates a widget.", bySummary[0].Text);
+            Assert.IsFalse(bySummary[0].IsTruncated);
+            Assert.AreEqual("test/dotnet-api-docs", bySummary[0].Source.Repo);
+
+            // Remarks are searched. Leaving them out would answer "no" to a question whose answer
+            // is in the corpus.
+            var byRemarks = await SearchText(service, "case-sensitive");
+            Assert.HasCount(1, byRemarks);
+            Assert.AreEqual("remarks", byRemarks[0].Element);
+
+            // A parameter description reports which parameter it was.
+            var byParam = await SearchText(service, "The widget name");
+            Assert.AreEqual("param:name", byParam[0].Element);
+
+            // Matching runs on the RENDERED text, so a phrase that only exists once a cref has been
+            // resolved is findable — it spans an element boundary in the raw XML and the whole
+            // query is therefore not present in the file at all.
+            var acrossReference = await SearchText(service, "widget as a System.String");
+            Assert.HasCount(1, acrossReference);
+            Assert.AreEqual("System.Widget.Describe", acrossReference[0].Symbol);
+
+            Assert.IsEmpty(await SearchText(service, "no such prose anywhere"));
+
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.SearchTextAsync(
+                "   ", source: null, limit: 20, cursor: null, CancellationToken.None));
+            await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => service.SearchTextAsync(
+                "widget", source: null, limit: 101, cursor: null, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    private static async Task<ApiTextHit[]> SearchText(ApiDocsQueryService service, string query)
+    {
+        var result = await service.SearchTextAsync(
+            query, source: "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
+        return result.Hits.ToArray();
+    }
+
+    [TestMethod]
     public async Task LookupAsyncResolvesReferenceElementsToTheNamesTheyName()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

@@ -190,6 +190,213 @@ public sealed class ApiDocsQueryService
             SearchedSources: searchedSources);
     }
 
+    /// <summary>
+    /// Searches the prose inside the API documentation — summaries, remarks, returns, and parameter
+    /// descriptions — rather than names.
+    /// </summary>
+    /// <remarks>
+    /// This is the question <see cref="LookupAsync"/> structurally cannot serve: it takes the name
+    /// as input, and the caller here has only a behavior in mind. Matching is a literal
+    /// case-insensitive substring against the rendered element text, so what was searched is what
+    /// comes back; regex is deliberately not offered, because the cheap prefilter that makes a
+    /// whole-corpus scan affordable cannot be a sound superset of an arbitrary pattern.
+    /// </remarks>
+    public async Task<ApiTextSearchResult> SearchTextAsync(
+        string query,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
+
+        var hits = new List<ApiTextHit>();
+        var searchedSources = new List<SourceProvenance>();
+        foreach (var sourceName in ResolveSourceNames(source))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceRead<ApiTextHit> read;
+            try
+            {
+                read = await _synchronizer.ReadCurrentSourceAsync(
+                    sourceName,
+                    (definition, state, directory) => ReadTextSource(
+                        sourceName, directory, query, definition, state, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new SourceNotSyncedException(sourceName, exception);
+            }
+
+            searchedSources.Add(read.Provenance);
+            hits.AddRange(read.Items);
+        }
+
+        var revisions = searchedSources
+            .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
+            .ToArray();
+        // Serialized rather than concatenated, so a query ending in the source name cannot
+        // forge the scope of a different request.
+        var scope = JsonSerializer.Serialize(new[] { query, source ?? string.Empty });
+        var offset = DecodeCursor(cursor, "search-text", scope, revisions);
+
+        // Overloads each carry their own Docs under one MemberName, so identical prose on
+        // Create(a) and Create(a, b) would otherwise arrive as two hits a caller cannot tell apart.
+        // Prose that genuinely differs between overloads survives, because the text is part of the
+        // key.
+        var ordered = hits
+            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo))
+            .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Element, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Text, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+        if (offset > ordered.Length)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = ordered.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < ordered.Length;
+        return new ApiTextSearchResult(
+            Hits: page,
+            IsPartial: isPartial,
+            NextPageToken: isPartial ? EncodeCursor("search-text", scope, nextOffset, revisions) : null,
+            SearchedSources: searchedSources);
+    }
+
+    private static SourceRead<ApiTextHit> ReadTextSource(
+        string sourceName,
+        string directory,
+        string query,
+        SourceDefinition definition,
+        SourceSyncState state,
+        CancellationToken cancellationToken)
+    {
+        var docsRoot = ResolveDocsRoot(sourceName, directory);
+        var provenance = ToProvenance(definition, state);
+        var prefilter = LongestToken(query);
+        var files = Directory.EnumerateFiles(docsRoot, "*.xml", SearchOption.AllDirectories);
+        var hits = new System.Collections.Concurrent.ConcurrentBag<ApiTextHit>();
+
+        // The whole corpus is roughly 460 MB. Read in parallel and reject on a raw-text prefilter
+        // first: parsing every file would cost orders of magnitude more than reading it, and almost
+        // every file is rejected.
+        Parallel.ForEach(
+            files,
+            new ParallelOptions { CancellationToken = cancellationToken },
+            file =>
+            {
+                string text;
+                try
+                {
+                    text = File.ReadAllText(file);
+                }
+                catch (IOException)
+                {
+                    return;
+                }
+
+                if (!text.Contains(prefilter, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                foreach (var hit in ReadTextHits(file, text, query, provenance))
+                    hits.Add(hit);
+            });
+
+        return new SourceRead<ApiTextHit>(provenance, hits.ToArray());
+    }
+
+    /// <summary>
+    /// The longest whitespace-delimited token of the query, which is what the raw-text prefilter
+    /// tests.
+    /// </summary>
+    /// <remarks>
+    /// The prefilter has to be a superset of the real match or the search reports plausible
+    /// absences, which is the failure this server treats as the dangerous one. It is sound because
+    /// every word of the rendered text comes from somewhere in the raw file: either a text node,
+    /// which is copied verbatim, or a reference element's attribute, which is where a rendered
+    /// symbol name comes from. The full query is not a sound prefilter — rendering closes the gap
+    /// an element leaves behind, so "value into a System.String" exists only after rendering.
+    /// </remarks>
+    private static string LongestToken(string query)
+    {
+        var tokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Length == 0 ? query : tokens.MaxBy(token => token.Length)!;
+    }
+
+    private static IEnumerable<ApiTextHit> ReadTextHits(
+        string path,
+        string text,
+        string query,
+        SourceProvenance provenance)
+    {
+        XElement? root;
+        try
+        {
+            root = XDocument.Parse(text).Root;
+        }
+        catch (System.Xml.XmlException)
+        {
+            // One malformed file must not fail a whole-corpus search.
+            yield break;
+        }
+
+        if (root is null)
+            yield break;
+
+        var fullName = root.Attribute("FullName")?.Value
+            ?? root.Attribute("Name")?.Value
+            ?? Path.GetFileNameWithoutExtension(path);
+
+        foreach (var hit in MatchDocs(root.Element("Docs"), fullName, query, provenance))
+            yield return hit;
+
+        foreach (var member in root.Descendants("Member"))
+        {
+            var memberName = member.Attribute("MemberName")?.Value;
+            var symbol = memberName is null ? fullName : $"{fullName}.{memberName}";
+            foreach (var hit in MatchDocs(member.Element("Docs"), symbol, query, provenance))
+                yield return hit;
+        }
+    }
+
+    private static IEnumerable<ApiTextHit> MatchDocs(
+        XElement? docs,
+        string symbol,
+        string query,
+        SourceProvenance provenance)
+    {
+        if (docs is null)
+            yield break;
+
+        foreach (var element in docs.Elements())
+        {
+            var name = element.Name.LocalName;
+            // Anything documented is searchable. Leaving remarks out would keep responses smaller
+            // and would answer "no" to questions whose answer is in the corpus.
+            if (name is not ("summary" or "remarks" or "returns" or "param" or "typeparam" or "value" or "exception"))
+                continue;
+
+            var rendered = CleanDocumentation(RenderDocumentation(element));
+            if (rendered is null || !rendered.Contains(query, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var label = element.Attribute("name")?.Value is { Length: > 0 } parameterName
+                ? $"{name}:{parameterName}"
+                : name;
+            var truncated = rendered.Length > 300;
+            yield return new ApiTextHit(
+                Symbol: symbol,
+                Element: label,
+                Text: truncated ? rendered[..300] : rendered,
+                IsTruncated: truncated,
+                Source: provenance);
+        }
+    }
+
     private string[] ResolveSourceNames(string? source)
     {
         if (source is not null)
