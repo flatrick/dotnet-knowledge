@@ -109,7 +109,9 @@ cursor to still make sense: `(query, regex, source)` for search, `(source, path)
   and `vblang` — the supported set is configuration, not code, matching the existing design note).
   Hits across sources are ordered by path, then line, then source repo, all ordinal, before paging —
   the same flattened-single-sequence approach `ApiDocsQueryService.LookupAsync` already uses for
-  `(type, member)` pairs, for the same reason: one pagination state, not one per source.
+  `(type, member)` pairs, for the same reason: one pagination state, not one per source. Each hit's
+  `text` is the matched line itself, truncated to 300 characters with a trailing `…` if longer — the
+  triage budget the existing design argues for; the full line is one `get_language_doc` call away.
 - `get_language_doc_outline`: `limit` 1–500, default 100. A heading is a handful of bytes, so even
   the largest spec or meeting-notes document tops out at a few hundred entries — the ceiling is
   headroom, not an expectation that real documents need a second page.
