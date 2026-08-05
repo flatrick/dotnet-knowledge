@@ -18,6 +18,9 @@ packages/
 .scratch/
 .worktrees/
 
+# Git Worktrees
+.worktrees/
+
 # Fetched upstream sources.
 #
 # The server's default cache is a per-user directory outside any repository
