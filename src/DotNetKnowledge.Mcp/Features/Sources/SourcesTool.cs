@@ -11,7 +11,8 @@ public sealed class SourcesTool
 {
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
-        WriteIndented = true,
+        // Indentation is roughly a fifth of every response's bytes and buys an agent nothing.
+        WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };

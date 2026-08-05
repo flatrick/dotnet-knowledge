@@ -10,7 +10,8 @@ public sealed class ApiDocsTool
 {
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
-        WriteIndented = true,
+        // Indentation is roughly a fifth of every response's bytes and buys an agent nothing.
+        WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
@@ -18,17 +19,25 @@ public sealed class ApiDocsTool
     [McpServerTool(Name = "lookup_api", ReadOnly = true, Idempotent = true)]
     [Description(
         "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
-        "Use TypeName or TypeName.MemberName; pass source to restrict the lookup to " +
-        "dotnet-api-docs or roslyn-api-docs. Returns signatures and documentation with provenance.")]
+        "TypeName returns every member's signature only; TypeName.MemberName returns full " +
+        "documentation for that member. Pass source to restrict the lookup to dotnet-api-docs or " +
+        "roslyn-api-docs, and limit/cursor to page. Returns provenance with every match.")]
     public static async Task<string> LookupApi(
         string symbol,
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
-        string? source = null)
+        string? source = null,
+        int? limit = null,
+        string? cursor = null)
     {
         try
         {
-            var result = await service.LookupAsync(symbol, source, cancellationToken).ConfigureAwait(false);
+            var result = await service.LookupAsync(
+                symbol,
+                source,
+                limit ?? 20,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
             if (result.Matches.Count == 0)
             {
                 // Directing a caller to search_api is right when the type was not found and wrong
@@ -79,7 +88,9 @@ public sealed class ApiDocsTool
             return JsonSerializer.Serialize(
                 new
                 {
-                    error = "invalid_request",
+                    error = string.Equals(exception.ParamName, "cursor", StringComparison.Ordinal)
+                        ? "invalid_cursor"
+                        : "invalid_request",
                     message = exception.Message,
                 },
                 WriteOptions);

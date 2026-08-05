@@ -14,7 +14,7 @@ public sealed record ApiMemberDocumentation(
     string Name,
     string Signature,
     string? Summary,
-    IReadOnlyList<ApiParameterDocumentation> Parameters,
+    IReadOnlyList<ApiParameterDocumentation>? Parameters,
     string? Returns,
     string? Remarks);
 
@@ -38,7 +38,9 @@ public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
     IReadOnlyList<SourceProvenance> SearchedSources,
     ApiLookupOutcome Outcome,
-    IReadOnlyList<string> ResolvedTypeNames);
+    IReadOnlyList<string> ResolvedTypeNames,
+    bool IsPartial,
+    string? NextPageToken);
 
 public sealed record ApiSearchItem(
     string Name,
