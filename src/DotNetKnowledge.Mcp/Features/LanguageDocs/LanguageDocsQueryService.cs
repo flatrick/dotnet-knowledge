@@ -228,10 +228,16 @@ public sealed class LanguageDocsQueryService
             var text = File.ReadAllText(file);
 
             // Skip the full Markdig parse entirely for a file that cannot match: a source can hold
-            // hundreds of markdown files, and most queries match none of them.
+            // hundreds of markdown files, and most queries match none of them. This must check
+            // per-line, the same way MarkdownLineSearch.Search below actually matches: an anchored
+            // pattern like "^## " behaves differently against a single line than against the whole
+            // file text (^ without RegexOptions.Multiline only matches offset 0 of whatever string
+            // it's given), so a whole-file check would wrongly skip files whose only match isn't on
+            // line 1.
+            var lines = text.ReplaceLineEndings("\n").Split('\n');
             var mightMatch = compiledPattern is not null
-                ? compiledPattern.IsMatch(text)
-                : text.Contains(query, StringComparison.Ordinal);
+                ? lines.Any(compiledPattern.IsMatch)
+                : lines.Any(line => line.Contains(query, StringComparison.Ordinal));
             if (!mightMatch)
                 continue;
 

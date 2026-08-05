@@ -196,6 +196,44 @@ public sealed class LanguageDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task SearchAsyncFindsAnAnchoredRegexMatchNotOnTheFilesFirstLine()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            // "^## " only matches offset 0 of whatever string it's tested against (no
+            // RegexOptions.Multiline). The real per-line matcher (MarkdownLineSearch.Search) tests
+            // it against each line individually, so it finds the heading on line 7. A prefilter
+            // that instead tests the pattern once against the whole file text would see "^"
+            // anchored to the very first line ("# Feature E") and wrongly conclude nothing matches,
+            // silently skipping the file before MarkdownOutline.Extract or MarkdownLineSearch.Search
+            // ever run.
+            const string document =
+                "# Feature E\n" +
+                "\n" +
+                "Some prose before any level-2 heading.\n" +
+                "\n" +
+                "## Detailed design\n" +
+                "\n" +
+                "More prose.\n";
+            var service = await CreateServiceWithDocumentAsync(root, "proposal-e.md", document);
+
+            var result = await service.SearchAsync(
+                "^## ", regex: true, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(1, result.Hits);
+            Assert.AreEqual("docs/proposal-e.md", result.Hits[0].Path);
+            Assert.AreEqual(5, result.Hits[0].Line);
+            Assert.AreEqual("## Detailed design", result.Hits[0].Text);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task SearchAsyncSearchesEveryConfiguredSourceAndOrdersHitsByRepoWhenPathsTie()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
