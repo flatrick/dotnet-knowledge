@@ -8,6 +8,11 @@ Read [`AGENTS.md`](AGENTS.md) first; it carries the corpus rules and the reasoni
 file covers commands and the cross-file architecture. For current state, [`README.md`](README.md)
 has the status summary and [`docs/backlog/`](docs/backlog/README.md) holds one file per known issue.
 
+Before working on something that looks already-settled or surprisingly awkward, read
+[`docs/decisions.md`](docs/decisions.md) and [`docs/gotchas.md`](docs/gotchas.md). They are
+append-only and newest-first: decisions record what was rejected and why, gotchas record facts that
+cost real time and are not inferable from the code.
+
 The repository is two halves serving one purpose — version-pinned, local answers about C#, VB.NET
 and Roslyn:
 
@@ -284,6 +289,9 @@ not deleting a file — which is why it is much cheaper to not commit the conten
    the production analyzer settings for these.
 2. **State current truth only.** Documents do not narrate their own history; `git log` is the
    changelog. No "previously said X" footers, no dated verification stamps.
+   [`docs/decisions.md`](docs/decisions.md) and [`docs/gotchas.md`](docs/gotchas.md) are the two
+   deliberate exceptions: they are append-only, dated, and never edited, because a superseded entry
+   is what stops a settled question being reopened. Do not tidy them.
 3. **American English** for identifiers, comments, and prose, except where an external standard
    specifies otherwise (MCP's `notifications/cancelled` stays as spelled).
 4. **LF line endings, UTF-8**, enforced by `.gitattributes`.

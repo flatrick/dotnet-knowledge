@@ -64,6 +64,9 @@ earned their place, not out of habit.
    similar. An agent that receives a quietly-truncated search concludes the symbol does not exist.
 3. **State current truth only.** Documents do not narrate their own history; `git log` is the
    changelog. No "previously said X" footers, no dated verification stamps.
+   [`docs/decisions.md`](docs/decisions.md) and [`docs/gotchas.md`](docs/gotchas.md) are the two
+   deliberate exceptions: they are append-only, dated, and never edited, because a superseded entry
+   is what stops a settled question being reopened. Do not tidy them.
 4. **American English** for identifiers, comments, and prose, except where an external standard
    specifies otherwise (the Model Context Protocol's `notifications/cancelled` stays as spelled).
 5. **Never commit upstream content.** The sources in `sources.json` are fetched into a per-user
