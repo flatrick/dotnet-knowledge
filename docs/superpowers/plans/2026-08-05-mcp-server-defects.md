@@ -1556,19 +1556,19 @@ Add to `tests/DotNetKnowledge.Mcp.Tests/Features/Sources/SourcesToolTests.cs`:
                 new SourceCatalog(catalogPath),
                 new SourceCache(Path.Combine(root, "cache")));
 
-            var stages = new List<string>();
+            // A plain IProgress<T> that records inline. System.Progress<T> posts its callbacks
+            // through the synchronization context, so a test using it would have to sleep before
+            // asserting and would still be racy.
+            var recorder = new RecordingProgress();
             await synchronizer.SyncAsync(
                 "dotnet-api-docs",
                 requestedRef: null,
                 CancellationToken.None,
-                new Progress<string>(stage => stages.Add(stage)));
+                recorder);
 
-            // Progress<T> marshals through the synchronization context, so give the posted
-            // callbacks a chance to run before asserting.
-            await Task.Delay(100);
             CollectionAssert.AreEqual(
                 new[] { "clone", "sparse-checkout", "fetch", "checkout", "validate" },
-                stages.ToArray());
+                recorder.Stages.ToArray());
         }
         finally
         {
@@ -1578,8 +1578,19 @@ Add to `tests/DotNetKnowledge.Mcp.Tests/Features/Sources/SourcesToolTests.cs`:
     }
 ```
 
-Copy `RunGitAsync`, `WriteCatalogAsync` and `DeleteDirectory` into this test class if they are not
-already present, matching the versions in `ApiDocsQueryServiceTests`.
+Add the recorder as a private nested class on `SourcesToolTests`:
+
+```csharp
+    private sealed class RecordingProgress : IProgress<string>
+    {
+        public List<string> Stages { get; } = [];
+
+        public void Report(string value) => Stages.Add(value);
+    }
+```
+
+`SourcesToolTests` already defines `RunGitAsync`, `WriteCatalogAsync` and `DeleteDirectory` — reuse
+them, do not add second copies.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
