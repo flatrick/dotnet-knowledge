@@ -25,6 +25,7 @@ switch (mode)
         var output = await GitCommandRunner.RunAsync(
             Environment.CurrentDirectory,
             ["--version"],
+            GitCommandKind.Quick,
             CancellationToken.None).ConfigureAwait(false);
         Console.Error.WriteLine(output.Trim());
         return 0;

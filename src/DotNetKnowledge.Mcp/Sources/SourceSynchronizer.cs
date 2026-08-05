@@ -86,14 +86,17 @@ public sealed class SourceSynchronizer
             var actualCommit = (await GitCommandRunner.RunAsync(
                 directory,
                 ["rev-parse", "HEAD"],
+                GitCommandKind.Quick,
                 cancellationToken).ConfigureAwait(false)).Trim();
             var origin = (await GitCommandRunner.RunAsync(
                 directory,
                 ["config", "--get", "remote.origin.url"],
+                GitCommandKind.Quick,
                 cancellationToken).ConfigureAwait(false)).Trim();
             var status = await GitCommandRunner.RunAsync(
                 directory,
                 ["status", "--porcelain", "--untracked-files=all"],
+                GitCommandKind.Quick,
                 cancellationToken).ConfigureAwait(false);
             var sparseRootsExist = definition.Sparse.All(path =>
                 Directory.Exists(Path.Combine(directory, path))
@@ -130,6 +133,7 @@ public sealed class SourceSynchronizer
             await GitCommandRunner.RunAsync(
                 null,
                 ["clone", "--filter=blob:none", "--no-checkout", "--sparse", "--quiet", "--", definition.Url, staging],
+                GitCommandKind.Bulk,
                 cancellationToken).ConfigureAwait(false);
             repositoryDirectory = staging;
 
@@ -196,27 +200,33 @@ public sealed class SourceSynchronizer
         await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["sparse-checkout", "set", .. definition.Sparse],
+            GitCommandKind.Bulk,
             cancellationToken).ConfigureAwait(false);
         await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["fetch", "--depth", "1", "--quiet", "origin", target],
+            GitCommandKind.Bulk,
             cancellationToken).ConfigureAwait(false);
         await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["checkout", "--detach", "--quiet", "FETCH_HEAD"],
+            GitCommandKind.Bulk,
             cancellationToken).ConfigureAwait(false);
 
         var commit = (await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["rev-parse", "HEAD"],
+            GitCommandKind.Quick,
             cancellationToken).ConfigureAwait(false)).Trim();
         var origin = (await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["config", "--get", "remote.origin.url"],
+            GitCommandKind.Quick,
             cancellationToken).ConfigureAwait(false)).Trim();
         var status = await GitCommandRunner.RunAsync(
             repositoryDirectory,
             ["status", "--porcelain", "--untracked-files=all"],
+            GitCommandKind.Quick,
             cancellationToken).ConfigureAwait(false);
         if (!OriginsMatch(origin, definition.Url)
             || !string.IsNullOrWhiteSpace(status)

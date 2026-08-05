@@ -126,6 +126,17 @@ public sealed class SourcesTool
                 },
                 WriteOptions);
         }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                    source = name,
+                },
+                WriteOptions);
+        }
         catch (InvalidOperationException exception)
         {
             return JsonSerializer.Serialize(

@@ -56,6 +56,16 @@ public sealed class ApiDocsTool
                 },
                 WriteOptions);
         }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
         catch (ArgumentException exception)
         {
             return JsonSerializer.Serialize(
@@ -111,6 +121,16 @@ public sealed class ApiDocsTool
                     error = "source_not_synced",
                     message = exception.Message,
                     source = exception.SourceName,
+                },
+                WriteOptions);
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
                 },
                 WriteOptions);
         }

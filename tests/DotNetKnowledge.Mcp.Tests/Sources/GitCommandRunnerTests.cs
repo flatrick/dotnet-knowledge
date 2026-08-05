@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using DotNetKnowledge.Mcp.Sources;
 
 namespace DotNetKnowledge.Mcp.Tests.Sources;
 
@@ -74,6 +75,52 @@ public sealed class GitCommandRunnerTests
             process.Kill(entireProcessTree: true);
 
         return new FixtureResult(timedOut, timedOut ? null : process.ExitCode, stderr);
+    }
+
+    [TestMethod]
+    public async Task TimeoutNamesTheCommandThatExceededItsTier()
+    {
+        // A one-millisecond ceiling on a command that cannot finish before process start completes.
+        // Deterministic, and it exercises the real timeout path rather than a simulated one.
+        var timeouts = new GitTimeouts(TimeSpan.FromMilliseconds(1), TimeSpan.FromMinutes(15));
+
+        var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+            GitCommandRunner.RunAsync(
+                Environment.CurrentDirectory,
+                ["--version"],
+                GitCommandKind.Quick,
+                CancellationToken.None,
+                timeouts));
+
+        StringAssert.Contains(exception.Message, "git --version");
+    }
+
+    [TestMethod]
+    public async Task CallerCancellationIsNotReportedAsATimeout()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        // The caller getting what it asked for is not a fault. Asserting the negative rather than
+        // an exact exception type keeps this robust: the cancellation can surface from the wait or
+        // from either stream read, which differ in the derived type they throw.
+        try
+        {
+            await GitCommandRunner.RunAsync(
+                Environment.CurrentDirectory,
+                ["--version"],
+                GitCommandKind.Quick,
+                cancellation.Token);
+            Assert.Fail("Expected the cancelled token to abort the command.");
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected.
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail("Caller cancellation was misreported as a tier timeout.");
+        }
     }
 
     private sealed record FixtureResult(bool TimedOut, int? ExitCode, string Stderr);

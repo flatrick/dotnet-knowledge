@@ -7,8 +7,11 @@ internal sealed class GitCommandRunner
     public static async Task<string> RunAsync(
         string? workingDirectory,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        GitCommandKind kind,
+        CancellationToken cancellationToken,
+        GitTimeouts? timeouts = null)
     {
+        var ceiling = (timeouts ?? GitTimeouts.Default).For(kind);
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -45,17 +48,29 @@ internal sealed class GitCommandRunner
 
         process.StandardInput.Close();
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        using var expiry = new CancellationTokenSource(ceiling);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(linked.Token);
+        var stderrTask = process.StandardError.ReadToEndAsync(linked.Token);
 
         try
         {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             if (!process.HasExited)
                 process.Kill(entireProcessTree: true);
+
+            // The caller's cancellation and an expired tier both surface here. Only the second is a
+            // fault worth naming; the first is the caller getting what it asked for.
+            if (expiry.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"git {string.Join(' ', arguments)} exceeded its {ceiling.TotalSeconds:0.##}s "
+                        + $"{kind} timeout and was terminated.");
+            }
+
             throw;
         }
 
