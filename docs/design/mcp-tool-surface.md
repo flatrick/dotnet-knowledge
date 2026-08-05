@@ -64,6 +64,8 @@ search_api(pattern, limit?, cursor?)
       namespace" is distinguishable from "types whose name contains this"
     ! today the pattern is matched against the type name alone, never
       the namespace — see "What search_api matches" below
+    ! nothing here searches API documentation TEXT — summaries, remarks,
+      parameters — see "Searching API documentation text" below
 
 ── language design docs ──────────────────────────────────────────────
 search_language_docs(query, regex?, source?, limit?, cursor?)
@@ -154,6 +156,36 @@ and starts also meaning "every type in `System.Text.Json`" — a much larger set
 be segment-aware rather than a plain `Contains` over the joined string, and each item should carry
 what it matched on. An agent that asked for a type name and received a namespace's entire contents
 has been answered a question it did not ask.
+
+### Searching API documentation text
+
+Content search exists for the markdown sources and is missing for the XML ones.
+`search_language_docs` searches the text of every language-design document, literally or by regex.
+Nothing reads the prose inside `dotnet-api-docs` or `roslyn-api-docs`: `search_api` matches names,
+`lookup_api` needs the symbol already, and neither opens a `<summary>`, `<remarks>`, `<param>`, or
+`<returns>`. The two halves do not cross over — `search_language_docs` refuses a non-markdown source
+outright, which is correct, since a markdown line-and-heading model has nothing to say about ECMA
+XML.
+
+So "which API mentions this behavior?" — the question an agent asks when it knows what it needs and
+not what it is called — has no answer on the tool surface. That is the one shape of question
+`lookup_api` structurally cannot serve, because it requires the name as input.
+
+Text-searching `cacheDir` covers it, and that is a reason `list_sources` returns the path rather than
+an accident of it. Ripgrep finds a phrase in the 457 MB, 11,359-file `dotnet-api-docs` tree in under
+a second, and a full miss costs about five — fast enough to be a workflow rather than a formality.
+
+What it does not cover is a caller without a filesystem. The escape hatch assumes the agent can run
+a process on the machine holding the cache, which is true of a local coding agent and false of a
+sandboxed one or of any client talking to a server hosted elsewhere. For those callers API prose is
+not merely awkward to search, it is unreachable, and no amount of documenting `cacheDir` changes
+that.
+
+A tool closing this would search element text rather than whole files, and return the same shape as
+every other search here — the owning symbol and the matched text, never bodies — so that the answer
+remains a name to hand to `lookup_api`. Which elements are searchable (summary only, or remarks and
+parameters too) decides both the index size and how noisy the result set is, and wants settling
+before implementation: remarks are the largest text in the corpus and the least specific.
 
 ### Sections are the retrieval unit for language docs
 
