@@ -9,6 +9,8 @@ file when the item is resolved; `git log` is the record.
 | Item | Area | Why it is deferred |
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
+| [`lookup_api`'s detail level is decided across sources](lookup-api-detail-level-is-decided-across-sources.md) | server | Unreachable with the two configured sources, whose namespace trees are disjoint |
+| [`lookup_api` reports `not_found` at the last page boundary](lookup-api-reports-not-found-at-the-last-page-boundary.md) | server | Unreachable without a hand-constructed cursor; `search_api` is already correct here |
 | [Under-placement is unguarded](under-placement-is-unguarded.md) | corpus, tooling | Needs a new probe outcome; the tree is correct today |
 | [The floor cache's scope key is unverified](floor-cache-scope-is-unverified.md) | tooling | Pre-existing; safe only by coincidence |
 | [Probe detail strings are nondeterministic](probe-detail-is-nondeterministic.md) | tooling | Fix changes every compile in both languages |
