@@ -10,16 +10,21 @@ public static class MarkdownOutline
     {
         ArgumentNullException.ThrowIfNull(markdown);
 
+        // Parse the normalized string, not the raw one: Markdig's own span offsets and this
+        // method's totalLines count must agree on what counts as a line break, or StartLine and
+        // EndLine silently disagree with everyone else who reads them (MarkdownLineSearch and
+        // LanguageDocsQueryService both split lines via the same normalized convention).
+        var normalized = MarkdownText.Normalize(markdown);
         var pipeline = new MarkdownPipelineBuilder().UsePipeTables().Build();
-        var document = Markdig.Markdown.Parse(markdown, pipeline);
-        var totalLines = markdown.ReplaceLineEndings("\n").Split('\n').Length;
+        var document = Markdig.Markdown.Parse(normalized, pipeline);
+        var totalLines = MarkdownText.SplitLines(normalized).Length;
 
         // HeadingBlock.Line is not usable directly: for a setext heading ("Title\n-----") it
         // points at the underline row, not the heading text itself, because the block parser only
         // confirms the heading once it sees the underline. The character span's start offset maps
         // to the correct line for both ATX and setext forms.
         var raw = document.Descendants<HeadingBlock>()
-            .Select(heading => (Level: heading.Level, Text: RenderPlainText(heading.Inline), StartLine: LineNumberAt(markdown, heading.Span.Start)))
+            .Select(heading => (Level: heading.Level, Text: RenderPlainText(heading.Inline), StartLine: LineNumberAt(normalized, heading.Span.Start)))
             .ToArray();
 
         var headings = new List<MarkdownHeading>(raw.Length);

@@ -37,7 +37,7 @@ public sealed class MarkdownPagerTests
         // Lines 1-2 are prose; 3-5 are one fenced block; 6 is prose. A budget that would
         // naturally cut inside the block must instead extend through line 5.
         var lines = new[] { "before", "before2", "```", "code line", "```", "after" };
-        var atomicBlocks = new[] { (StartLine: 3, EndLine: 6) };
+        var atomicBlocks = new[] { new MarkdownBlockRange(3, 6) };
 
         var (endLineExclusive, isPartial) = MarkdownPager.Page(
             lines, atomicBlocks, startLine: 1, endLineExclusiveBound: 7, charBudget: 20);
@@ -52,7 +52,7 @@ public sealed class MarkdownPagerTests
         var lines = new[] { "```", "code", "```" };
         // A block that (pathologically) extends past the requested bound must not pull the page
         // past that bound; the bound wins.
-        var atomicBlocks = new[] { (StartLine: 1, EndLine: 4) };
+        var atomicBlocks = new[] { new MarkdownBlockRange(1, 4) };
 
         var (endLineExclusive, isPartial) = MarkdownPager.Page(
             lines, atomicBlocks, startLine: 1, endLineExclusiveBound: 3, charBudget: 1);

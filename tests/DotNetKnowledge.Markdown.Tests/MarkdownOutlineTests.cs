@@ -100,4 +100,31 @@ public sealed class MarkdownOutlineTests
 
         Assert.AreEqual("Sub Heading with emphasis", headings[0].Text);
     }
+
+    [TestMethod]
+    public void ExtractLineNumbersAgreeWithNormalizedLineSplittingWhenTheDocumentHasAFormFeed()
+    {
+        // A raw '\n'-only count and ReplaceLineEndings's normalized count disagree once a form feed
+        // (or a bare '\r', or a Unicode NEL/LS/PS) occurs: normalization treats it as a line break,
+        // naive '\n'-counting does not. Every consumer of StartLine/EndLine — MarkdownLineSearch and
+        // LanguageDocsQueryService.GetDocAsync — builds its line array via
+        // markdown.ReplaceLineEndings("\n").Split('\n'), so headings must agree with that split or
+        // section slicing silently returns the wrong lines.
+        const string document =
+            "# Title\n" +
+            "\n" +
+            "Prose beforethe form feed.\n" +
+            "\n" +
+            "## Heading After\n" +
+            "\n" +
+            "Body.\n";
+
+        var headings = MarkdownOutline.Extract(document);
+        var normalizedLines = document.ReplaceLineEndings("\n").Split('\n');
+
+        var after = headings.Single(h => h.Text == "Heading After");
+        Assert.AreEqual("## Heading After", normalizedLines[after.StartLine - 1]);
+        Assert.AreEqual(6, after.StartLine);
+        Assert.AreEqual(normalizedLines.Length + 1, after.EndLine);
+    }
 }

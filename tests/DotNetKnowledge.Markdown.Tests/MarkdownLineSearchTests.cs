@@ -6,9 +6,10 @@ namespace DotNetKnowledge.Markdown.Tests;
 [TestClass]
 public sealed class MarkdownLineSearchTests
 {
-    // 1: # Title      4: Some prose in A.
-    // 2:               5:
-    // 3: ## A          6: class Foo in a code line
+    // 1: # Title      5: Some prose in A.
+    // 2:               6:
+    // 3: ## A          7: class Foo in a code line
+    // 4:
     private const string Document = "# Title\n\n## A\n\nSome prose in A.\n\nclass Foo in a code line\n";
 
     [TestMethod]

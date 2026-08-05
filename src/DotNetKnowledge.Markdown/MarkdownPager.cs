@@ -1,10 +1,12 @@
 namespace DotNetKnowledge.Markdown;
 
+public sealed record MarkdownPageResult(int EndLineExclusive, bool IsPartial);
+
 public static class MarkdownPager
 {
-    public static (int EndLineExclusive, bool IsPartial) Page(
+    public static MarkdownPageResult Page(
         IReadOnlyList<string> lines,
-        IReadOnlyList<(int StartLine, int EndLine)> atomicBlocks,
+        IReadOnlyList<MarkdownBlockRange> atomicBlocks,
         int startLine,
         int endLineExclusiveBound,
         int charBudget)
@@ -43,6 +45,6 @@ public static class MarkdownPager
             }
         } while (extended);
 
-        return (stopLine, stopLine < endLineExclusiveBound);
+        return new MarkdownPageResult(stopLine, stopLine < endLineExclusiveBound);
     }
 }
