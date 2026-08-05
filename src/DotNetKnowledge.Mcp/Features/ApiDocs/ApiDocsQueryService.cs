@@ -470,9 +470,8 @@ public sealed class ApiDocsQueryService
                     .FirstOrDefault(element => string.Equals(
                         element.Attribute("name")?.Value,
                         name,
-                        StringComparison.Ordinal))
-                    ?.Value;
-                return new ApiParameterDocumentation(name, CleanDocumentation(description));
+                        StringComparison.Ordinal));
+                return new ApiParameterDocumentation(name, CleanDocumentation(RenderDocumentation(description)));
             })
             .ToArray()
             ?? [];
@@ -480,11 +479,90 @@ public sealed class ApiDocsQueryService
         return new ApiMemberDocumentation(
             Name: member.Attribute("MemberName")?.Value ?? string.Empty,
             Signature: signature,
-            Summary: CleanDocumentation(docs?.Element("summary")?.Value),
+            Summary: CleanDocumentation(RenderDocumentation(docs?.Element("summary"))),
             Parameters: parameters,
-            Returns: CleanDocumentation(docs?.Element("returns")?.Value),
-            Remarks: CleanDocumentation(docs?.Element("remarks")?.Value));
+            Returns: CleanDocumentation(RenderDocumentation(docs?.Element("returns"))),
+            Remarks: CleanDocumentation(RenderDocumentation(docs?.Element("remarks"))));
     }
+
+    /// <summary>
+    /// Flattens a documentation element to text, resolving the reference elements to the names they
+    /// name. <see cref="XElement.Value"/> alone concatenates text nodes and discards child elements,
+    /// and ECMA XML carries every type and parameter reference as an empty element — so it turns
+    /// "converts the value into a &lt;see cref="T:System.String" /&gt;." into "converts the value
+    /// into a .", a sentence that still reads as complete while missing the thing it names.
+    /// </summary>
+    private static string? RenderDocumentation(XElement? element)
+    {
+        if (element is null)
+            return null;
+
+        var builder = new StringBuilder();
+        AppendNodes(element, builder);
+        return builder.ToString();
+
+        static void AppendNodes(XElement parent, StringBuilder builder)
+        {
+            foreach (var node in parent.Nodes())
+            {
+                switch (node)
+                {
+                    // XCData derives from XText, which is what carries the markdown <format> blocks.
+                    case XText text:
+                        builder.Append(text.Value);
+                        break;
+                    case XElement child:
+                        AppendElement(child, builder);
+                        break;
+                }
+            }
+        }
+
+        static void AppendElement(XElement element, StringBuilder builder)
+        {
+            switch (element.Name.LocalName)
+            {
+                case "see":
+                case "seealso":
+                    // A cref is kept whole, prefix stripped: "T:System.String" reads as
+                    // "System.String", which is also exactly what lookup_api accepts back.
+                    var reference = StripDocumentationIdPrefix(element.Attribute("cref")?.Value)
+                        ?? element.Attribute("langword")?.Value
+                        ?? element.Attribute("href")?.Value;
+                    if (reference is not null && element.IsEmpty)
+                    {
+                        builder.Append(reference);
+                        return;
+                    }
+
+                    if (element.IsEmpty)
+                        return;
+                    break;
+
+                case "paramref":
+                case "typeparamref":
+                    var name = element.Attribute("name")?.Value;
+                    if (name is not null)
+                    {
+                        builder.Append(name);
+                        return;
+                    }
+
+                    break;
+            }
+
+            AppendNodes(element, builder);
+        }
+    }
+
+    /// <summary>
+    /// Strips the single-letter documentation-ID prefix ECMA XML puts on every cref — "T:" for a
+    /// type, "M:" for a method, and so on.
+    /// </summary>
+    private static string? StripDocumentationIdPrefix(string? cref) =>
+        cref is { Length: > 2 } && cref[1] == ':' && char.IsAsciiLetter(cref[0])
+            ? cref[2..]
+            : cref;
 
     private static string? CleanDocumentation(string? text)
     {

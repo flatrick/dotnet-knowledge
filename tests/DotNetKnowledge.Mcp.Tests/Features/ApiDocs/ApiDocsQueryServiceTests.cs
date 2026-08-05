@@ -105,6 +105,16 @@ public sealed class ApiDocsQueryServiceTests
                 <remarks>Names are case-sensitive.</remarks>
               </Docs>
             </Member>
+            <Member MemberName="Describe">
+              <MemberSignature Language="C#" Value="public string Describe(string name);" />
+              <Parameters><Parameter Name="name" Type="System.String" /></Parameters>
+              <Docs>
+                <summary>Renders the widget as a <see cref="T:System.String" />.</summary>
+                <param name="name">The label applied to <paramref name="name" />.</param>
+                <returns>A <see cref="T:System.String" />, or <see langword="null" />.</returns>
+                <remarks>See also <see cref="M:System.Widget.Create(System.String)" />.</remarks>
+              </Docs>
+            </Member>
             <Member MemberName="Convert&lt;TResult&gt;">
               <MemberSignature Language="C#" Value="public TResult Convert&lt;TResult&gt;();" />
               <Docs><summary>Converts to one type.</summary></Docs>
@@ -228,6 +238,36 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task LookupAsyncResolvesReferenceElementsToTheNamesTheyName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var result = await service.LookupAsync(
+                "Widget.Describe", "dotnet-api-docs", limit: 20, cursor: null, CancellationToken.None);
+
+            var member = result.Matches[0].Members[0];
+
+            // Taking XElement.Value here would leave "Renders the widget as a ." — a sentence that
+            // still reads as complete while missing the type it names.
+            Assert.AreEqual("Renders the widget as a System.String.", member.Summary);
+            Assert.AreEqual("The label applied to name.", member.Parameters![0].Description);
+            Assert.AreEqual("A System.String, or null.", member.Returns);
+
+            // A cref is kept whole so the caller can feed it straight back to lookup_api.
+            Assert.AreEqual("See also System.Widget.Create(System.String).", member.Remarks);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupAsyncMatchesGenericMembersByPlainNameAndSeparatesMissingKinds()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -281,7 +321,7 @@ public sealed class ApiDocsQueryServiceTests
             var wholeType = await service.LookupAsync(
                 "Widget", "dotnet-api-docs", limit: 20, cursor: null, CancellationToken.None);
             Assert.AreEqual(ApiLookupOutcome.Found, wholeType.Outcome);
-            Assert.HasCount(3, wholeType.Matches[0].Members);
+            Assert.HasCount(4, wholeType.Matches[0].Members);
             foreach (var member in wholeType.Matches[0].Members)
             {
                 Assert.IsNotNull(member.Signature);
@@ -306,7 +346,7 @@ public sealed class ApiDocsQueryServiceTests
 
             var secondPage = await service.LookupAsync(
                 "Widget", "dotnet-api-docs", limit: 2, firstPage.NextPageToken, CancellationToken.None);
-            Assert.HasCount(1, secondPage.Matches[0].Members);
+            Assert.HasCount(2, secondPage.Matches[0].Members);
             Assert.IsFalse(secondPage.IsPartial);
             Assert.IsNull(secondPage.NextPageToken);
 
