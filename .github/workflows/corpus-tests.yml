@@ -45,6 +45,10 @@ jobs:
           $env:DOTNET_HOST_PATH = (Resolve-Path .artifacts\dotnet\dotnet.exe)
           & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --configuration Release --nologo --no-restore --logger "trx;LogFileName=corpus-tests.trx"
 
+      - name: Test the MCP server
+        run: |
+          & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
+
       - name: Verify no vendored content
         run: dotnet scripts/verify-no-vendored-content.cs
 

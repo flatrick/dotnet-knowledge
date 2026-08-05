@@ -24,6 +24,13 @@ needs more.
 
 ---
 
+### 2026-08-05 · git hangs only when the parent is *reading* the inherited stdin · environment
+
+A piped stdin alone does not hang git — measured at 34 ms. It hangs when the parent has an
+outstanding read on the same handle, which an MCP stdio server always does because that read is the
+transport. Supersedes the earlier 2026-08-05 entry, which named the pipe alone as the cause.
+`RedirectStandardInput = true` remains the fix. Reproduce: `tests/DotNetKnowledge.Mcp.Tests.GitRunnerHost`.
+
 ### 2026-08-05 · git hangs when it inherits a piped stdin handle · environment
 
 Git blocks during process startup, accumulating no CPU, when a parent with piped standard streams

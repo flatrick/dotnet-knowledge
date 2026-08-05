@@ -17,6 +17,12 @@ internal sealed class GitCommandRunner
                 WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+
+                // Git blocks during process startup when it inherits a piped stdin handle from a
+                // parent whose own streams are pipes — which is what an MCP client creates. Even
+                // `git --version` hangs. Redirecting is what fixes it; the stream is closed below
+                // so no future invocation can block on a handle that never reaches end of file.
+                RedirectStandardInput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             },
@@ -36,6 +42,8 @@ internal sealed class GitCommandRunner
         {
             throw new InvalidOperationException("Could not start git. Install Git and ensure it is on PATH.", exception);
         }
+
+        process.StandardInput.Close();
 
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);

@@ -34,6 +34,16 @@
 
   <ItemGroup>
     <!--
+      GitCommandRunner is internal, and the fault it guards against only appears when the calling
+      process's standard streams are pipes. Both consumers exist to reproduce that: the fixture
+      calls the runner from a redirected child process, and the test project drives the fixture.
+    -->
+    <InternalsVisibleTo Include="DotNetKnowledge.Mcp.Tests" />
+    <InternalsVisibleTo Include="DotNetKnowledge.Mcp.Tests.GitRunnerHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
       The pins ship with the server so an install vouches for specific upstream revisions.
       Copied rather than embedded so an operator can edit them without rebuilding.
 
