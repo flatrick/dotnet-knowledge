@@ -37,6 +37,8 @@ public sealed class LanguageDocsQueryServiceTests
 
     private static readonly string[] ExpectedRegexHitPaths = ["docs/proposal-a.md", "docs/proposal-b.md"];
 
+    private static readonly string[] ExpectedMultiSourceRepos = ["test/csharplang", "test/vblang"];
+
     [TestMethod]
     public async Task GetOutlineAsyncReturnsHeadingsAndPaginates()
     {
@@ -145,6 +147,51 @@ public sealed class LanguageDocsQueryServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task SearchAsyncSearchesEveryConfiguredSourceAndOrdersHitsByRepoWhenPathsTie()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var csharplangRepository = Path.Combine(root, "csharplang-origin");
+            var vblangRepository = Path.Combine(root, "vblang-origin");
+
+            var csharplangPin = await InitDocsRepositoryAsync(
+                csharplangRepository, "shared.md", "# Shared\n\nCSharp note about SharedTopic.\n");
+            var vblangPin = await InitDocsRepositoryAsync(
+                vblangRepository, "shared.md", "# Shared\n\nVB note about SharedTopic.\n");
+
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteTwoSourceCatalogAsync(
+                catalogPath, csharplangRepository, csharplangPin, vblangRepository, vblangPin);
+            var catalog = new SourceCatalog(catalogPath);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(catalog, cache);
+            await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
+            await synchronizer.SyncAsync("vblang", requestedRef: null, CancellationToken.None);
+            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+
+            var result = await service.SearchAsync(
+                "SharedTopic", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(2, result.Hits);
+            Assert.AreEqual("docs/shared.md", result.Hits[0].Path);
+            Assert.AreEqual("docs/shared.md", result.Hits[1].Path);
+            CollectionAssert.AreEqual(
+                ExpectedMultiSourceRepos,
+                result.Hits.Select(hit => hit.Source.Repo).ToArray());
+
+            CollectionAssert.AreEquivalent(
+                ExpectedMultiSourceRepos,
+                result.SearchedSources.Select(source => source.Repo).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");
@@ -179,6 +226,55 @@ public sealed class LanguageDocsQueryServiceTests
                     repository = "test/csharplang",
                     url = repository,
                     pin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Test language docs.",
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    private static async Task<string> InitDocsRepositoryAsync(string repository, string fileName, string content)
+    {
+        var docsDirectory = Path.Combine(repository, "docs");
+        Directory.CreateDirectory(docsDirectory);
+        await RunGitAsync(null, "init", "--initial-branch=main", repository);
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, fileName), content);
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "docs");
+        return (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+    }
+
+    private static async Task WriteTwoSourceCatalogAsync(
+        string path,
+        string csharplangRepository,
+        string csharplangPin,
+        string vblangRepository,
+        string vblangPin)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["csharplang"] = new
+                {
+                    repository = "test/csharplang",
+                    url = csharplangRepository,
+                    pin = csharplangPin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Test language docs.",
+                },
+                ["vblang"] = new
+                {
+                    repository = "test/vblang",
+                    url = vblangRepository,
+                    pin = vblangPin,
                     head = "main",
                     sparse = new[] { "docs" },
                     purpose = "Test language docs.",
