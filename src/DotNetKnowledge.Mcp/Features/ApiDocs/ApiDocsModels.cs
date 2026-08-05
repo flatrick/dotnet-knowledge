@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
 public sealed record SourceProvenance(
@@ -37,7 +39,7 @@ public enum ApiLookupOutcome
 public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
     IReadOnlyList<SourceProvenance> SearchedSources,
-    ApiLookupOutcome Outcome,
+    [property: JsonIgnore] ApiLookupOutcome Outcome,
     IReadOnlyList<string> ResolvedTypeNames,
     bool IsPartial,
     string? NextPageToken);

@@ -24,6 +24,13 @@ needs more.
 
 ---
 
+### 2026-08-05 · Quick-tier `git status` has roughly 100x headroom · environment
+
+`git status --porcelain --untracked-files=all` against a fully synced `dotnet-api-docs`
+(42,531 tracked files, ~700 MB working tree) measured 0.101 s warm — well inside the 10 s Quick
+tier. This is a warm-cache figure; cold-cache behavior on a slower disk or under aggressive
+anti-virus is unmeasured.
+
 ### 2026-08-05 · git hangs only when the parent is *reading* the inherited stdin · environment
 
 A piped stdin alone does not hang git — measured at 34 ms. It hangs when the parent has an

@@ -63,6 +63,18 @@ public sealed class SourcesTool
                 {
                     error = "git_timeout",
                     message = exception.Message,
+                    cacheRoot = cache.Root,
+                },
+                WriteOptions);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_invalid",
+                    message = exception.Message,
+                    cacheRoot = cache.Root,
                 },
                 WriteOptions);
         }
@@ -114,17 +126,7 @@ public sealed class SourcesTool
         // Five known stages, so the client sees liveness with a real denominator rather than a
         // spinner. The SDK supplies a no-op reporter when the client sent no progress token.
         var stages = new[] { "clone", "sparse-checkout", "fetch", "checkout", "validate" };
-        var completed = 0;
-        var stageProgress = new Progress<string>(stage =>
-        {
-            completed++;
-            progress.Report(new ProgressNotificationValue
-            {
-                Progress = completed,
-                Total = stages.Length,
-                Message = $"{name}: {stage}",
-            });
-        });
+        var stageProgress = new StageReporter(name, stages.Length, progress);
 
         try
         {
@@ -201,6 +203,26 @@ public sealed class SourcesTool
                 },
                 WriteOptions);
         }
+    }
+
+    /// <summary>
+    /// Reports stages inline rather than through <see cref="Progress{T}"/>, whose callbacks post to
+    /// the thread pool when there is no synchronization context — as in this stdio host. That would
+    /// make the running count a non-atomic read-modify-write and let notifications overtake the
+    /// sequential stages they describe.
+    /// </summary>
+    private sealed class StageReporter(string sourceName, int totalStages, IProgress<ProgressNotificationValue> progress)
+        : IProgress<string>
+    {
+        private int _completed;
+
+        public void Report(string stage) =>
+            progress.Report(new ProgressNotificationValue
+            {
+                Progress = ++_completed,
+                Total = totalStages,
+                Message = $"{sourceName}: {stage}",
+            });
     }
 
     private sealed record SourceStatus(

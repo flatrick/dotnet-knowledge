@@ -152,6 +152,55 @@ public sealed class SourcesToolTests
     }
 
     [TestMethod]
+    public async Task SyncSourcePublishesProgressNotificationsInStageOrder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = Path.Combine(root, "origin");
+            Directory.CreateDirectory(Path.Combine(repository, "docs"));
+            await RunGitAsync(null, "init", "--initial-branch=main", repository);
+            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Tests");
+            await File.WriteAllTextAsync(Path.Combine(repository, "docs", "included.md"), "included");
+            await RunGitAsync(repository, "add", ".");
+            await RunGitAsync(repository, "commit", "-m", "initial");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteCatalogAsync(catalogPath, repository, pin);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(new SourceCatalog(catalogPath), cache);
+
+            // SourcesTool.SyncSource used to wrap its stage reporter in System.Progress<T>, whose
+            // callbacks post to the thread pool when there is no synchronization context, as here.
+            // A recording IProgress<T> that runs inline is the only way to pin down stage order and
+            // the running count without a race.
+            var recorder = new RecordingProgressNotifications();
+            await SourcesTool.SyncSource(
+                "local",
+                synchronizer,
+                recorder,
+                CancellationToken.None,
+                @ref: null);
+
+            Assert.HasCount(5, recorder.Notifications);
+            for (var index = 0; index < ExpectedStages.Length; index++)
+            {
+                var notification = recorder.Notifications[index];
+                Assert.AreEqual((float)(index + 1), notification.Progress);
+                Assert.AreEqual(5f, notification.Total);
+                StringAssert.Contains(notification.Message, "local");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task ListSourcesReportsValidatedSynchronizationState()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -327,5 +376,12 @@ public sealed class SourcesToolTests
         public List<string> Stages { get; } = [];
 
         public void Report(string value) => Stages.Add(value);
+    }
+
+    private sealed class RecordingProgressNotifications : IProgress<ProgressNotificationValue>
+    {
+        public List<ProgressNotificationValue> Notifications { get; } = [];
+
+        public void Report(ProgressNotificationValue value) => Notifications.Add(value);
     }
 }

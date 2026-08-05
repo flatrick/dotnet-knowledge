@@ -50,6 +50,9 @@ lookup_api(symbol, source?, limit?, cursor?)
       matched types; cursor: opaque, bound to the symbol and to the
       searched sources' revisions, so a cursor from before a
       re-synchronization is rejected rather than silently misread
+    → resolvedTypeNames lists every type the symbol matched, so a caller
+      can see the full matched set even when a page shows only some of
+      their members
 
 search_api(pattern, limit?, cursor?)
     → candidate fully-qualified names ONLY, no bodies
