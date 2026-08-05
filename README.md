@@ -102,9 +102,7 @@ The server's source, API-doc, and language-doc tools are implemented and work un
 `get_language_doc`, and `get_language_doc_outline` all answer correctly over stdio,
 including a first sync of a large upstream repository.
 
-Language design-document queries — `search_language_docs`, `get_language_doc`, and
-`get_language_doc_outline` — are implemented and work under an MCP client. Bundled-example
-queries remain future work; their intended surface is recorded in
+Bundled-example queries remain future work; their intended surface is recorded in
 [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).
 
 ## License
