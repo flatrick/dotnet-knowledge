@@ -148,10 +148,15 @@ It never searches only the available subset, because an incomplete result set lo
 
 ## The cache lives outside any repository
 
-Default location, overridable by config:
+Default location, overridable with `DOTNET_KNOWLEDGE_CACHE`:
 
 - Windows — `%LOCALAPPDATA%\dotnet-knowledge\sources\<name>\`
-- otherwise — `$XDG_CACHE_HOME/dotnet-knowledge/sources/<name>/` (or `~/.cache/...`)
+- Linux — `$XDG_DATA_HOME/dotnet-knowledge/sources/<name>/` (or `~/.local/share/...`)
+- macOS — `~/Library/Application Support/dotnet-knowledge/sources/<name>/`
+
+The user *data* directory, not the XDG cache directory, deliberately: a synced pin must survive
+cache cleaners, because query tools treat an absent source as "call `sync_source`", never as
+something to refetch silently ([`docs/decisions.md`](../decisions.md)).
 
 One download then serves every repository and every git worktree on the machine. That is the
 concrete advantage over the git-submodule arrangement this replaces, where the content was

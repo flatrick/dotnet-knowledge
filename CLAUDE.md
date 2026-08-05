@@ -234,9 +234,11 @@ assembly scan.
 corrupts the session and surfaces as an opaque client-side parse error. Logging is configured for
 this in `Program.cs` — do not add a console provider that writes to stdout.
 
-Cache location defaults to `%LOCALAPPDATA%\dotnet-knowledge\sources` (XDG equivalent elsewhere),
-overridable with `DOTNET_KNOWLEDGE_CACHE`. It sits outside any repository so one download serves
-every clone and worktree on the machine.
+Cache location defaults to `%LOCALAPPDATA%\dotnet-knowledge\sources` — the per-user *data*
+directory elsewhere: `$XDG_DATA_HOME`/`~/.local/share` on Linux, `~/Library/Application Support` on
+macOS — overridable with `DOTNET_KNOWLEDGE_CACHE`. It sits outside any repository so one download
+serves every clone and worktree on the machine, and it is deliberately not the XDG *cache*
+directory: a synced pin must survive cache cleaners (`docs/decisions.md`).
 
 Implemented: `list_sources`, `sync_source`, `search_api` and `lookup_api`. Language design-document
 queries and bundled-example queries are future work. The intended surface for all of them is in

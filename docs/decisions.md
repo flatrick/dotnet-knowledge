@@ -24,6 +24,13 @@ and the entry links there.
 
 ---
 
+### 2026-08-05 · The source cache lives in the user data directory, not the cache directory
+
+`SourceCache` resolves `LocalApplicationData` — `~/.local/share` on Linux, `~/Library/Application
+Support` on macOS — so a synced pin survives cache cleaners; query tools treat an absent source as
+"call `sync_source`", never as something to refetch silently. Rejected: the XDG cache directory
+(`~/.cache`), whose contract is precisely that its contents may be cleared at any time.
+
 ### 2026-08-05 · CI is configured but disabled; local runs are the only verification
 
 Actions is off for this repository, so no workflow executes and nothing on `main` carries evidence

@@ -64,6 +64,13 @@ The example corpus is bundled and needs no setup. Upstream documentation is fetc
 call `list_sources` to see what is available and where it is cached, then `sync_source` before an
 API lookup.
 
+Fetched sources land in a per-user cache shared by every checkout and client on the machine:
+`%LOCALAPPDATA%\dotnet-knowledge\sources` on Windows,
+`$XDG_DATA_HOME/dotnet-knowledge/sources` (default `~/.local/share/...`) on Linux, and
+`~/Library/Application Support/dotnet-knowledge/sources` on macOS. That is the user *data*
+directory rather than the cache directory, deliberately: a synced source must not vanish when a
+cache cleaner runs. Set `DOTNET_KNOWLEDGE_CACHE` to put the cache somewhere else.
+
 ## Verifying the corpus
 
 The unit-only test subset needs Windows and SDK 10 only; its process tests invoke `cmd`:
