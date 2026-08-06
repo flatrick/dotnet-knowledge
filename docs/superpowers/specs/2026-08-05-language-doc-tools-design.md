@@ -54,9 +54,10 @@ sync-checking, the cursor scheme, and provenance assembly), `LanguageDocsTool.cs
 pattern exactly).
 
 Both new projects join the projects already listed in the new repository-root `DotNetKnowledge.slnx`
-(`src/DotNetKnowledge.Mcp` and its two test projects, plus `DotNetKnowledge.Corpus.Tests`) once they
-exist. The example corpus's own per-project `.slnx` files are untouched; this solution is the
-server-side projects only, not the feature lattice.
+(`src/DotNetKnowledge.Mcp` and its two test projects) once they exist. The example corpus's own
+per-project `.slnx` files are untouched; this solution is the server-side projects only, not the
+feature lattice. `DotNetKnowledge.Corpus.Tests` was listed here too when this spec was written,
+which contradicted that last sentence; it now lives in `Corpus.slnx`.
 
 ## Section-path disambiguation
 

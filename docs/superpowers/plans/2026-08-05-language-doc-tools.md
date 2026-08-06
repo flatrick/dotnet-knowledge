@@ -348,14 +348,14 @@ reports 0 warnings.
 
 - [ ] **Step 8: Add both new projects to the solution**
 
-`DotNetKnowledge.slnx` currently lists four projects. Add:
+`DotNetKnowledge.slnx` lists the server-side projects. Add:
 
 ```xml
   <Project Path="src/DotNetKnowledge.Markdown/DotNetKnowledge.Markdown.csproj" />
   <Project Path="tests/DotNetKnowledge.Markdown.Tests/DotNetKnowledge.Markdown.Tests.csproj" />
 ```
 
-Run: `dotnet sln DotNetKnowledge.slnx list` — expected: all 6 projects listed.
+Run: `dotnet sln DotNetKnowledge.slnx list` — expected: both new projects listed.
 
 - [ ] **Step 9: Commit**
 
@@ -2181,9 +2181,13 @@ git commit -m "Add get_language_doc"
 - [ ] **Step 1: Build the whole solution with warnings as errors**
 
 Run: `dotnet build DotNetKnowledge.slnx`
-Expected: 6 projects build (`DotNetKnowledge.Markdown`, `DotNetKnowledge.Mcp`, the example-corpus
-`host` project, both `Mcp.Tests` fixture projects, `Corpus.Tests`), 0 warnings, 0 errors. Verified
-during planning.
+Expected: the server-side projects build (`DotNetKnowledge.Markdown`, `DotNetKnowledge.Mcp`, both
+`Mcp.Tests` fixture projects, `Markdown.Tests`), 0 warnings, 0 errors. Verified during planning.
+
+The corpus is a separate concern with its own solution and its own .NET host: build it with
+`dotnet build Corpus.slnx`, which also covers the example-corpus `host` project that `Corpus.Tests`
+references. This plan predates that split and originally expected `Corpus.Tests` and `host` in this
+same build.
 
 - [ ] **Step 2: Run every test project**
 
