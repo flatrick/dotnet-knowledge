@@ -23,8 +23,9 @@ public sealed class LanguageDocsTool
         "meeting notes) by literal substring or, with regex: true, a .NET regex evaluated with " +
         "the non-backtracking engine. Returns path:line hits with the matched line and a " +
         "server-issued section heading path, never file bodies; call get_language_doc for content. " +
-        "A long matched line is shortened to a preview and ends in an ellipsis; fetch the document " +
-        "for the full text.")]
+        "A long matched line is capped at 300 characters with isTruncated saying so; the text " +
+        "carries no marker, so any ellipsis in it is the source's own. Fetch the document for the " +
+        "full text.")]
     public static async Task<string> SearchLanguageDocs(
         string query,
         LanguageDocsQueryService service,
