@@ -279,8 +279,10 @@ public sealed class ApiDocsTool
         "\"base\" or \"interface\" - plus the owning symbol, the type expression and the C# " +
         "signature; kind also filters. kind says WHERE the reference sits, not that the type is " +
         "itself the base or interface: a class implementing IComparer<string> is an \"interface\" " +
-        "hit for System.String, and typeExpression says which. Compare typeExpression against the " +
-        "symbol to tell an exact base or interface from a parameterized one. " +
+        "hit for System.String. isExact says which - true when the declaration names the type " +
+        "itself, false when it names an expression parameterized by it - and exact filters on it, " +
+        "so \"what derives from Stream\" and \"what has a base parameterized by Stream\" are " +
+        "separate queries. " +
         "Every response carries per-kind totals for the WHOLE result set, so a widely-used type is " +
         "visibly widely used rather than silently paginated. " +
         "Prose mentions are search_api_text's job, not this tool's.")]
@@ -289,6 +291,7 @@ public sealed class ApiDocsTool
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
         string? kind = null,
+        bool? exact = null,
         string? source = null,
         int? limit = null,
         string? cursor = null)
@@ -298,6 +301,7 @@ public sealed class ApiDocsTool
             var result = await service.FindReferencesAsync(
                 symbol,
                 kind,
+                exact,
                 source,
                 limit ?? 20,
                 cursor,

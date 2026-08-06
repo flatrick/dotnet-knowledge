@@ -140,6 +140,43 @@ public sealed class ApiDocsToolTests
     }
 
     [TestMethod]
+    public async Task FindApiReferencesSaysWhetherAHitIsTheTypeItselfOrAParameterizationOfIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var json = await ApiDocsTool.FindApiReferences(
+                "System.String",
+                service,
+                CancellationToken.None,
+                source: "dotnet-api-docs",
+                limit: 100);
+
+            using var document = JsonDocument.Parse(json);
+            var hits = document.RootElement.GetProperty("hits").EnumerateArray().ToArray();
+            var bare = hits
+                .Where(hit => hit.GetProperty("typeExpression").GetString() == "System.String")
+                .ToArray();
+            var compound = hits
+                .Where(hit => hit.GetProperty("typeExpression").GetString() != "System.String")
+                .ToArray();
+
+            Assert.IsNotEmpty(bare);
+            Assert.IsNotEmpty(compound);
+            Assert.IsTrue(bare.All(hit => hit.GetProperty("isExact").GetBoolean()));
+            Assert.IsFalse(compound.Any(hit => hit.GetProperty("isExact").GetBoolean()));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupApiReturnsInvalidCursorForAMalformedCursor()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

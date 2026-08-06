@@ -107,11 +107,18 @@ public static class ApiReferenceKind
     public static readonly string[] All = [Parameter, Return, Base, Interface];
 }
 
+/// <param name="IsExact">
+/// Whether the declaration names the type itself rather than an expression parameterized by it.
+/// A class implementing <c>IComparer&lt;string&gt;</c> is an <c>interface</c> hit for
+/// <c>System.String</c>; without this, telling that from a class implementing <c>System.String</c>
+/// means string-matching <see cref="TypeExpression"/> against the symbol in the caller.
+/// </param>
 public sealed record ApiReferenceHit(
     string Symbol,
     string Kind,
     string? ParameterName,
     string? TypeExpression,
+    bool IsExact,
     string? Signature,
     SourceProvenance Source);
 

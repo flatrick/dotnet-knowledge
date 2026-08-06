@@ -410,6 +410,7 @@ public sealed class ApiDocsQueryService
     public async Task<ApiReferenceResult> FindReferencesAsync(
         string symbol,
         string? kind,
+        bool? exact,
         string? source,
         int limit,
         string? cursor,
@@ -449,7 +450,7 @@ public sealed class ApiDocsQueryService
             hits.AddRange(read.Items);
         }
 
-        // Totals describe the whole matched set before the kind filter narrows it, so a caller
+        // Totals describe the whole matched set before the filters narrow it, so a caller
         // asking only for parameters can still see that a thousand types derive from this one.
         var totals = new ApiReferenceTotals(
             Parameter: hits.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
@@ -460,11 +461,13 @@ public sealed class ApiDocsQueryService
         var revisions = searchedSources
             .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
             .ToArray();
-        var scope = JsonSerializer.Serialize(new[] { symbol, kind ?? string.Empty, source ?? string.Empty });
+        var scope = JsonSerializer.Serialize(
+            new[] { symbol, kind ?? string.Empty, exact?.ToString() ?? string.Empty, source ?? string.Empty });
         var offset = DecodeCursor(cursor, "references", scope, revisions);
 
         var ordered = hits
             .Where(hit => kind is null || hit.Kind == kind)
+            .Where(hit => exact is null || hit.IsExact == exact)
             .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
             .ThenBy(hit => hit.Kind, StringComparer.Ordinal)
             .ThenBy(hit => hit.ParameterName ?? string.Empty, StringComparer.Ordinal)
@@ -553,16 +556,19 @@ public sealed class ApiDocsQueryService
             yield break;
 
         var baseTypeName = root.Element("Base")?.Element("BaseTypeName")?.Value;
-        if (baseTypeName is not null && ReferencesType(baseTypeName, symbol))
-            yield return new ApiReferenceHit(fullName, ApiReferenceKind.Base, null, baseTypeName, null, provenance);
+        if (baseTypeName is not null && ReferencesType(baseTypeName, symbol, out var baseIsExact))
+        {
+            yield return new ApiReferenceHit(
+                fullName, ApiReferenceKind.Base, null, baseTypeName, baseIsExact, null, provenance);
+        }
 
         foreach (var interfaceName in root.Element("Interfaces")?.Elements("Interface")
                      .Select(item => item.Element("InterfaceName")?.Value) ?? [])
         {
-            if (interfaceName is not null && ReferencesType(interfaceName, symbol))
+            if (interfaceName is not null && ReferencesType(interfaceName, symbol, out var interfaceIsExact))
             {
                 yield return new ApiReferenceHit(
-                    fullName, ApiReferenceKind.Interface, null, interfaceName, null, provenance);
+                    fullName, ApiReferenceKind.Interface, null, interfaceName, interfaceIsExact, null, provenance);
             }
         }
 
@@ -575,22 +581,23 @@ public sealed class ApiDocsQueryService
                 ?.Attribute("Value")?.Value;
 
             var returnType = member.Element("ReturnValue")?.Element("ReturnType")?.Value;
-            if (returnType is not null && ReferencesType(returnType, symbol))
+            if (returnType is not null && ReferencesType(returnType, symbol, out var returnIsExact))
             {
                 yield return new ApiReferenceHit(
-                    memberSymbol, ApiReferenceKind.Return, null, returnType, signature, provenance);
+                    memberSymbol, ApiReferenceKind.Return, null, returnType, returnIsExact, signature, provenance);
             }
 
             foreach (var parameter in member.Element("Parameters")?.Elements("Parameter") ?? [])
             {
                 var parameterType = parameter.Attribute("Type")?.Value;
-                if (parameterType is not null && ReferencesType(parameterType, symbol))
+                if (parameterType is not null && ReferencesType(parameterType, symbol, out var parameterIsExact))
                 {
                     yield return new ApiReferenceHit(
                         memberSymbol,
                         ApiReferenceKind.Parameter,
                         parameter.Attribute("Name")?.Value,
                         parameterType,
+                        parameterIsExact,
                         signature,
                         provenance);
                 }
@@ -599,7 +606,8 @@ public sealed class ApiDocsQueryService
     }
 
     /// <summary>
-    /// Whether a type expression uses <paramref name="symbol"/> as a whole type.
+    /// Whether a type expression uses <paramref name="symbol"/> as a whole type, and whether the
+    /// expression is that type itself rather than one parameterized by it.
     /// </summary>
     /// <remarks>
     /// Equality is not enough and substring is too much. A parameter is far more often
@@ -609,21 +617,27 @@ public sealed class ApiDocsQueryService
     /// A plain substring test would instead match <c>System.StringComparer</c>, so the occurrence
     /// has to sit on type-name boundaries.
     /// </remarks>
-    private static bool ReferencesType(string typeExpression, string symbol)
+    private static bool ReferencesType(string typeExpression, string symbol, out bool isExact)
     {
         var start = 0;
         while (true)
         {
             var index = typeExpression.IndexOf(symbol, start, StringComparison.Ordinal);
             if (index < 0)
+            {
+                isExact = false;
                 return false;
+            }
 
             var before = index == 0 ? '\0' : typeExpression[index - 1];
             var afterIndex = index + symbol.Length;
             var after = afterIndex >= typeExpression.Length ? '\0' : typeExpression[afterIndex];
 
             if (!ContinuesName(before) && !ContinuesName(after))
+            {
+                isExact = index == 0 && afterIndex == typeExpression.Length;
                 return true;
+            }
 
             start = index + 1;
         }

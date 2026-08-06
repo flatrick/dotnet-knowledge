@@ -304,7 +304,7 @@ public sealed class ApiDocsQueryServiceTests
             // Totals describe the whole set, not the filtered page — otherwise a caller narrowing to
             // parameters could not see that anything derives from the type.
             var filtered = await service.FindReferencesAsync(
-                "System.String", ApiReferenceKind.Parameter, "dotnet-api-docs", 100, null, CancellationToken.None);
+                "System.String", ApiReferenceKind.Parameter, null, "dotnet-api-docs", 100, null, CancellationToken.None);
             Assert.AreEqual(parameters.Length, filtered.Totals.Parameter);
             Assert.AreEqual(returns.Length, filtered.Totals.Return);
 
@@ -314,7 +314,45 @@ public sealed class ApiDocsQueryServiceTests
                     && hit.Kind == ApiReferenceKind.Base));
 
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.FindReferencesAsync(
-                "System.String", "nonsense", "dotnet-api-docs", 20, null, CancellationToken.None));
+                "System.String", "nonsense", null, "dotnet-api-docs", 20, null, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncSeparatesTheTypeItselfFromExpressionsParameterizedByIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var all = await FindReferences(service, "System.String", kind: null);
+            Assert.IsTrue(all.Where(hit => hit.TypeExpression == "System.String").All(hit => hit.IsExact));
+            Assert.IsFalse(all.Where(hit => hit.TypeExpression != "System.String").Any(hit => hit.IsExact));
+
+            // "what implements System.IWidget" and "what implements something parameterized by it"
+            // are different questions, so the distinction filters as well as reports.
+            var exact = await FindReferences(service, "System.String", kind: null, exact: true);
+            CollectionAssert.AreEqual(
+                all.Where(hit => hit.IsExact).Select(hit => hit.Symbol).ToArray(),
+                exact.Select(hit => hit.Symbol).ToArray());
+
+            var parameterized = await FindReferences(service, "System.String", kind: null, exact: false);
+            Assert.IsNotEmpty(parameterized);
+            Assert.IsFalse(parameterized.Any(hit => hit.IsExact));
+
+            // Totals still describe the whole matched set, before either filter narrows it.
+            var filtered = await service.FindReferencesAsync(
+                "System.String", null, true, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(
+                all.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
+                filtered.Totals.Parameter);
         }
         finally
         {
@@ -326,10 +364,11 @@ public sealed class ApiDocsQueryServiceTests
     private static async Task<ApiReferenceHit[]> FindReferences(
         ApiDocsQueryService service,
         string symbol,
-        string? kind)
+        string? kind,
+        bool? exact = null)
     {
         var result = await service.FindReferencesAsync(
-            symbol, kind, "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
+            symbol, kind, exact, "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
         return result.Hits.ToArray();
     }
 
