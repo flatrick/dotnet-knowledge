@@ -240,9 +240,17 @@ macOS — overridable with `DOTNET_KNOWLEDGE_CACHE`. It sits outside any reposit
 serves every clone and worktree on the machine, and it is deliberately not the XDG *cache*
 directory: a synced pin must survive cache cleaners (`docs/decisions.md`).
 
-Implemented: `list_sources`, `sync_source`, `search_api` and `lookup_api`. Language design-document
-queries and bundled-example queries are future work. The intended surface for all of them is in
-`docs/design/mcp-tool-surface.md`; known defects are one file each in `docs/backlog/`.
+Implemented: `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
+`search_language_docs`, `get_language_doc` and `get_language_doc_outline`. Bundled-example queries
+are future work. The intended surface for all of them is in `docs/design/mcp-tool-surface.md`; known
+defects are one file each in `docs/backlog/`.
+
+`Text/DocumentationText.cs` is the one seam where documentation text is cleaned, and it has two
+stages whose placement is load-bearing: **normalization at the read**, before anything matches, and
+**budgeting at the payload**, after matching and paging. Putting either on the wrong side breaks a
+guarantee — normalizing on the way out would make the text a search matched differ from the text it
+returns, and budgeting before a match would drop every hit past the cap and report an absence.
+`docs/design/mcp-tool-surface.md` has the reasoning.
 
 ### Non-negotiables for every tool
 
@@ -254,14 +262,19 @@ These are correctness obligations, not preferences:
 - **No query tool ever triggers a download.** It checks, and fails fast with an imperative remedy
   naming the tool to call. A partially-synced source answers with plausible absences that look like
   real "not found" results — the dangerous failure, because nothing about it looks like an error.
-- **No silent truncation.** Every capped result set carries `isPartial` or a cursor. An agent that
-  receives a quietly-truncated search concludes the symbol does not exist.
+- **No silent truncation.** Every capped result set carries `isPartial` or a cursor, and every
+  capped *string* carries `isTruncated`. An agent that receives a quietly-truncated search concludes
+  the symbol does not exist. Report truncation in a field, never by marking the text: an ellipsis
+  cannot be told from one the source itself wrote.
 - **`list_sources` keeps returning `cacheDir`.** Structured lookup will not cover everything — the
   corpus itself was built by grepping raw proposal trees — and an agent has no other way to find
   them.
 - **Search tools return names and locations, never bodies.** `search_api` returns fully-qualified
   names; `search_language_docs` returns `path:line` hits. The agent then spends context on a single
-  `lookup_api` or `get_language_doc`.
+  `lookup_api` or `get_language_doc`. `search_api_text` carries the matched prose because the match
+  *is* the location — there is no line number inside an XML element to point at — but it is capped
+  at 300 characters and names the owning symbol, so the follow-up call is still the way to read the
+  entry.
 - **Every subprocess this server starts redirects standard input.** Git blocks during process
   startup when it inherits a piped stdin handle that the parent is concurrently reading — not from
   a piped stdin alone, which is harmless and measured at 34 ms. An MCP stdio server always has that
