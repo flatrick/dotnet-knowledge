@@ -225,6 +225,46 @@ column had been duplicated, and there is nothing in the VB corpus consuming it. 
 fields entirely for VB rather than emitting nulls, so a VB run is byte-identical to one from before
 this measurement existed.
 
+## `--json`
+
+The payload is `periodCompilers`, `skippedProjects`, and `results`. Each result carries `Project`,
+`Ceiling`, `FeatureVersion`, `Group`, `Outcome`, `DiagnosticCode`, `Detail`, `Evidence`, and for C#
+the two `LowestAcceptedLangVersion*` fields.
+
+**`Detail` in `--json` is not the `Detail` the console prints.** Where the console quotes the
+compiler's own message, `--json` substitutes the bare diagnostic code:
+
+```
+console:  accepted at /langversion:ISO-1 by the modern compiler but rejected by the C# 2.0
+          compiler held to the same setting (error CS0410: Ingen överlagring för CreateCircle
+          har den korrekta parameter- och returtypen)
+
+--json:   "DiagnosticCode": "CS0410",
+          "Detail": "accepted at /langversion:ISO-1 by the modern compiler but rejected by the
+                     C# 2.0 compiler held to the same setting (CS0410)"
+```
+
+That is what makes the payload machine-independent. Four of the nine compilers keep the host's
+language, so prose in `--json` would make two machines disagree byte-for-byte on identical code —
+which silently voids the reproducibility [Limitations](#limitations) describes the serialized VB
+binding as protecting. **Nothing in classification changes**: `IsEnvironmentError` and
+`IsVbEnvironmentError` already match on codes and never on prose, and the code is what `MANIFEST.md`
+and this document quote.
+
+The substitution replaces the exact diagnostic substring the `Detail` embedded, so nothing parses
+the composed sentence — a message can contain parentheses of its own (`CS0246`'s "(are you missing a
+using directive…)") and any bracket-matching rule would eventually cut one in half. `Result` carries
+that substring in a required `Diagnostic` parameter rather than an optional one, so a new
+construction site that forgets it fails to compile instead of quietly leaking translated text.
+
+**A diagnostic the code pattern cannot name reports `DiagnosticCode: ""` and keeps its prose.** That
+covers two cases and is deliberate in both: a `Detail` that quotes no compiler at all — most of
+them, including every `BASELINE` and every exemption — and compiler output carrying no recognizable
+code, where dropping the text would leave the row with no description of its failure. The field is
+always present; `""` means "no code", never "not measured".
+
+The console report is unchanged and keeps whatever language the compiler emitted.
+
 ## Compilers
 
 All period compilers are used at their **native ceiling**, never behind a `/langversion` flag. Both
@@ -336,6 +376,15 @@ been observed in VB, C#'s `--json` is reproducible as it stands, and serializing
 would cost runtime for no measured gain. Two `--json` runs of unchanged code are now byte-identical
 in both languages, so diffing them *is* a valid regression technique.
 
+**Four of the nine compilers cannot be forced to English, which is why `--json` carries codes rather
+than prose.** `/preferreduilang:en-US` reaches the two modern compilers and the two in
+`Microsoft.Net.Compilers` 1.3.2, plus the in-box `csc` at `v4.0.30319` — five of the nine. The
+in-box `csc` at `v2.0.50727` and `v3.5` reject the switch outright, the in-box `vbc` at `v3.5` and
+`v4.0.30319` ignore it, and no environment variable reaches a compiler binary at all. The console report
+therefore prints whatever language those five emit — on a sv-SE host, the `CS0410` behind the
+`Variance` row's C# 2.0 legacy pin is Swedish, and stays Swedish. See
+[`docs/gotchas.md`](../docs/gotchas.md) for the per-compiler table.
+
 ## Exemptions
 
 Some rows cannot be judged by a floor probe for reasons inherent to the row. They are listed in
@@ -378,6 +427,17 @@ These details are load-bearing and easy to reintroduce as bugs:
   toolchain reproduces an exact severity match, and falls back to matching any `CS`/`BC` code only
   when no line matches at all — which is what a localized in-box compiler produces. `CS` codes are
   four digits; `BC` codes run four or five, so the pattern must allow both.
+- **`/preferreduilang` is gated per compiler binary, never on `IsRoslyn` and never on the language.**
+  Compilers that honor it get `/preferreduilang:en-US` in their response file; the switch is honored
+  from inside one, unlike `/noconfig`. The in-box `csc` gains it at `v4.0.30319` and answers
+  `fatal error CS2007` with exit 1 below that; no in-box `vbc` implements it at any version —
+  including `v4.0.30319`'s, sitting beside the `csc` that does — and each answers command line
+  warning `BC2007` instead. Both exclusions manufacture verdicts: the first fails every compile, the
+  second puts a warning ahead of the real error for the first-diagnostic scan to find.
+  `HonorsPreferredUiLanguage` on `ProbeCompiler` carries the measurement per binary, and
+  `InBoxCompilers` declares it per entry. The Roslyn compilers are sent it even though they already
+  print English on a machine with no localized satellites installed for them — that is a fact about
+  the machine, not about the compiler.
 - **VB's compiler switches differ in spelling.** `vbc` rejects `/nostdlib+` with `BC2007`; the switch
   carries no trailing sign in VB. And under `/nostdlib` the compiler does not supply the VB runtime
   itself, so `Microsoft.VisualBasic.dll` has to be named explicitly with `/vbruntime:` or every probe

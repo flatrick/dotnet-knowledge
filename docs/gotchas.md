@@ -24,6 +24,56 @@ needs more.
 
 ---
 
+### 2026-08-06 · A localized toolchain makes `--json` reproducible per machine, not per repository · environment
+
+On a sv-SE host the floor probe's `Detail` carried Swedish prose — `CS0410: Ingen överlagring för …`
+— so two machines produced different bytes from identical code, which silently voided the
+reproducibility the serialized VB binding was built for. Nothing about it looked like an error,
+because classification matches on codes and was never affected. `/preferreduilang:en-US` reaches
+five of the nine registered compilers and the remaining four have no lever at all, so the fix is the
+`DiagnosticCode` field: `--json` carries the code and the console report keeps the compiler's own
+prose.
+
+### 2026-08-06 · `/preferreduilang` support is per compiler binary, not per generation or language · environment
+
+Measured across all nine registered compilers on a sv-SE host. `IsRoslyn` is the wrong gate, and so
+is the language — `v4.0.30319` ships a `csc` that honors the switch beside a `vbc` that does not,
+in the same directory. That asymmetry is the thing a later reader will try to "fix".
+
+| Compiler | `/preferreduilang:en-US` | Baseline language here |
+|---|---|---|
+| `csc` v2.0.50727 (in-box) | `fatal error CS2007`, exit 1 | Swedish |
+| `csc` v3.5 (in-box) | `fatal error CS2007`, exit 1 | Swedish |
+| `csc` v4.0.30319 (in-box) | honored — Swedish → English | Swedish |
+| `vbc` v3.5 (in-box) | `Command line warning BC2007`, ignored | Swedish |
+| `vbc` v4.0.30319 (in-box) | `Command line warning BC2007`, ignored | Swedish |
+| `csc` / `vbc` `Microsoft.Net.Compilers` 1.3.2 | honored, silent, exit 0 | English (package ships no satellites) |
+| `csc` / `vbc` VS Roslyn | honored, silent, exit 0 | English (no `sv` satellites installed) |
+
+Both exclusions manufacture verdicts if ignored: the `csc` rejection fails every compile outright,
+and the `vbc` warning is a line ahead of the real error that the probe's first-diagnostic scan can
+classify on. The switch is honored from inside a response file, unlike `/noconfig`.
+
+### 2026-08-06 · "It already prints English" is a fact about the machine, not the compiler · environment
+
+VS, the .NET SDK and Roslyn ship 13 satellite languages and Swedish is not among them, while
+`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319` carries `sv` and `sv-SE`. That is the whole reason
+the modern compilers looked English on a sv-SE host and the in-box ones did not — install the
+Swedish VS language pack and the compilers that settle most verdicts, `ConsumingCSharpRefReturnValues`
+at the VB 14 native ceiling included, start emitting Swedish. So the Roslyn compilers are sent
+`/preferreduilang:en-US` even though it changes nothing here: leaving them alone would rest the
+output language on which resource packs happen to be installed. It also means a language knob must
+be tested against an *installed* culture — `de` proved the switch works, `en-US` alone proved
+nothing.
+
+### 2026-08-06 · MSBuild.exe honors `DOTNET_CLI_UI_LANGUAGE` and ignores `VSLANG` · environment
+
+Driving both knobs to an installed culture (`de`) on a sv-SE host: `DOTNET_CLI_UI_LANGUAGE` moved
+MSBuild.exe's own `MSB1009` and the SDK tasks' `NETSDK1004` alike, `VSLANG=1031` moved neither, and
+where the two conflict `DOTNET_CLI_UI_LANGUAGE` wins. The `dotnet` CLI honors both, so testing only
+`dotnet build` would have credited `VSLANG` with an effect it does not have on MSBuild.exe. Neither
+variable reaches a compiler binary — for `csc`/`vbc` the switch is the only lever.
+
 ### 2026-08-06 · `/parallel-` is fatal to the in-box `csc` and merely a warning to the in-box `vbc` · environment
 
 The pre-Roslyn compilers do not treat an unknown switch alike: `%WINDIR%\Microsoft.NET\Framework64`'s
