@@ -240,9 +240,24 @@ if (packagedCompiler is not null)
 
 var skippedProjects = new List<string>();
 
-var discovery = profile.Name == "VB"
-    ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
-    : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+// Discovery throws InvalidOperationException on a layout it cannot read -- a Compile glob whose
+// shape is not "<directory>/**/*.vb", a source file at an unexpected depth under src/, a version
+// folder naming no ladder rung. Failing loudly on those is deliberate, because a silently skipped
+// row is far worse; only the shape of the failure would otherwise be wrong. A malformed layout is a
+// setup problem, so it takes the documented exit 2 and prints the message the exception already
+// carries rather than a stack trace.
+Discovery discovery;
+try
+{
+    discovery = profile.Name == "VB"
+        ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
+        : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine($"verify-feature-floors: {ex.Message}");
+    return 2;
+}
 
 if (discovery.Fatal is not null)
 {

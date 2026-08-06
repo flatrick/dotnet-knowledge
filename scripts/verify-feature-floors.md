@@ -74,7 +74,10 @@ argument, an unrecognized `--language` value, no repo root, a non-Windows host, 
 MSBuild, no compiler beside it, or one of discovery's three fatal cases — the corpus root itself
 missing, no projects found under it with no `--project` filter given (C#'s message names the
 `CSharp_v*` directory pattern; VB's names the `.vbproj` extension), or a `--project` filter matching
-no project. Every other outcome is a finding about the toolchain's reach and exits 0.
+no project. A layout discovery cannot read is the same kind of failure and takes the same exit code:
+a `Compile` glob whose shape is not `<directory>/**/*.vb`, a source file at an unexpected depth
+under `src/`, or a version folder naming no ladder rung each print their own message and exit 2.
+Every other outcome is a finding about the toolchain's reach and exits 0.
 
 ## How a group is probed
 
@@ -228,8 +231,8 @@ differently: a C# project directory holds its own version folders one group deep
 has one shared `src/` tree and each pinned project selects rows from it with `Compile Include` globs
 minus its `Compile Remove` globs. Reading those items is the only way to learn which rows a VB
 project actually compiles — honoring `Remove` is what keeps `MyNamespaceHelpers` attributed to the
-`my/` projects alone. A `Compile` glob that does not end in `**/*.vb` throws rather than being
-silently skipped.
+`my/` projects alone. A `Compile` glob that does not end in `**/*.vb` fails the run with exit 2
+rather than being silently skipped.
 
 **`--json` output is not reproducible run to run.** The `Detail` string for a row can vary between
 runs of unchanged code — `BC30643`, `BC30657`, and `BC36954` have all been observed for the same
