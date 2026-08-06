@@ -413,12 +413,99 @@ public sealed class ApiDocsQueryServiceTests
                 inArguments.Single().TypeExpression);
             Assert.IsFalse(inArguments.Single().IsExact);
 
+            // Which attribute that was is a fact the application text alone leaves the caller to
+            // parse back out.
+            Assert.AreEqual("System.WidgetMarker", inArguments.Single().AttributeType);
+
             // Totals name every kind, so a caller filtering to one still sees the others exist.
-            var totals = (await service.FindReferencesAsync(
-                "System.WidgetMarker", null, null, "dotnet-api-docs", 100, null, CancellationToken.None))
-                .Totals;
-            Assert.AreEqual(2, totals.Attribute);
-            Assert.AreEqual(0, totals.Constraint);
+            var marker = await service.FindReferencesAsync(
+                "System.WidgetMarker", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(2, marker.Totals.Attribute);
+            Assert.AreEqual(0, marker.Totals.Constraint);
+
+            // Nothing here is named System.WidgetMarkerAttribute, so the short form has one reading
+            // and there is nothing to report having left out.
+            Assert.IsNull(marker.Note);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncFindsAnApplicationByTheAttributesClrName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateAttributeSiblingServiceAsync(root);
+
+            // ECMA XML records an application the way C# spells it, so the CLR name is the one
+            // string that never appears in it. A caller who spelled the type correctly must still
+            // find the applications rather than be told the attribute is unused.
+            var byClrName = await FindReferences(
+                service, "System.WidgetSealAttribute", ApiReferenceKind.Attribute);
+            Assert.HasCount(1, byClrName);
+            Assert.AreEqual("[System.WidgetSeal]", byClrName[0].TypeExpression);
+            Assert.IsTrue(byClrName[0].IsExact);
+
+            // typeExpression is the source spelling and attributeType the identity, so a caller
+            // never has to know which of the two it is holding.
+            Assert.AreEqual("System.WidgetSealAttribute", byClrName[0].AttributeType);
+
+            // The short form names no type at all here, exactly as System.Obsolete does not, and
+            // still gets the note rather than a bare zero.
+            var byShortForm = await service.FindReferencesAsync(
+                "System.WidgetSeal", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(0, byShortForm.Totals.Attribute);
+            Assert.AreEqual("System.WidgetSealAttribute", byShortForm.Note?.SiblingType);
+            Assert.AreEqual(1, byShortForm.Note?.AttributeApplications);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncDoesNotCreditAnApplicationToTheDeSuffixedSibling()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateAttributeSiblingServiceAsync(root);
+
+            // [System.WidgetTrait] is an application of System.WidgetTraitAttribute. The class of
+            // that name is a different type, and counting the application as a reference to it is a
+            // wrong answer rather than a missing one.
+            var colliding = await service.FindReferencesAsync(
+                "System.WidgetTrait", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(0, colliding.Totals.Attribute);
+
+            // The class's own structural uses are untouched by that exclusion.
+            Assert.AreEqual(1, colliding.Totals.Parameter);
+
+            // Excluding them silently would be the plausible absence again, so the response names
+            // the sibling, counts what it left out, and names the call that reaches it.
+            Assert.IsNotNull(colliding.Note);
+            Assert.AreEqual("System.WidgetTraitAttribute", colliding.Note.SiblingType);
+            Assert.AreEqual(1, colliding.Note.AttributeApplications);
+            StringAssert.Contains(colliding.Note.Remedy, "find_api_references");
+            StringAssert.Contains(colliding.Note.Remedy, "System.WidgetTraitAttribute");
+
+            // And that call is the one that answers.
+            var sibling = await service.FindReferencesAsync(
+                "System.WidgetTraitAttribute", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(1, sibling.Totals.Attribute);
+            Assert.AreEqual("System.WidgetTraitAttribute", sibling.Hits.Single().AttributeType);
+
+            // Nothing is de-suffixed twice, so the sibling's own answer carries no note.
+            Assert.IsNull(sibling.Note);
         }
         finally
         {

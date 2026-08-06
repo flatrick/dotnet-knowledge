@@ -116,6 +116,12 @@ public static class ApiReferenceKind
     public static readonly string[] All = [Parameter, Return, Base, Interface, Constraint, Attribute];
 }
 
+/// <param name="AttributeType">
+/// The CLR name of the attribute an <c>attribute</c> hit's application applies —
+/// <c>System.ObsoleteAttribute</c> where <see cref="TypeExpression"/> carries the source spelling
+/// <c>[System.Obsolete("…")]</c>. Null on every other kind, where a type expression is already the
+/// identity it names.
+/// </param>
 /// <param name="IsExact">
 /// Whether the declaration names the type itself rather than an expression parameterized by it.
 /// A class implementing <c>IComparer&lt;string&gt;</c> is an <c>interface</c> hit for
@@ -127,6 +133,7 @@ public sealed record ApiReferenceHit(
     string Kind,
     string? ParameterName,
     string? TypeExpression,
+    string? AttributeType,
     bool IsExact,
     string? Signature,
     SourceProvenance Source);
@@ -143,9 +150,26 @@ public sealed record ApiReferenceTotals(
     int Constraint,
     int Attribute);
 
+/// <summary>
+/// What a query for the de-suffixed half of a colliding pair left out. C# spells an application of
+/// <c>FooAttribute</c> as <c>[Foo]</c>, so where a namespace holds both types those applications
+/// belong to the attribute and not to the class the caller named. Counting them under the class
+/// would be a wrong answer; excluding them without saying so would be a plausible absence, which is
+/// the failure this server exists to avoid.
+/// </summary>
+/// <param name="AttributeApplications">
+/// How many applications of <paramref name="SiblingType"/> were excluded, over the whole result set
+/// rather than the page.
+/// </param>
+public sealed record ApiReferenceNote(
+    string SiblingType,
+    int AttributeApplications,
+    string Remedy);
+
 public sealed record ApiReferenceResult(
     IReadOnlyList<ApiReferenceHit> Hits,
     ApiReferenceTotals Totals,
+    ApiReferenceNote? Note,
     bool IsPartial,
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);

@@ -291,6 +291,14 @@ public sealed class ApiDocsTool
         "and isExact separates \"decorated with this attribute\" from \"this type named inside " +
         "its arguments\"; for a \"constraint\" hit parameterName is the constrained type " +
         "parameter. " +
+        "PASS THE ATTRIBUTE'S CLR NAME: the docs record an application the way C# spells it, with " +
+        "the Attribute suffix elided, so the suffix is resolved inside the application and " +
+        "System.ObsoleteAttribute is what finds [System.Obsolete(\"…\")]. An \"attribute\" hit " +
+        "reports attributeType, the CLR name it resolved to, beside the source spelling in " +
+        "typeExpression. The rule applies to applications ONLY: querying Foo never returns " +
+        "FooAttribute's applications, because outside an application Foo means the class. Where " +
+        "both types exist the response carries note - siblingType, how many applications were " +
+        "excluded, and the call that reaches them - so the exclusion is never a silent zero. " +
         "Every response carries per-kind totals for the WHOLE result set, so a widely-used type is " +
         "visibly widely used rather than silently paginated. " +
         "Prose mentions are search_api_text's job, not this tool's.")]
