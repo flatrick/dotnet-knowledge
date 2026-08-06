@@ -51,7 +51,15 @@ dotnet scripts/verify-feature-floors.cs -- --json                # machine-reada
 dotnet scripts/verify-feature-floors.cs -- --offline             # skip the NuGet download
 dotnet scripts/verify-project-namespaces.cs                      # namespace vs. RootNamespace drift
 dotnet scripts/verify-project-namespaces.cs -- --json            # machine-readable
+dotnet scripts/csharp-placement-sweep.cs -- --out .scratch/sweep.json   # ~3 min; needs VS MSBuild
+dotnet scripts/render-floor-report.cs -- --sweep .scratch/sweep.json    # readable report
+dotnet scripts/render-floor-report.cs -- --sweep .scratch/sweep.json --baseline .scratch/floors-cs.json
 ```
+
+`csharp-placement-sweep.cs` walks the *whole* C# ladder rather than one rung down, which is what
+produced `MANIFEST.md`'s **Lowest accepted `/langversion`** column; `render-floor-report.cs` turns
+its JSON into prose, and takes `verify-feature-floors.cs -- --json` output as an optional contrast
+baseline. Neither is a gate — they are measurements, run when the question comes up again.
 
 `dotnet <file>.cs` silently claims some flags for itself, which is why every script takes its
 arguments after `--`.

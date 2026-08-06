@@ -1,6 +1,8 @@
 # Probes
 
-Throwaway MCP servers that answer questions about the *host*, not about this repository's code.
+Throwaway programs that answer questions about the *host*, not about this repository's code. Most
+are MCP servers; three are not — two drivers that play the client, and one that interrogates the
+machine's compilers.
 
 Some faults only appear when a server is launched by an MCP client, and a client is an awkward place
 to run an experiment: the tool surface is fixed, output is summarized, and a hung call looks the same
@@ -33,6 +35,7 @@ rebuilding after an edit.
 
 Driving a probe from a shell needs a parent process that owns the pipes. A Git Bash `>` redirect
 swallows the server's stdout entirely and reads as a server fault.
+`drive-probe-progress.cs` and `drive-sync-progress.cs` are that parent process.
 
 ## probe-mcp-host.cs
 
@@ -47,6 +50,47 @@ swallows the server's stdout entirely and reads as a server fault.
 `probe_host`'s `protocolVersion`, `clientInfo` and `clientCapabilities` read as `null` over stdio.
 They are populated from per-request metadata, which the HTTP transports carry and stdio does not;
 the `rawRequest` dump is the reliable field.
+
+## drive-probe-progress.cs
+
+Not a server — the client.
+It starts `probe-mcp-host.cs` with redirected stdio, speaks enough JSON-RPC to call `probe_progress`
+with a progress token, and prints every server→client frame with the millisecond it arrived at.
+
+It answers what a compliant client sees on the wire: how many notifications, in what order, with
+what spacing.
+That is the reference the same call under a real MCP client is diffed against, which is how a client
+that drops progress is told from a server that never sent any.
+
+**It cannot say anything about a real client's rendering, and it is not evidence about the shipped
+server** — `probe-mcp-host.cs` shares none of `DotNetKnowledge.Mcp`'s code.
+
+```bash
+dotnet run --file scripts/probes/drive-probe-progress.cs
+dotnet run --file scripts/probes/drive-probe-progress.cs -- --steps 6 --delay 100
+```
+
+## drive-sync-progress.cs
+
+The same shape against the **real** server: it starts the built `DotNetKnowledge.Mcp` with
+redirected stdio and calls `sync_source` with a progress token.
+This is the only place the five sync stages — clone, sparse-checkout, fetch, checkout, validate —
+are visible as raw `notifications/progress` frames, and it is what established that they reach the
+wire at all.
+
+The cache is an isolated directory under the checkout's `.scratch/`, set through
+`DOTNET_KNOWLEDGE_CACHE`, so a run never touches the per-user source cache.
+It needs a built server — `dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj` — and
+says so rather than failing obscurely.
+It reaches a real remote, so it is not an offline instrument.
+
+**It cannot say what any real client does with those notifications.** Use `probe_progress` through a
+client for that.
+
+```bash
+dotnet run --file scripts/probes/drive-sync-progress.cs
+dotnet run --file scripts/probes/drive-sync-progress.cs -- --source csharplang
+```
 
 ## probe-sync.cs
 
@@ -66,3 +110,31 @@ for that; it is the only instrument here that runs inside a real client.
 `git --version` included, so it is git's startup rather than any repository work — and completes in
 about 30 ms when standard input is redirected. That is the whole of the fault that made every
 synchronized-source tool hang under a client.
+
+## probe-preferreduilang.cs
+
+Not an MCP server either — a probe of the *host's compilers*.
+It runs each of the nine compiler binaries this repository drives over a file that errors and a file
+that does not, at baseline and under two spellings of `/preferreduilang`, then tries the `VSLANG`
+and `DOTNET_CLI_UI_LANGUAGE` routes for the ones that reject the switch.
+
+It answers whether `/preferreduilang` support is a property of the generation, of the language, or
+of the individual binary.
+The measured answer is the binary: `v4.0.30319` ships a `csc` that honors the switch beside a `vbc`
+that warns `BC2007` and ignores it, from the same directory.
+That is the fact behind `verify-feature-floors.cs`'s per-compiler `HonorsPreferredUiLanguage` flag,
+and `docs/gotchas.md` carries the full table.
+
+**It cannot separate "the compiler honored the switch" from "this machine has no satellite for the
+current UI language."**
+A compiler that already prints English says nothing either way; the printed baseline line is what
+shows which case a row is, and that is a fact about the machine rather than the binary.
+
+The `Microsoft.Net.Compilers` 1.3.2 pair comes from `.artifacts/period-compilers/`, which
+`dotnet scripts/verify-feature-floors.cs` downloads; the modern pair is found with the same
+`vswhere` query that script uses.
+Missing binaries are reported, not guessed at. Windows only.
+
+```bash
+dotnet run --file scripts/probes/probe-preferreduilang.cs
+```

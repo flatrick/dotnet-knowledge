@@ -37,6 +37,7 @@ human browsing — structured payloads, no ASCII tables, no decorative formattin
 | `docs/backlog/` | Known issues and deferred decisions, one file each. Read before assuming a rough edge is undiscovered. |
 | `sources.json` | The upstream sources, their pinned commits, and their sparse-checkout paths. |
 | `scripts/*.cs` | Dev tooling, as single-file C# programs — `dotnet scripts/foo.cs -- <args>`. |
+| `scripts/probes/` | Throwaway diagnostic instruments answering questions about the *host*, not about this repository's code. [`scripts/probes/README.md`](scripts/probes/README.md) states what each one can and cannot settle. |
 | `version.json` | Nerdbank.GitVersioning config. The package version carries the commit it was built from, which is how the install script tells a current tool from a stale one. |
 
 ## Prerequisites
