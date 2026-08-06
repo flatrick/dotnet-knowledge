@@ -71,12 +71,14 @@ var exempt = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     ["CSharp/dotNetFramework/v4.8/CSharp_v1.0/Properties/AssemblyInfo.cs"] = "assembly attributes only",
 };
 
-// CSharpComTypeLib is a support assembly for the NoPIA row, not a coordinate in the corpus, so its
-// namespace is its own name rather than a runtime/language pairing. Nineteen samples across the
-// net48 projects consume it by that name.
+// Support assemblies are not coordinates in the corpus, so each names its namespace after itself
+// rather than after a runtime/language pairing. CSharpComTypeLib backs the NoPIA row, and nineteen
+// samples across the net48 projects consume it by that name; CSharpRefReturnLib backs the net48
+// half of the VB 15 ref-return row, which VB cannot author a subject for itself.
 var supportProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 {
     "CSharp/CSharpComTypeLib/CSharpComTypeLib.csproj",
+    "CSharp/CSharpRefReturnLib/CSharpRefReturnLib.csproj",
 };
 
 var rootNamespacePattern = new Regex(@"<RootNamespace>\s*(?<value>[^<\s][^<]*?)\s*</RootNamespace>");

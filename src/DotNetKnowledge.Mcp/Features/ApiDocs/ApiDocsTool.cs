@@ -20,8 +20,11 @@ public sealed class ApiDocsTool
     [Description(
         "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
         "TypeName returns every member's signature only; TypeName.MemberName returns full " +
-        "documentation for that member. Pass source to restrict the lookup to dotnet-api-docs or " +
-        "roslyn-api-docs, and limit/cursor to page. Returns provenance with every match.")]
+        "documentation for that member. Each match reports detail - \"signatures\" or \"full\" - " +
+        "because the tier is decided per source, so one source resolving the string as a type " +
+        "never collapses another's member match. Pass source to restrict the lookup to " +
+        "dotnet-api-docs or roslyn-api-docs, and limit/cursor to page. Returns provenance with " +
+        "every match.")]
     public static async Task<string> LookupApi(
         string symbol,
         ApiDocsQueryService service,
@@ -38,7 +41,10 @@ public sealed class ApiDocsTool
                 limit ?? 20,
                 cursor,
                 cancellationToken).ConfigureAwait(false);
-            if (result.Matches.Count == 0)
+            // Outcome, not the page. A cursor landing exactly at the end of the result set yields
+            // an empty page for a symbol that plainly exists, and reporting that as not_found sends
+            // the caller to search_api, which will confirm the type and contradict the error.
+            if (result.Outcome != ApiLookupOutcome.Found)
             {
                 // Directing a caller to search_api is right when the type was not found and wrong
                 // when the type resolved: search_api enumerates file names and never opens a
@@ -119,7 +125,10 @@ public sealed class ApiDocsTool
         "\"Json\"), or a fragment of a type name (\"Concurrent\"). Namespaces match on complete " +
         "segments, type names on any substring. Every item reports matchedOn - \"fullName\", " +
         "\"type\" or \"namespace\" - so a namespace's entire contents is distinguishable from types " +
-        "named for the pattern. " +
+        "named for the pattern. A namespace match also reports namespaceDepth: 0 for a type " +
+        "declared in that namespace itself, 1 for one a namespace below, and so on. A namespace " +
+        "pattern always returns descendants too, so filter the page on namespaceDepth == 0 when " +
+        "you want only what the namespace itself declares. " +
         "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
         "call lookup_api for documentation bodies.")]
     public static async Task<string> SearchApi(
@@ -266,15 +275,30 @@ public sealed class ApiDocsTool
     [McpServerTool(Name = "find_api_references", ReadOnly = true, Idempotent = true)]
     [Description(
         "Find declarations that USE a type: methods taking it as a parameter, methods returning it, " +
-        "types deriving from it, and types implementing it. The inverse of lookup_api, which says " +
+        "types deriving from it, types implementing it, type parameters constrained to it, and " +
+        "declarations decorated with it. The inverse of lookup_api, which says " +
         "what a type offers rather than what uses it. Pass a fully-qualified type name. " +
         "Matches the type inside a compound signature too, so System.String finds string[], " +
         "out string and IEnumerable<string>. Each hit reports kind - \"parameter\", \"return\", " +
-        "\"base\" or \"interface\" - plus the owning symbol, the type expression and the C# " +
+        "\"base\", \"interface\", \"constraint\" or \"attribute\" - plus the owning symbol, the " +
+        "type expression and the C# " +
         "signature; kind also filters. kind says WHERE the reference sits, not that the type is " +
         "itself the base or interface: a class implementing IComparer<string> is an \"interface\" " +
-        "hit for System.String, and typeExpression says which. Compare typeExpression against the " +
-        "symbol to tell an exact base or interface from a parameterized one. " +
+        "hit for System.String. isExact says which - true when the declaration names the type " +
+        "itself, false when it names an expression parameterized by it - and exact filters on it, " +
+        "so \"what derives from Stream\" and \"what has a base parameterized by Stream\" are " +
+        "separate queries. For an \"attribute\" hit typeExpression is the whole application text " +
+        "and isExact separates \"decorated with this attribute\" from \"this type named inside " +
+        "its arguments\"; for a \"constraint\" hit parameterName is the constrained type " +
+        "parameter. " +
+        "PASS THE ATTRIBUTE'S CLR NAME: the docs record an application the way C# spells it, with " +
+        "the Attribute suffix elided, so the suffix is resolved inside the application and " +
+        "System.ObsoleteAttribute is what finds [System.Obsolete(\"…\")]. An \"attribute\" hit " +
+        "reports attributeType, the CLR name it resolved to, beside the source spelling in " +
+        "typeExpression. The rule applies to applications ONLY: querying Foo never returns " +
+        "FooAttribute's applications, because outside an application Foo means the class. Where " +
+        "both types exist the response carries note - siblingType, how many applications were " +
+        "excluded, and the call that reaches them - so the exclusion is never a silent zero. " +
         "Every response carries per-kind totals for the WHOLE result set, so a widely-used type is " +
         "visibly widely used rather than silently paginated. " +
         "Prose mentions are search_api_text's job, not this tool's.")]
@@ -283,6 +307,7 @@ public sealed class ApiDocsTool
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
         string? kind = null,
+        bool? exact = null,
         string? source = null,
         int? limit = null,
         string? cursor = null)
@@ -292,6 +317,7 @@ public sealed class ApiDocsTool
             var result = await service.FindReferencesAsync(
                 symbol,
                 kind,
+                exact,
                 source,
                 limit ?? 20,
                 cursor,

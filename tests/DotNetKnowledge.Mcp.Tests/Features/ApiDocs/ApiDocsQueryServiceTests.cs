@@ -1,7 +1,6 @@
-using System.Diagnostics;
-using System.Text.Json;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
+using static DotNetKnowledge.Mcp.Tests.Features.ApiDocs.ApiDocsFixture;
 
 namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 
@@ -12,7 +11,10 @@ public sealed class ApiDocsQueryServiceTests
     private static readonly string[] ExpectedSecondPageNames = ["System.GammaWidget"];
     private static readonly string[] ExpectedResolvedTypeNames = ["System.Widget"];
     private static readonly string[] ExpectedHolderTypes = ["System.Holder", "System.Holder<T>"];
-    private static readonly string[] ExpectedWidgetTypes = ["System.Widget", "System.WidgetKit"];
+    private static readonly string[] ExpectedWidgetTypes =
+        ["System.Widget", "System.WidgetKit", "System.WidgetPolicy`1"];
+    private static readonly string[] ExpectedSystemNamespaceTypes =
+        ["System.Widget", "System.WidgetKit", "System.WidgetPolicy`1", "System.Widgets.Gadget"];
     private static readonly string[] ExpectedStringParameterTypes =
     [
         "System.String",
@@ -97,74 +99,6 @@ public sealed class ApiDocsQueryServiceTests
         }
     }
 
-    private const string WidgetXml = """
-        <Type Name="Widget" FullName="System.Widget">
-          <Members>
-            <Member MemberName="Create">
-              <MemberSignature Language="C#" Value="public static System.Widget Create(string name);" />
-              <Parameters><Parameter Name="name" Type="System.String" /></Parameters>
-              <ReturnValue><ReturnType>System.Widget</ReturnType></ReturnValue>
-              <Docs>
-                <summary>Creates a widget.</summary>
-                <param name="name">The widget name.</param>
-                <returns>The new widget.</returns>
-                <remarks>Names are case-sensitive.</remarks>
-              </Docs>
-            </Member>
-            <Member MemberName="Describe">
-              <MemberSignature Language="C#" Value="public string Describe(string name);" />
-              <Parameters><Parameter Name="name" Type="System.String" /></Parameters>
-              <Docs>
-                <summary>Renders the widget as a <see cref="T:System.String" />.</summary>
-                <param name="name">The label applied to <paramref name="name" />.</param>
-                <returns>A <see cref="T:System.String" />, or <see langword="null" />.</returns>
-                <remarks>See also <see cref="M:System.Widget.Create(System.String)" />.</remarks>
-              </Docs>
-            </Member>
-            <Member MemberName="Convert&lt;TResult&gt;">
-              <MemberSignature Language="C#" Value="public TResult Convert&lt;TResult&gt;();" />
-              <Docs><summary>Converts to one type.</summary></Docs>
-            </Member>
-            <Member MemberName="Convert&lt;TResult,TState&gt;">
-              <MemberSignature Language="C#" Value="public TResult Convert&lt;TResult,TState&gt;(TState state);" />
-              <Docs><summary>Converts with state.</summary></Docs>
-            </Member>
-          </Members>
-        </Type>
-        """;
-
-    private const string WidgetKitXml = """
-        <Type Name="WidgetKit" FullName="System.WidgetKit">
-          <Base>
-            <BaseTypeName>System.WidgetBase</BaseTypeName>
-          </Base>
-          <Interfaces>
-            <Interface>
-              <InterfaceName>System.IWidget</InterfaceName>
-            </Interface>
-          </Interfaces>
-          <Members>
-            <Member MemberName="Combine">
-              <MemberSignature Language="C#" Value="public static string Combine(string[] parts);" />
-              <Parameters><Parameter Name="parts" Type="System.String[]" /></Parameters>
-              <ReturnValue><ReturnType>System.String</ReturnType></ReturnValue>
-            </Member>
-            <Member MemberName="JoinAll">
-              <MemberSignature Language="C#" Value="public static string JoinAll(System.Collections.Generic.IEnumerable&lt;string&gt; parts);" />
-              <Parameters><Parameter Name="parts" Type="System.Collections.Generic.IEnumerable&lt;System.String&gt;" /></Parameters>
-            </Member>
-            <Member MemberName="Borrow">
-              <MemberSignature Language="C#" Value="public static ref string Borrow();" />
-              <ReturnValue><ReturnType>System.String&amp;</ReturnType></ReturnValue>
-            </Member>
-            <Member MemberName="CompareWith">
-              <MemberSignature Language="C#" Value="public static int CompareWith(System.StringComparer comparer);" />
-              <Parameters><Parameter Name="comparer" Type="System.StringComparer" /></Parameters>
-            </Member>
-          </Members>
-        </Type>
-        """;
-
     [TestMethod]
     public async Task LookupAsyncReturnsDocumentedMemberWithProvenance()
     {
@@ -240,10 +174,24 @@ public sealed class ApiDocsQueryServiceTests
             CollectionAssert.AreEqual(ExpectedResolvedTypeNames, byFullName.Select(item => item.Name).ToArray());
             Assert.AreEqual(ApiNameMatch.FullName, byFullName[0].MatchedOn);
 
-            // A namespace names everything it holds, and says that is what it did.
+            // A namespace names everything under it, descendants included, and says that is what
+            // it did.
             var byNamespace = await Search(service, "System");
-            CollectionAssert.AreEqual(ExpectedWidgetTypes, byNamespace.Select(item => item.Name).ToArray());
+            CollectionAssert.AreEqual(
+                ExpectedSystemNamespaceTypes,
+                byNamespace.Select(item => item.Name).ToArray());
             Assert.IsTrue(byNamespace.All(item => item.MatchedOn == ApiNameMatch.Namespace));
+
+            // Which of them System itself declares is reported, not filtered.
+            Assert.AreEqual(
+                0,
+                byNamespace.Single(item => item.Name == "System.Widget").NamespaceDepth);
+            Assert.AreEqual(
+                1,
+                byNamespace.Single(item => item.Name == "System.Widgets.Gadget").NamespaceDepth);
+
+            // Depth belongs to the namespace reading alone; a type match did not name a namespace.
+            Assert.IsNull((await Search(service, "Widget"))[0].NamespaceDepth);
 
             // A type-name fragment still matches on any substring, and outranks the namespace
             // reading when both apply.
@@ -373,7 +321,7 @@ public sealed class ApiDocsQueryServiceTests
             // Totals describe the whole set, not the filtered page — otherwise a caller narrowing to
             // parameters could not see that anything derives from the type.
             var filtered = await service.FindReferencesAsync(
-                "System.String", ApiReferenceKind.Parameter, "dotnet-api-docs", 100, null, CancellationToken.None);
+                "System.String", ApiReferenceKind.Parameter, null, "dotnet-api-docs", 100, null, CancellationToken.None);
             Assert.AreEqual(parameters.Length, filtered.Totals.Parameter);
             Assert.AreEqual(returns.Length, filtered.Totals.Return);
 
@@ -383,7 +331,181 @@ public sealed class ApiDocsQueryServiceTests
                     && hit.Kind == ApiReferenceKind.Base));
 
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.FindReferencesAsync(
-                "System.String", "nonsense", "dotnet-api-docs", 20, null, CancellationToken.None));
+                "System.String", "nonsense", null, "dotnet-api-docs", 20, null, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncSeparatesTheTypeItselfFromExpressionsParameterizedByIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var all = await FindReferences(service, "System.String", kind: null);
+            Assert.IsTrue(all.Where(hit => hit.TypeExpression == "System.String").All(hit => hit.IsExact));
+            Assert.IsFalse(all.Where(hit => hit.TypeExpression != "System.String").Any(hit => hit.IsExact));
+
+            // "what implements System.IWidget" and "what implements something parameterized by it"
+            // are different questions, so the distinction filters as well as reports.
+            var exact = await FindReferences(service, "System.String", kind: null, exact: true);
+            CollectionAssert.AreEqual(
+                all.Where(hit => hit.IsExact).Select(hit => hit.Symbol).ToArray(),
+                exact.Select(hit => hit.Symbol).ToArray());
+
+            var parameterized = await FindReferences(service, "System.String", kind: null, exact: false);
+            Assert.IsNotEmpty(parameterized);
+            Assert.IsFalse(parameterized.Any(hit => hit.IsExact));
+
+            // Totals still describe the whole matched set, before either filter narrows it.
+            var filtered = await service.FindReferencesAsync(
+                "System.String", null, true, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(
+                all.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
+                filtered.Totals.Parameter);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncReadsGenericConstraintsAndAttributeApplications()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            // A constraint is how an API says a type is a required capability, and it sits in a
+            // TypeParameter rather than in Base. Both the base-type and the interface form count.
+            var constrainingBase = await FindReferences(service, "System.WidgetPolicyBase", kind: null);
+            Assert.AreEqual(ApiReferenceKind.Constraint, constrainingBase.Single().Kind);
+            Assert.AreEqual("TWidget", constrainingBase.Single().ParameterName);
+
+            var constrainingInterface = await FindReferences(service, "System.IWidgetPolicy", kind: null);
+            Assert.AreEqual(ApiReferenceKind.Constraint, constrainingInterface.Single().Kind);
+
+            // Members carry their own type parameters, so a generic method is reached too.
+            var constrainingMember = await FindReferences(service, "System.WidgetState", kind: null);
+            Assert.AreEqual("System.WidgetPolicy<TWidget>.Adapt<TState>", constrainingMember.Single().Symbol);
+
+            // Both applications name the attribute itself, whether or not they carry arguments.
+            var decorating = await FindReferences(service, "System.WidgetMarker", kind: null);
+            Assert.HasCount(2, decorating);
+            Assert.IsTrue(decorating.All(hit => hit.Kind == ApiReferenceKind.Attribute && hit.IsExact));
+
+            // A type named inside an attribute's arguments is a reference, and is not the
+            // attribute the declaration is decorated with.
+            var inArguments = await FindReferences(service, "System.String", ApiReferenceKind.Attribute);
+            Assert.AreEqual(
+                "[System.WidgetMarker(typeof(System.String))]",
+                inArguments.Single().TypeExpression);
+            Assert.IsFalse(inArguments.Single().IsExact);
+
+            // Which attribute that was is a fact the application text alone leaves the caller to
+            // parse back out.
+            Assert.AreEqual("System.WidgetMarker", inArguments.Single().AttributeType);
+
+            // Totals name every kind, so a caller filtering to one still sees the others exist.
+            var marker = await service.FindReferencesAsync(
+                "System.WidgetMarker", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(2, marker.Totals.Attribute);
+            Assert.AreEqual(0, marker.Totals.Constraint);
+
+            // Nothing here is named System.WidgetMarkerAttribute, so the short form has one reading
+            // and there is nothing to report having left out.
+            Assert.IsNull(marker.Note);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncFindsAnApplicationByTheAttributesClrName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateAttributeSiblingServiceAsync(root);
+
+            // ECMA XML records an application the way C# spells it, so the CLR name is the one
+            // string that never appears in it. A caller who spelled the type correctly must still
+            // find the applications rather than be told the attribute is unused.
+            var byClrName = await FindReferences(
+                service, "System.WidgetSealAttribute", ApiReferenceKind.Attribute);
+            Assert.HasCount(1, byClrName);
+            Assert.AreEqual("[System.WidgetSeal]", byClrName[0].TypeExpression);
+            Assert.IsTrue(byClrName[0].IsExact);
+
+            // typeExpression is the source spelling and attributeType the identity, so a caller
+            // never has to know which of the two it is holding.
+            Assert.AreEqual("System.WidgetSealAttribute", byClrName[0].AttributeType);
+
+            // The short form names no type at all here, exactly as System.Obsolete does not, and
+            // still gets the note rather than a bare zero.
+            var byShortForm = await service.FindReferencesAsync(
+                "System.WidgetSeal", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(0, byShortForm.Totals.Attribute);
+            Assert.AreEqual("System.WidgetSealAttribute", byShortForm.Note?.SiblingType);
+            Assert.AreEqual(1, byShortForm.Note?.AttributeApplications);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncDoesNotCreditAnApplicationToTheDeSuffixedSibling()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateAttributeSiblingServiceAsync(root);
+
+            // [System.WidgetTrait] is an application of System.WidgetTraitAttribute. The class of
+            // that name is a different type, and counting the application as a reference to it is a
+            // wrong answer rather than a missing one.
+            var colliding = await service.FindReferencesAsync(
+                "System.WidgetTrait", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(0, colliding.Totals.Attribute);
+
+            // The class's own structural uses are untouched by that exclusion.
+            Assert.AreEqual(1, colliding.Totals.Parameter);
+
+            // Excluding them silently would be the plausible absence again, so the response names
+            // the sibling, counts what it left out, and names the call that reaches it.
+            Assert.IsNotNull(colliding.Note);
+            Assert.AreEqual("System.WidgetTraitAttribute", colliding.Note.SiblingType);
+            Assert.AreEqual(1, colliding.Note.AttributeApplications);
+            StringAssert.Contains(colliding.Note.Remedy, "find_api_references");
+            StringAssert.Contains(colliding.Note.Remedy, "System.WidgetTraitAttribute");
+
+            // And that call is the one that answers.
+            var sibling = await service.FindReferencesAsync(
+                "System.WidgetTraitAttribute", null, null, "dotnet-api-docs", 100, null, CancellationToken.None);
+            Assert.AreEqual(1, sibling.Totals.Attribute);
+            Assert.AreEqual("System.WidgetTraitAttribute", sibling.Hits.Single().AttributeType);
+
+            // Nothing is de-suffixed twice, so the sibling's own answer carries no note.
+            Assert.IsNull(sibling.Note);
         }
         finally
         {
@@ -395,10 +517,11 @@ public sealed class ApiDocsQueryServiceTests
     private static async Task<ApiReferenceHit[]> FindReferences(
         ApiDocsQueryService service,
         string symbol,
-        string? kind)
+        string? kind,
+        bool? exact = null)
     {
         var result = await service.FindReferencesAsync(
-            symbol, kind, "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
+            symbol, kind, exact, "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
         return result.Hits.ToArray();
     }
 
@@ -473,6 +596,41 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task LookupAsyncDecidesTheDetailTierPerSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateOverlappingSourcesServiceAsync(root);
+
+            // One string, two readings: dotnet-api-docs resolves System.Widget's member Create,
+            // roslyn-api-docs resolves a type of that name.
+            var result = await service.LookupAsync(
+                "System.Widget.Create", source: null, limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual(ApiLookupOutcome.Found, result.Outcome);
+            var asMember = result.Matches.Single(match => match.FullName == "System.Widget");
+            var asType = result.Matches.Single(match => match.FullName == "System.Widget.Create");
+
+            // Naming a member is how a caller asks for its documentation, and the other source's
+            // reading of the same string must not take it away.
+            Assert.AreEqual("Creates a widget.", asMember.Members.Single().Summary);
+            Assert.AreEqual(ApiLookupDetail.Full, asMember.Detail);
+
+            // A bare type name is an inventory request, and stays one. Detail is what lets a
+            // caller tell this from a signatures-only decision made for the other match.
+            Assert.IsNull(asType.Members.Single().Summary);
+            Assert.AreEqual(ApiLookupDetail.Signatures, asType.Detail);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupAsyncBudgetsWholeTypeResponsesAndPaginates()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -531,83 +689,6 @@ public sealed class ApiDocsQueryServiceTests
         }
     }
 
-    private static async Task<ApiDocsQueryService> CreateWidgetServiceAsync(string root)
-    {
-        var repository = Path.Combine(root, "origin");
-        var namespaceDirectory = Path.Combine(repository, "xml", "System");
-        Directory.CreateDirectory(namespaceDirectory);
-        await RunGitAsync(null, "init", "--initial-branch=main", repository);
-        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
-        await RunGitAsync(repository, "config", "user.name", "Tests");
-        await File.WriteAllTextAsync(Path.Combine(namespaceDirectory, "Widget.xml"), WidgetXml);
-
-        // A second type whose name also contains "Widget" so a search for that pattern has more
-        // than one match. lookup_api's exact-name resolution never matches this file, so it is
-        // invisible to every lookup test that shares this fixture; it exists so
-        // search_api("Widget", limit: 1) has a real page boundary to hand a cursor across, and it
-        // carries the structural shapes find_api_references reads — a base type, an interface, and
-        // parameters whose types are compound rather than bare.
-        await File.WriteAllTextAsync(Path.Combine(namespaceDirectory, "WidgetKit.xml"), WidgetKitXml);
-        await RunGitAsync(repository, "add", ".");
-        await RunGitAsync(repository, "commit", "-m", "docs");
-        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
-        var catalogPath = Path.Combine(root, "sources.json");
-        await WriteCatalogAsync(catalogPath, repository, pin);
-        var catalog = new SourceCatalog(catalogPath);
-        var cache = new SourceCache(Path.Combine(root, "cache"));
-        var synchronizer = new SourceSynchronizer(catalog, cache);
-        await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
-        return new ApiDocsQueryService(catalog, cache, synchronizer);
-    }
-
-    private static async Task WriteCatalogAsync(string path, string repository, string pin)
-    {
-        var document = new
-        {
-            schemaVersion = 1,
-            sources = new Dictionary<string, object>
-            {
-                ["dotnet-api-docs"] = new
-                {
-                    repository = "test/dotnet-api-docs",
-                    url = repository,
-                    pin,
-                    head = "main",
-                    sparse = new[] { "xml" },
-                    purpose = "Test API docs.",
-                },
-            },
-        };
-
-        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
-    }
-
-    private static async Task<string> RunGitAsync(string? workingDirectory, params string[] arguments)
-    {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "git",
-                WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            },
-        };
-
-        foreach (var argument in arguments)
-            process.StartInfo.ArgumentList.Add(argument);
-
-        process.Start();
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        Assert.AreEqual(0, process.ExitCode, $"git {string.Join(' ', arguments)} failed: {stderr}");
-        return stdout;
-    }
-
     [TestMethod]
     public async Task LookupAsyncReturnsBothTheNonGenericTypeAndItsGenericNamesake()
     {
@@ -651,13 +732,5 @@ public sealed class ApiDocsQueryServiceTests
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
-    }
-
-    private static void DeleteDirectory(string path)
-    {
-        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-            File.SetAttributes(file, FileAttributes.Normal);
-
-        Directory.Delete(path, recursive: true);
     }
 }

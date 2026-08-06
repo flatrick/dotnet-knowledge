@@ -20,10 +20,22 @@ public sealed record ApiMemberDocumentation(
     string? Returns,
     string? Remarks);
 
+/// <summary>
+/// Which reading of the requested symbol produced a match, and therefore how much of each member
+/// it carries. Without it a caller cannot tell a signatures-only answer from a signatures-only
+/// decision, because the two look identical in the payload.
+/// </summary>
+public static class ApiLookupDetail
+{
+    public const string Signatures = "signatures";
+    public const string Full = "full";
+}
+
 public sealed record ApiTypeDocumentation(
     string FullName,
     IReadOnlyList<ApiMemberDocumentation> Members,
-    SourceProvenance Source);
+    SourceProvenance Source,
+    string Detail);
 
 /// <summary>
 /// Why a lookup returned nothing. A type that does not exist and a member that does not exist need
@@ -44,9 +56,16 @@ public sealed record ApiLookupResult(
     bool IsPartial,
     string? NextPageToken);
 
+/// <param name="NamespaceDepth">
+/// How many namespace segments sit between the namespace the pattern named and the type — 0 for a
+/// type declared directly in it, 1 for one a namespace below, and so on. Present only on a
+/// <see cref="ApiNameMatch.Namespace"/> match, where it is the only thing separating "declared in
+/// this namespace" from "declared anywhere under it".
+/// </param>
 public sealed record ApiSearchItem(
     string Name,
     string MatchedOn,
+    int? NamespaceDepth,
     SourceProvenance Source);
 
 /// <summary>
@@ -91,15 +110,31 @@ public static class ApiReferenceKind
     public const string Return = "return";
     public const string Base = "base";
     public const string Interface = "interface";
+    public const string Constraint = "constraint";
+    public const string Attribute = "attribute";
 
-    public static readonly string[] All = [Parameter, Return, Base, Interface];
+    public static readonly string[] All = [Parameter, Return, Base, Interface, Constraint, Attribute];
 }
 
+/// <param name="AttributeType">
+/// The CLR name of the attribute an <c>attribute</c> hit's application applies —
+/// <c>System.ObsoleteAttribute</c> where <see cref="TypeExpression"/> carries the source spelling
+/// <c>[System.Obsolete("…")]</c>. Null on every other kind, where a type expression is already the
+/// identity it names.
+/// </param>
+/// <param name="IsExact">
+/// Whether the declaration names the type itself rather than an expression parameterized by it.
+/// A class implementing <c>IComparer&lt;string&gt;</c> is an <c>interface</c> hit for
+/// <c>System.String</c>; without this, telling that from a class implementing <c>System.String</c>
+/// means string-matching <see cref="TypeExpression"/> against the symbol in the caller.
+/// </param>
 public sealed record ApiReferenceHit(
     string Symbol,
     string Kind,
     string? ParameterName,
     string? TypeExpression,
+    string? AttributeType,
+    bool IsExact,
     string? Signature,
     SourceProvenance Source);
 
@@ -107,11 +142,34 @@ public sealed record ApiReferenceHit(
 /// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
 /// of references, and paginating them twenty at a time is a way of not saying so.
 /// </summary>
-public sealed record ApiReferenceTotals(int Parameter, int Return, int Base, int Interface);
+public sealed record ApiReferenceTotals(
+    int Parameter,
+    int Return,
+    int Base,
+    int Interface,
+    int Constraint,
+    int Attribute);
+
+/// <summary>
+/// What a query for the de-suffixed half of a colliding pair left out. C# spells an application of
+/// <c>FooAttribute</c> as <c>[Foo]</c>, so where a namespace holds both types those applications
+/// belong to the attribute and not to the class the caller named. Counting them under the class
+/// would be a wrong answer; excluding them without saying so would be a plausible absence, which is
+/// the failure this server exists to avoid.
+/// </summary>
+/// <param name="AttributeApplications">
+/// How many applications of <paramref name="SiblingType"/> were excluded, over the whole result set
+/// rather than the page.
+/// </param>
+public sealed record ApiReferenceNote(
+    string SiblingType,
+    int AttributeApplications,
+    string Remedy);
 
 public sealed record ApiReferenceResult(
     IReadOnlyList<ApiReferenceHit> Hits,
     ApiReferenceTotals Totals,
+    ApiReferenceNote? Note,
     bool IsPartial,
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);

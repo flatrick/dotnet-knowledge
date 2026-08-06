@@ -89,11 +89,11 @@ it gets the same treatment: the mainline `library` projects set no `MyType` at a
 `Compile Remove` the row, and the `my` projects set it and glob only that row.
 
 `Microsoft.NETFramework.ReferenceAssemblies` is carried by the net48 VB family's
-`Directory.Build.props` and by `CSharp_v8.0`, which that family references. Without it no `net48`
-SDK-style project in this repository builds on a machine with no .NET Framework targeting pack; it
-is the known prerequisite for building that half of the corpus off Windows. `MyType` is not
-obviously a second obstacle, since the `My` accessors resolve against `Microsoft.VisualBasic.dll`,
-which the same package supplies.
+`Directory.Build.props`, by `CSharpRefReturnLib`, which that family references, and by
+`CSharp_v8.0`. Without it no `net48` SDK-style project in this repository builds on a machine with
+no .NET Framework targeting pack; it is the known prerequisite for building that half of the corpus
+off Windows. `MyType` is not obviously a second obstacle, since the `My` accessors resolve against
+`Microsoft.VisualBasic.dll`, which the same package supplies.
 
 A pinned project is not an era emulation. The family props are unconditional, so the pin-11 net48
 project carries package and project references its `Baseline` rows never use. The pin constrains the
@@ -169,6 +169,24 @@ It multi-targets `net48;net10.0` because `ImportedFromTypeLibAttribute` does not
 `AllowUnsafeBlocks`, `EmbedInteropTypes` is a per-*reference* switch, so it does not change how the
 rest of the consuming project compiles — which is why this feature needs no separate project the way
 unsafe code does.
+
+### The ref-return support project
+
+`CSharpRefReturnLib` is the second support assembly, on the same terms: no feature examples, no
+target column. The VB 15 row *Consuming C# reference return values* needs a ref-returning method to
+call, and VB can call one but cannot declare one, so the subject has to come from C#. The net10
+family gets it from the BCL — `CollectionsMarshal.GetValueRefOrNullRef` — which has no net48
+backport, so the net48 family needs a C#-authored subject of its own.
+
+It is a dedicated assembly rather than a reference into the C# corpus because no corpus project
+fits. The obvious candidate is `CSharp_v7.0`, which owns the C# 7.0 *Ref returns and locals* row —
+but it is legacy non-SDK, so `dotnet build` cannot traverse to it and it cannot consume
+`Microsoft.NETFramework.ReferenceAssemblies` at all. The only reachable alternative is a cumulative
+SDK-style project that happens to contain the row, which couples a C# 7.0 subject to a C# 8.0
+coordinate and makes a corpus project double as a build dependency of the VB half.
+
+It targets `net48` alone, unlike `CSharpComTypeLib`: the net10 VB family references nothing here, so
+there is no second framework to serve.
 
 The net48 C# 8.0 project exists specifically because C# 8.0 shipped nullable reference types — a purely
 compile-time feature with no runtime dependency, so it behaves identically on net48 and net10. That
@@ -316,7 +334,7 @@ That sketch is the minimum. The three tables as authored extend it differently:
 
 | Table | Columns beyond the sketch |
 |---|---|
-| C# | `Note` |
+| C# | `Lowest accepted /langversion (evidence)`, `Note` |
 | VB baseline bucket | `Measured floor (evidence)` |
 | VB itemized per-version | `Measured floor (evidence)`, `Note` |
 
@@ -324,9 +342,22 @@ That sketch is the minimum. The three tables as authored extend it differently:
 is the lowest pin at which the row compiles, together with the `verify-feature-floors.cs` evidence
 tier that floor rests on (`native-ceiling`, `sdk-pin`, `none`). Keeping the two strengths of evidence
 distinguishable is that column's point — collapsing them into a bare number would present a fact
-about the installed SDK as a fact about the language. The C# table has no floor column: its
-`Target project(s)` column names ceiling projects and has not been extended to the
-per-`<LangVersion>` probe projects.
+about the installed SDK as a fact about the language.
+
+**The C# table's column is a different quantity and the two must never be merged.** VB's is
+placement-derived, which VB can state because every VB row is placed at every pin that compiles it;
+a C# project is a cumulative ceiling that places a row at and above its own version, so the same
+question answers "its own version" for nearly every row — the claim being checked rather than
+evidence for it. **Lowest accepted `/langversion` (evidence)** is probe-derived instead: the lowest
+rung at which the installed compiler still accepts the row's source, found by walking the ladder
+down, and always `sdk-pin` because a period compiler has one fixed ceiling and cannot be walked. It
+is populated only where the probe reaches — `CSharp/dotNetFramework/v4.8/CSharp_v*`, which tops out
+at C# 8.0.
+
+Restructuring the C# tree into per-pin placement to make a placement column derivable was considered
+and rejected. It would relocate 7 of 90 rows, two of them into positions a period compiler actively
+contradicts — a real C# 2.0 compiler rejects `Variance` with `CS0410`, a real C# 6.0 compiler rejects
+`GeneralizedAsyncReturnTypes` with `CS1983` — to obtain numbers the descent already produces.
 
 Every language-feature row is sourced from `Language-Version-History.md` (C#) or the Learn page +
 local spec (VB.NET). Every feature that ships must end up with a folder in at least one project, or
@@ -425,9 +456,12 @@ the SDK/TFM corpus matrix.
 These layers are complementary. A successful project build cannot establish a historical feature
 boundary or prove a comment about runtime behavior. Every project build still requires **0 errors
 and 0 warnings**. The build matrix discovers every SDK-style C# library project under
-`CSharp/dotnet/` and every VB project under `VB.NET/`; `CorpusProjectDiscoveryTests` holds the exact
-expected list, which is the count of record. The legacy `CSharp_v7.0` project needs Windows and
-Visual Studio's `MSBuild.exe`:
+`CSharp/dotnet/`, every project under `CSharp/dotNetFramework/`, and every VB project under
+`VB.NET/`; `CorpusProjectDiscoveryTests` holds the exact expected list, which is the count of
+record. `CSharp/dotNetFramework/` is two roots rather than one, because its two halves need
+different hosts: eleven legacy non-SDK projects build only under Windows and Visual Studio's
+`MSBuild.exe`, and the remaining three are SDK-style and build like the rest of the matrix. The
+legacy `CSharp_v7.0` project is representative:
 
 ```
 "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" \
@@ -438,9 +472,9 @@ Two distinct toolchain gaps sit behind that, and only the first is about the hos
 
 - **No net48 reference assemblies off Windows.** `dotnet build` against a net48 project on a Linux
   host fails with `MSB3644: reference assemblies for .NETFramework,Version=v4.8 were not found` —
-  a property of the host, not a defect in this corpus. Two places in the tree close it for
-  themselves: the VB net48 family's `Directory.Build.props` and `CSharp_v8.0` carry
-  `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
+  a property of the host, not a defect in this corpus. Three places in the tree close it for
+  themselves: the VB net48 family's `Directory.Build.props`, `CSharpRefReturnLib` and `CSharp_v8.0`
+  carry `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
   assemblies from a package. That is the whole set — `CSharp_v1.0-Unsafe` and `CSharp_v8.0-Unsafe`
   are SDK-style net48 as well and carry nothing, and a legacy non-SDK project cannot consume the
   package at all, because it consumes no package assets under `dotnet build` — which is the second
@@ -518,12 +552,19 @@ mixed static/instance candidate set, a "movable fixed buffer" sample that indexe
 parameter (a *fixed* variable, always legal), and a non-trailing-named-argument comment asserting a
 rule that a fully-named call has never been subject to. Each compiled clean at *N−1*.
 
-**Pinning to `ISO-1` or `ISO-2` needs `GenerateTargetFrameworkAttribute=false`.** The SDK generates
-an `AssemblyAttributes.cs` containing `[assembly: global::System.Runtime.Versioning.TargetFramework]`,
+**Pinning to C# 1.x needs `GenerateTargetFrameworkAttribute=false`.** The build generates an
+`AssemblyAttributes.cs` containing `[assembly: global::System.Runtime.Versioning.TargetFramework]`,
 and `global::` is a C# 2.0 construct, so every C# 1.x pin fails with `CS8022: Feature 'namespace
 alias qualifier' is not available in C# 1` no matter what the samples contain. The error names a
 generated file rather than a sample, which is the tell. Suppress the attribute and the pin reports
 only what the samples are responsible for.
+
+This is not confined to probes or to `ISO-1`/`ISO-2` spellings, and not to SDK-style projects:
+`Microsoft.Common.CurrentVersion.targets` generates the same file for a legacy non-SDK project.
+`CSharp_v1.0` is the tracked corpus project that proves it, and the way it stayed broken is the
+argument for the build layer existing at all — `verify-feature-floors.cs` compiles rows in isolation
+with `csc` and never builds the project, so it reported every one of that project's rows without
+complaint while the project itself did not build.
 
 Expect the failure code to vary by feature kind: a syntax addition yields `CS8320`/`CS8302`/`CS8370`/
 `CS8400`/`CS8773` ("feature is not available in C# N"), while a resolution-rule change such as
@@ -585,7 +626,7 @@ only gaps are VB 10 and VB 12; above it there is no native ceiling at all, becau
 highest one that exists. In practice the escalation settles exactly **one** distinct row of this
 corpus,
 `ConsumingCSharpRefReturnValues` — reported `UNGATED` at `native-ceiling`, because the VB 14 compiler
-rejects it with `BC30657`/`BC30643` while the modern compiler accepts it at `/langversion:14`. The
+rejects it with `BC30657`/`BC36954` while the modern compiler accepts it at `/langversion:14`. The
 reason the reach is that small is arithmetic, not a defect: a floor is probed against the rung
 *below* the row's own version, the corpus has no VB 10 or VB 12 rows, and VB 14 is the only native
 ceiling that lands one rung below a version this corpus files rows at. Every other VB floor rests on
@@ -595,7 +636,16 @@ number instead of publishing the number alone.
 
 Known probe-exempt rows, each verified to compile below its own version. The VB entries' floors are
 the measured ones — `dotnet scripts/verify-feature-floors.cs -- --language vb`, one row at a time,
-identical in both families:
+identical in both families.
+
+**This table is not the script's `EXEMPT` outcome, and the two must not be conflated.** This table
+lists every row whose `<LangVersion>` pin cannot gate it — the great majority of which the script
+*does* probe, and reports as `UNGATED` or `UNPROVEN` with a measured floor below the row's own
+version. The script's `EXEMPT` covers the narrower case where a floor probe cannot judge the row at
+all, so nothing is compiled: `LockStatement`, `EmbeddedInteropTypes` and the three VB 17.13
+consumption rows, which are listed with their reasons in `ExemptionReason` and in
+[`scripts/verify-feature-floors.md`](../../scripts/verify-feature-floors.md). Every row in *that*
+set appears here; most rows here are not in it.
 
 | Row | Version | Why the pin cannot gate it |
 |---|---|---|
@@ -612,8 +662,8 @@ identical in both families:
 | `ConsumingCSharpRefReturnValues` | VB 15 | Compiler behavior — compiles at 11 in both families, but the native VB 14 compiler rejects it, so the row is genuinely version-dependent and merely not `LangVersion`-gated |
 | `CommentsInMorePlaces` | VB 16.0 | Parser relaxation — compiles at 14 |
 | `OptimizedFloatToIntConversion` | VB 16.0 | An emit change; the results are identical, so nothing is observable — compiles at 11 |
-| `CallerArgumentExpressionConsumption` | VB 17.13 | Compiler behavior, not a language gate — compiles at 14 |
-| `OverloadResolutionPriorityConsumption` | VB 17.13 | Compiler behavior — compiles at 11 |
-| `UnmanagedConstraintRecognition` | VB 17.13 | Compiler behavior — the constraint is metadata VB 17.13 learned to honor, and no `LangVersion` value can gate a change with no syntax; compiles at 11 |
+| `CallerArgumentExpressionConsumption` | VB 17.13 | `EXEMPT`: metadata recognition, absent from the compilation the probe performs. Its own sources still floor at 14, on null-conditional access |
+| `OverloadResolutionPriorityConsumption` | VB 17.13 | `EXEMPT`: metadata recognition, absent from the compilation the probe performs — compiles at 11 |
+| `UnmanagedConstraintRecognition` | VB 17.13 | `EXEMPT`: the constraint is metadata VB 17.13 learned to honor, and no `LangVersion` value can gate a change with no syntax; compiles at 11 |
 
 `PrivateProtectedAccessModifier` is deliberately **not** in that table. It is gated, at 15.5.

@@ -66,15 +66,22 @@ MSBuild. The reference set for each probe comes from MSBuild rather than being h
 probe sees exactly the assemblies the real build sees. For VB the resolution also carries over the
 project's `Option Explicit`/`Strict`/`Infer`/`Compare` settings, its project-level `Imports`, and
 `FinalDefineConstants`; without them ordinary rows fail with `BC30209` and `BC30451`, which read
-exactly like version gating.
+exactly like version gating. It carries `RootNamespace` too, as `/rootnamespace:`, because a VB
+compilation prepends that to every declaration and a probe omitting it would compile the row in a
+different namespace than the project that ships it. **`csc` has no such switch** — in C# the
+property only seeds new-file templates — so the value is resolved for both languages and emitted
+only for VB.
 
-Exit code is **1** when any group is `MISPLACED` or `NOT-VERSION-SPECIFIC` — the two outcomes that
-mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
+Exit code is **1** when any group is `MISPLACED`, `UNDER-PLACED` or `NOT-VERSION-SPECIFIC` — the
+three outcomes that mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
 argument, an unrecognized `--language` value, no repo root, a non-Windows host, no Visual Studio
 MSBuild, no compiler beside it, or one of discovery's three fatal cases — the corpus root itself
 missing, no projects found under it with no `--project` filter given (C#'s message names the
 `CSharp_v*` directory pattern; VB's names the `.vbproj` extension), or a `--project` filter matching
-no project. Every other outcome is a finding about the toolchain's reach and exits 0.
+no project. A layout discovery cannot read is the same kind of failure and takes the same exit code:
+a `Compile` glob whose shape is not `<directory>/**/*.vb`, a source file at an unexpected depth
+under `src/`, or a version folder naming no ladder rung each print their own message and exit 2.
+Every other outcome is a finding about the toolchain's reach and exits 0.
 
 ## How a group is probed
 
@@ -125,6 +132,33 @@ that project's own reference set:
 treats every above-pin placement as a defect would delete exactly the evidence the ladder exists to
 record.
 
+### A row a project should claim and does not
+
+`MISPLACED` is only half of the placement invariant. `MANIFEST.md` states it in both directions: a
+project holds **every** row that compiles at its pin, and a row lives in its family's projects from
+its measured floor upward. Delete a `<Compile Include>` for a row placed below its own version and
+nothing noticed — the project still builds because it now compiles strictly less,
+`VbSourceCoverageTests` still passes because it asks only that *some* project compiles each file,
+and the floor probe still passed because it only ever classified rows a project already claims —
+while that row's **Measured floor** cell became false.
+
+So after a project's own rows are classified, a second pass compiles every row under its family's
+`src/` that the project neither claims nor `Compile Remove`s, at the project's pin. One that
+succeeds is `UNDER-PLACED`. A `Compile Remove` is excluded because it is a policy statement rather
+than an omission — it is what houses `MyNamespaceHelpers` in the `my/` projects.
+
+**VB only, and only the `library` kind.** A C# project owns its version folders on disk, so it has
+no shared tree to be under-claiming from. VB's `my/` kind exists to house the one row that needs
+`MyType=Windows`, a per-compilation switch that cannot be scoped to a folder; it claims that row and
+nothing else by construction, so the rest of `src/` being unclaimed there is the housing decision
+and not a defect.
+
+Cost is one compile per (unclaimed row, pin) pair: **77 compiles across the whole VB sweep**,
+measured at 0.136 s each because a row that fails at the pin fails fast — about 10 s on an 85 s run,
+inside the sweep's own run-to-run spread. It shrinks as pins rise, because a row claimed at one pin
+is claimed at every pin above it: 21 and 20 unclaimed rows at the two families' `11` pins, none at
+all from `16.9` upward.
+
 ## Outcomes
 
 | Outcome | Meaning | Fails the run |
@@ -133,6 +167,7 @@ record.
 | `UNGATED` | A period compiler rejects it but the current compiler does not. Genuine feature, unenforceable ceiling. | |
 | `NOT-VERSION-SPECIFIC` | A compiler predating the feature accepts the code. The example does not demonstrate its own row. | yes |
 | `MISPLACED` | A row above its project's pin that compiles at its own version but not at the pin. The project file is stale. | yes |
+| `UNDER-PLACED` | A row the project does not claim that nonetheless compiles at its pin. The `Compile Include` is missing, or the row's measured floor is wrong. VB `library` projects only. | yes |
 | `UNPROVEN` | No compiler exists here that can settle the boundary. | |
 | `BASELINE` | A row at the ladder's lowest rung — there is no lower version to test against. | |
 | `INCONCLUSIVE` | The probe hit a failure it cannot attribute to a language version — for example the group will not compile standalone, a period or gate compiler cannot process the group for a non-language reason (its reference-set or own-ceiling control failed), a row above its pin failed at both the pin and its own version, the group folder holds no source files of the probed language, or the pin or the row's own version has no `/langversion` spelling to compile at. This list is representative of the script's `INCONCLUSIVE` sites, not exhaustive. | |
@@ -149,10 +184,86 @@ claim, and reporting a floor without saying which produced it overstates the wea
 | `native-ceiling` | A compiler whose native ceiling is the rung below settled it. Does not drift as SDKs ship, and the only tier that can settle the question in *both* directions. |
 | `legacy-pin` | A compiler that does not top out at the rung below, held there with `/langversion` instead — always an in-box, pre-Roslyn `csc`, since this tier only ever fires for the C# 1.0 and 4.0 floors. (The C# 6 / VB 14 boundary is settled at its native ceiling by `Microsoft.Net.Compilers` 1.3.2 and never reaches this tier.) One-directional: a rejection settles it — version dependence proven; an acceptance settles nothing and reports `UNPROVEN`. C# only. |
 | `sdk-pin` | The installed SDK's compiler under `/langversion`, and nothing else. Says what today's toolchain gates — a fact that drifts. |
-| `none` | Nothing compiled here bears on the floor. |
+| `exempt` | The row is exempt from the floor probe, so no floor was measured and there is no evidence to tier. Every group exemption reports this. Distinct from `none`: the at-the-pin compile such a row may still have received speaks to its placement, not to its floor. |
+| `none` | Nothing compiled here bears on the floor. A bucket exemption stays here, because its own-version check did compile. |
 
 `MANIFEST.md`'s VB **Measured floor (evidence)** column is derived from this field, so a reader is
 never left to assume the stronger claim.
+
+## Lowest accepted `/langversion` — C# only
+
+A second quantity, measured alongside the outcome and reported apart from it. After the probe above
+has run, the ladder is walked **down** one spellable rung at a time until a rung rejects the row or
+the ladder bottoms out, and the lowest rung still accepted is reported. `--json` carries it as
+`LowestAcceptedLangVersion` and `LowestAcceptedLangVersionEvidence`; the console report lists the
+rows that go below their own version in a section of the same name.
+
+**It is not the outcome restated, and the two answer different questions.** The outcome asks whether
+anything in the row requires the version it is filed under, and a period compiler can settle that.
+This asks how far a `/langversion` pin can be lowered before *the installed compiler* complains —
+`sdk-pin` evidence by construction, because a period compiler has one fixed ceiling and cannot be
+walked down a ladder at all. The tier is carried anyway, to say out loud that the number drifts as
+SDKs ship. The two disagree on exactly the rows this script exists to find:
+`GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling — a real C# 6 compiler rejects it —
+while today's compiler accepts it as low as `/langversion:5`.
+
+| Reported | Meaning |
+|---|---|
+| a rung, `sdk-pin` | The installed compiler accepts the row there and rejects it one rung lower, or the ladder ran out. |
+| nothing, `exempt` | The row is exempt from the floor probe, so no descent was attempted. |
+| nothing at all | No rung could be measured: the row does not compile standalone, or it is a row above its project's pin that never reached the probe. |
+
+Cost is one compile per rung below the first, and only rows that *have* a rung below the first pay
+it — a row `GATED` one rung down ends the descent on the compile the probe already made. A row whose
+own version has no `/langversion` spelling still gets a descent from the rung below, which is what
+gives C# 1.2's `ForeachEnhancements` a rung despite its `UNPROVEN` outcome.
+
+**VB does not descend.** `MANIFEST.md`'s VB tables already carry a **Measured floor** column, and
+that column is *placement-derived* — the lowest pin whose project compiles the row. A second,
+differently-defined number printed beside it would be merged by the first reader who assumed one
+column had been duplicated, and there is nothing in the VB corpus consuming it. `--json` omits both
+fields entirely for VB rather than emitting nulls, so a VB run is byte-identical to one from before
+this measurement existed.
+
+## `--json`
+
+The payload is `periodCompilers`, `skippedProjects`, and `results`. Each result carries `Project`,
+`Ceiling`, `FeatureVersion`, `Group`, `Outcome`, `DiagnosticCode`, `Detail`, `Evidence`, and for C#
+the two `LowestAcceptedLangVersion*` fields.
+
+**`Detail` in `--json` is not the `Detail` the console prints.** Where the console quotes the
+compiler's own message, `--json` substitutes the bare diagnostic code:
+
+```
+console:  accepted at /langversion:ISO-1 by the modern compiler but rejected by the C# 2.0
+          compiler held to the same setting (error CS0410: Ingen överlagring för CreateCircle
+          har den korrekta parameter- och returtypen)
+
+--json:   "DiagnosticCode": "CS0410",
+          "Detail": "accepted at /langversion:ISO-1 by the modern compiler but rejected by the
+                     C# 2.0 compiler held to the same setting (CS0410)"
+```
+
+That is what makes the payload machine-independent. Four of the nine compilers keep the host's
+language, so prose in `--json` would make two machines disagree byte-for-byte on identical code —
+which silently voids the reproducibility [Limitations](#limitations) describes the serialized VB
+binding as protecting. **Nothing in classification changes**: `IsEnvironmentError` and
+`IsVbEnvironmentError` already match on codes and never on prose, and the code is what `MANIFEST.md`
+and this document quote.
+
+The substitution replaces the exact diagnostic substring the `Detail` embedded, so nothing parses
+the composed sentence — a message can contain parentheses of its own (`CS0246`'s "(are you missing a
+using directive…)") and any bracket-matching rule would eventually cut one in half. `Result` carries
+that substring in a required `Diagnostic` parameter rather than an optional one, so a new
+construction site that forgets it fails to compile instead of quietly leaking translated text.
+
+**A diagnostic the code pattern cannot name reports `DiagnosticCode: ""` and keeps its prose.** That
+covers two cases and is deliberate in both: a `Detail` that quotes no compiler at all — most of
+them, including every `BASELINE` and every exemption — and compiler output carrying no recognizable
+code, where dropping the text would leave the row with no description of its failure. The field is
+always present; `""` means "no code", never "not measured".
+
+The console report is unchanged and keeps whatever language the compiler emitted.
 
 ## Compilers
 
@@ -194,9 +305,17 @@ same reason as C# 4. Above 14 there is no native VB ceiling at all, because 14 i
 that ever shipped as a standalone binary. Floors at any of those rungs report `UNPROVEN`.
 
 **Features that live outside the source are invisible.** The probe compiles source files with
-`/reference:`. Anything expressed in the *build* rather than in the code cannot be seen: NoPIA
-embedding (`/link` with `EmbedInteropTypes`), `AllowUnsafeBlocks`, `OutputType` for top-level
-statements. `EmbeddedInteropTypes` is exempted for this reason.
+`/reference:`, always `/target:library` and never `/unsafe`. Anything expressed in the *build* rather
+than in the code cannot be seen: NoPIA embedding (`/link` with `EmbedInteropTypes`),
+`AllowUnsafeBlocks`, `OutputType` for top-level statements. `EmbeddedInteropTypes` is exempted for
+this reason; the unsafe rows report `INCONCLUSIVE` with `CS0227` and get no rung.
+
+The descent inherits that limit, and one of its numbers is a harness artifact because of it.
+`AsyncMain` reports a lowest accepted `/langversion` of 5.0: the C# 7.1 feature is an *entry point*
+signature, so under `/target:library` the gate never fires and what the descent actually measures is
+the async method body. The number is real about the compilation performed and says nothing about the
+row's feature — which is exactly why it is reported as a rung the compiler accepted rather than as a
+floor the row requires.
 
 **Compilation is not execution.** A row can compile identically on two compilers and still behave
 differently at runtime. This tool says nothing about behavior, and does not replace verifying by
@@ -210,15 +329,26 @@ verdict is "something in here requires version N", not "everything in here does"
 group, or on a compilation-wide switch, will not compile alone and lands in `INCONCLUSIVE` rather
 than being silently skipped.
 
-**Verdicts are cached by content.** The same row is held by several projects, and its floor is a
-property of the files rather than of the project holding them. Each distinct
+**Verdicts are cached by content**, and the lowest accepted `/langversion` is cached with them. The
+same row is held by several projects, and its floor is a property of the files rather than of the
+project holding them. Each distinct
 `(scope, version, file content)` triple is probed once and the verdict reused, so per-project rows in
-the report can be identical by construction. `scope` is meant to keep rows that share a reference set
-together: C# declares one scope for every project, and VB declares one per family and project kind,
+the report can be identical by construction. `scope` keeps rows that share a reference set together,
 because a net10 reference set and a net48 one can disagree about whether a row compiles at all, and
-the `my/` projects compile with `_MyType` defined. C#'s single scope is a declared value rather than
-a derived one — see the `Scope` limitation below. The above-pin check is deliberately *outside* the
-cache — whether a row compiles at a given pin is a property of the placement, not of the row.
+the `my/` projects compile with `_MyType` defined. It is **derived, not declared**: a SHA-256 of the
+project's sorted resolved reference paths, its conditional-compilation constants, and its compiler
+options — the inputs that decide whether a row compiles. `RootNamespace` is excluded on purpose even
+though the probe passes it, because it renames a row's declarations without bearing on whether they
+compile and differs at every pin by design; hashing it would give each pin its own scope and empty
+the cache. The above-pin check is deliberately *outside* the cache — whether a row compiles at a
+given pin is a property of the placement, not of the row.
+
+The price is that a project's reference resolution can no longer be deferred past its first cache
+read: the key names the reference set the verdict was measured against, so it has to be resolved
+before the lookup. Resolution still happens at most once per project, and not at all for a project
+with no row to classify, but a project whose every row is already cached now pays one MSBuild
+evaluation it used to skip. Discovering VB's projects in ascending pin order still pays — it saves
+the compiles, which dominate — it just no longer saves the resolution too.
 
 **Scope is the C# net48 tree and the whole VB corpus.** With `--language cs` only
 `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v*` is walked; the C# net10 projects
@@ -228,31 +358,32 @@ differently: a C# project directory holds its own version folders one group deep
 has one shared `src/` tree and each pinned project selects rows from it with `Compile Include` globs
 minus its `Compile Remove` globs. Reading those items is the only way to learn which rows a VB
 project actually compiles — honoring `Remove` is what keeps `MyNamespaceHelpers` attributed to the
-`my/` projects alone. A `Compile` glob that does not end in `**/*.vb` throws rather than being
-silently skipped.
+`my/` projects alone. A `Compile` glob that does not end in `**/*.vb` fails the run with exit 2
+rather than being silently skipped.
 
-**`--json` output is not reproducible run to run.** The `Detail` string for a row can vary between
-runs of unchanged code — `BC30643`, `BC30657`, and `BC36954` have all been observed for the same
-row, all genuine. The root cause is that Roslyn 1.3.2's `vbc` binds method bodies concurrently, so
-which of several real errors the probe encounters first varies per process. `Outcome` and `Evidence`
-are stable; only `Detail` varies, and today it reaches exactly one row. The consequence worth
-stating: **diffing two `--json` runs is not a valid regression technique.** Passing `/parallel-` on
-the probe's response file would settle this, at the cost of changing every compile in both
-languages.
+**VB probes serialize the compiler's binding, C# probes do not.** Roslyn's `vbc` binds method bodies
+concurrently, so which of several genuine errors a rejection reported first varied per process and
+the `Detail` string in `--json` was irreproducible — `BC30643`, `BC30657` and `BC36954` were all
+observed for the same row, all real. The VB branch of the response file therefore carries
+`/parallel-`, which makes the reported diagnostic stable without changing any `Outcome` or
+`Evidence`. Measured cost: about 5% on a whole VB run.
 
-**The `floorCache`'s `Scope` key is a declared claim, not a derived one.** It exists so a row probed
-under one project's reference set is never reused for a project with a different one. For VB it
-holds: `familyName|kind`, and reference sets are props-driven and identical within each family and
-kind. For C# every `CSharp_v*` project declares `Scope: ""`, even though they do not share a
-reference set — `CSharp_v8.0` is SDK-style with different packages, `CSharp_v1.0-Unsafe` and
-`CSharp_v8.0-Unsafe` declare no explicit references at all, and four of the eleven non-SDK projects
-carry no `<ProjectReference>` to `CSharpComTypeLib` while the rest do. The cache key is
-`Scope|Version|HashFiles(files)`, and every corpus project's copy of a row declares that project's
-own namespace as the row's first namespace segment, so no two C# projects ever hold byte-identical
-sources for the same row — no C# row ever lands on a shared cache entry, and `Scope: ""` is
-currently inert. That holds because of the per-project namespace rule, not because the projects
-above share anything; deriving `Scope` from the resolved reference set instead of declaring it
-would close the gap without depending on it.
+Two gates on that, both load-bearing. **Roslyn only** — `/parallel` predates nothing older, so the
+in-box `csc` rejects it with `CS2007` and exits 1, and the in-box `vbc` answers with command line
+warning `BC2007`, which would then be the first diagnostic line the report picks up on a toolchain
+whose severity words the probe cannot match by spelling. **VB only** — the rotation has only ever
+been observed in VB, C#'s `--json` is reproducible as it stands, and serializing every C# probe
+would cost runtime for no measured gain. Two `--json` runs of unchanged code are now byte-identical
+in both languages, so diffing them *is* a valid regression technique.
+
+**Four of the nine compilers cannot be forced to English, which is why `--json` carries codes rather
+than prose.** `/preferreduilang:en-US` reaches the two modern compilers and the two in
+`Microsoft.Net.Compilers` 1.3.2, plus the in-box `csc` at `v4.0.30319` — five of the nine. The
+in-box `csc` at `v2.0.50727` and `v3.5` reject the switch outright, the in-box `vbc` at `v3.5` and
+`v4.0.30319` ignore it, and no environment variable reaches a compiler binary at all. The console report
+therefore prints whatever language those five emit — on a sv-SE host, the `CS0410` behind the
+`Variance` row's C# 2.0 legacy pin is Swedish, and stays Swedish. See
+[`docs/gotchas.md`](../docs/gotchas.md) for the per-compiler table.
 
 ## Exemptions
 
@@ -263,10 +394,11 @@ Some rows cannot be judged by a floor probe for reasons inherent to the row. The
 |---|---|---|
 | `LockStatement` | `lock` shipped in C# 1.0. The corpus files it under C# 3.0 to mirror its source document's section placement, which `MANIFEST.md`'s Note column records. An older compiler accepting it is the expected result. | group |
 | `EmbeddedInteropTypes` | NoPIA is a property of the reference, not the source. The feature is absent from the compilation the probe performs, so no compiler version can reveal it. | group |
+| `CallerArgumentExpressionConsumption`, `OverloadResolutionPriorityConsumption`, `UnmanagedConstraintRecognition` (VB 17.13) | One category. Each demonstrates the compiler honoring metadata a C# assembly emitted, and VB can express none of the three in source, so the feature is absent from the compilation the probe performs and no compiler version can reject it. Verified: all three compile on the 2016 native VB 14 compiler. A gated construct elsewhere in such a row — `CallerArgumentExpressionConsumption` uses null-conditional access, so VB 11 rejects it with `BC36716` — fixes a floor for that row's own sources and still says nothing about the 17.13 feature. | group |
 | `Baseline` (VB) | The bucket spans VS.NET 2002 to VS2012 and the upstream sources give no per-version attribution below VB 14, so no single previous-version pin is meaningful for it. | bucket |
 
 The two shapes differ. A **group** exemption says the probe cannot see the feature at all, so nothing
-is compiled and the evidence is `none`. A **bucket** exemption says the bucket has no single previous
+is compiled and the evidence is `exempt`. A **bucket** exemption says the bucket has no single previous
 version to test against; the sources still have to stand on their own, so step 1 still runs — VB's
 `Baseline` rows are compiled at VB 11, the highest rung the bucket can contain, and a failure there
 reports `INCONCLUSIVE` rather than `EXEMPT`.
@@ -295,6 +427,17 @@ These details are load-bearing and easy to reintroduce as bugs:
   toolchain reproduces an exact severity match, and falls back to matching any `CS`/`BC` code only
   when no line matches at all — which is what a localized in-box compiler produces. `CS` codes are
   four digits; `BC` codes run four or five, so the pattern must allow both.
+- **`/preferreduilang` is gated per compiler binary, never on `IsRoslyn` and never on the language.**
+  Compilers that honor it get `/preferreduilang:en-US` in their response file; the switch is honored
+  from inside one, unlike `/noconfig`. The in-box `csc` gains it at `v4.0.30319` and answers
+  `fatal error CS2007` with exit 1 below that; no in-box `vbc` implements it at any version —
+  including `v4.0.30319`'s, sitting beside the `csc` that does — and each answers command line
+  warning `BC2007` instead. Both exclusions manufacture verdicts: the first fails every compile, the
+  second puts a warning ahead of the real error for the first-diagnostic scan to find.
+  `HonorsPreferredUiLanguage` on `ProbeCompiler` carries the measurement per binary, and
+  `InBoxCompilers` declares it per entry. The Roslyn compilers are sent it even though they already
+  print English on a machine with no localized satellites installed for them — that is a fact about
+  the machine, not about the compiler.
 - **VB's compiler switches differ in spelling.** `vbc` rejects `/nostdlib+` with `BC2007`; the switch
   carries no trailing sign in VB. And under `/nostdlib` the compiler does not supply the VB runtime
   itself, so `Microsoft.VisualBasic.dll` has to be named explicitly with `/vbruntime:` or every probe

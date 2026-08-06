@@ -33,7 +33,101 @@ public sealed class CorpusProjectDiscoveryTests
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/unsafe/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/exe/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/dotNetFramework/", StringComparison.Ordinal)));
+        // The two support assemblies are not corpus projects and hold no feature rows. They sit
+        // beside the corpus roots rather than inside one, and CorpusProjectBuildTests builds them
+        // as shared references instead — so a discovery that reached them would build each twice.
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/CSharpComTypeLib/", StringComparison.Ordinal)));
+        Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/CSharpRefReturnLib/", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void FindSdkStyleNetFrameworkProjectsReturnsTheThreeSdkStyleProjectsInTheLegacyTree()
+    {
+        var repositoryRoot = RepositoryRoot();
+        CorpusProject[] expected =
+        [
+            // Two of the three carry AllowUnsafeBlocks. This root takes them anyway: /unsafe is a
+            // per-compilation switch, so the net48 tree houses those rows in their own project
+            // rather than in a separate kind beside a library.
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v1.0-Unsafe/CSharp_v1.0-Unsafe.csproj", "net48", "1"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v8.0-Unsafe/CSharp80Unsafe.csproj", "net48", "8.0"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v8.0/CSharp80.csproj", "net48", "8.0")
+        ];
+
+        var actual = CorpusProjectDiscovery.FindSdkStyleNetFrameworkProjects(repositoryRoot).ToArray();
+
+        CollectionAssert.AreEqual(expected, actual);
+        Assert.AreEqual(3, actual.Length);
+    }
+
+    [TestMethod]
+    public void FindLegacyNetFrameworkProjectsReturnsTheElevenNonSdkProjects()
+    {
+        var repositoryRoot = RepositoryRoot();
+        CorpusProject[] expected =
+        [
+            // A legacy project names its framework with TargetFrameworkVersion, so the coordinate
+            // reads v4.8 rather than net48. CSharp_v7.1-async_main is an Exe and is here for the
+            // same reason the unsafe projects are above: it is a project the corpus authored, and
+            // OutputType does not change what a build gate checks.
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v1.0/CSharp_v1.0.csproj", "v4.8", "1"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v2.0/CSharp_v2.0.csproj", "v4.8", "2"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v3.0/CSharp30.csproj", "v4.8", "3"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v4.0/CSharp40.csproj", "v4.8", "4"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v5.0/CSharp50.csproj", "v4.8", "5.0"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v6.0/CSharp60.csproj", "v4.8", "6.0"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj", "v4.8", "7.0"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.1-async_main/CSharp7.1-async_main.csproj", "v4.8", "7.1"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.1/CSharp71.csproj", "v4.8", "7.1"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.2/CSharp72.csproj", "v4.8", "7.2"),
+            new("examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.3/CSharp73.csproj", "v4.8", "7.3")
+        ];
+
+        var actual = CorpusProjectDiscovery.FindLegacyNetFrameworkProjects(repositoryRoot).ToArray();
+
+        CollectionAssert.AreEqual(expected, actual);
+        Assert.AreEqual(11, actual.Length);
+    }
+
+    [TestMethod]
+    public void TheNetFrameworkTreeIsCoveredByExactlyOneOfTheTwoNetFrameworkRoots()
+    {
+        var repositoryRoot = RepositoryRoot();
+        var netFrameworkRoot = Path.Combine(
+            repositoryRoot, "examples", "language-features", "CSharp", "dotNetFramework");
+
+        var onDisk = Directory
+            .EnumerateFiles(netFrameworkRoot, "*.csproj", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+
+        var covered = CorpusProjectDiscovery.FindSdkStyleNetFrameworkProjects(repositoryRoot)
+            .Concat(CorpusProjectDiscovery.FindLegacyNetFrameworkProjects(repositoryRoot))
+            .Select(project => project.RepositoryRelativePath)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+
+        CollectionAssert.AreEqual(onDisk, covered);
+        Assert.AreEqual(14, covered.Length);
+    }
+
+    [TestMethod]
+    public void FindAllSdkStyleProjectsIsTheThreeRootsCombined()
+    {
+        var repositoryRoot = RepositoryRoot();
+
+        var actual = CorpusProjectDiscovery.FindAllSdkStyleProjects(repositoryRoot);
+
+        CollectionAssert.AreEqual(
+            CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot)
+                .Concat(CorpusProjectDiscovery.FindSdkStyleNetFrameworkProjects(repositoryRoot))
+                .Concat(CorpusProjectDiscovery.FindSdkStyleVbProjects(repositoryRoot))
+                .ToArray(),
+            actual.ToArray());
+        Assert.AreEqual(34, actual.Count);
     }
 
     [TestMethod]

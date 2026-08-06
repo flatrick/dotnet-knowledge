@@ -9,18 +9,7 @@ file when the item is resolved; `git log` is the record.
 | Item | Area | Why it is deferred |
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
-| [`lookup_api`'s detail level is decided across sources](lookup-api-detail-level-is-decided-across-sources.md) | server | Unreachable with the two configured sources, whose namespace trees are disjoint |
-| [`lookup_api` reports `not_found` at the last page boundary](lookup-api-reports-not-found-at-the-last-page-boundary.md) | server | Unreachable without a hand-constructed cursor; `search_api` is already correct here |
-| [`find_api_references` omits generic constraints and attribute usages](find-api-references-omits-constraints-and-attributes.md) | server | Adding them wants new `kind` values, which is a payload decision |
-| [`find_api_references` reports a parameterized base or interface as if it were the type](api-reference-kind-does-not-separate-exact-from-parameterized.md) | server | The payload already carries the answer in `typeExpression`; the fix is a convenience field |
-| [`search_api` cannot ask for one namespace without its descendants](search-api-has-no-exact-namespace-query.md) | server | The descendant reading is the right default and no answer is wrong today |
-| [`sync_source`'s progress notifications have never been observed](sync-source-progress-is-unverified.md) | server | The sync itself works; the notification is advisory |
-| [Under-placement is unguarded](under-placement-is-unguarded.md) | corpus, tooling | Needs a new probe outcome; the tree is correct today |
-| [The floor cache's scope key is unverified](floor-cache-scope-is-unverified.md) | tooling | Pre-existing; safe only by coincidence |
-| [Probe detail strings are nondeterministic](probe-detail-is-nondeterministic.md) | tooling | Fix changes every compile in both languages |
+| [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
+| [The `exe` and `unsafe` projects under `CSharp/dotnet/` are in no build matrix](csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md) | corpus, tests | The exclusion is deliberate and asserted, but no recorded decision says why; the parallel net48 case was settled the other way |
+| [A net48 row cannot carry a runtime claim](net48-rows-cannot-carry-a-runtime-claim.md) | corpus, tests | Extending the marker roots is cheap; whether a net48 case is runnable at all is the open part |
 | [Glob resolution is implemented twice](glob-resolution-is-implemented-twice.md) | tooling, tests | The two agree; sharing code across the boundary is not possible |
-| [UnmanagedConstraintRecognition may need an exemption](unmanaged-constraint-recognition-exemption.md) | corpus | A corpus decision, not a tooling one |
-| [The corpus build matrix dominates suite runtime](corpus-build-matrix-runtime.md) | tests | Tolerable today |
-| [The probe omits RootNamespace](probe-omits-rootnamespace.md) | tooling | No current row is affected |
-| [VbRows throws instead of exiting](vbrows-throws-instead-of-exiting.md) | tooling | Only reachable through a malformed layout |
-| [C# has no measured-floor column](csharp-has-no-measured-floor-column.md) | corpus | Requires the C# tree to adopt per-pin placement first |

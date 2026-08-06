@@ -82,12 +82,14 @@ Smoke-testing the server over stdio needs a redirected-process driver, not a she
 
 ### Building corpus projects
 
-SDK-style projects (`CSharp/dotnet/10/latest/*`, the VB projects) build with `dotnet build`. The
-net48 C# projects are **legacy non-SDK XML and need Visual Studio's `MSBuild.exe` on Windows**:
+SDK-style projects (`CSharp/dotnet/10/latest/*`, the VB projects, and three of the fourteen net48 C#
+projects — `CSharp_v1.0-Unsafe`, `CSharp_v8.0`, `CSharp_v8.0-Unsafe`) build with `dotnet build`. The
+other eleven net48 C# projects are **legacy non-SDK XML and need Visual Studio's `MSBuild.exe` on
+Windows**:
 
 ```bash
 # vswhere lives at "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe";
-# scripts/verify-feature-floors.cs locates MSBuild the same way.
+# scripts/verify-feature-floors.cs and CorpusProjectBuildTests locate MSBuild the same way.
 vswhere -latest -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe"
 MSBuild.exe examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj -t:Restore;Build
 ```
@@ -96,6 +98,12 @@ MSBuild.exe examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/C
 a non-SDK project consumes package assets through NuGet targets that ship with VS, not with the
 SDK. It fails with `CS0246` on `Span` and `ValueTask` and says nothing about the toolchain, so it
 reads as a broken sample.
+
+`CorpusProjectBuildTests` builds both halves. The legacy half runs through `MSBuild.exe` and reports
+inconclusive — naming the `vswhere` path it inspected — when Visual Studio is absent; every other
+row runs through the repository-private host. `MSBuild.exe -v:minimal` prints no
+`0 Warning(s)`/`0 Error(s)` summary at all, unlike `dotnet build -v:minimal`, so that half also
+passes `-clp:Summary`.
 
 ## The corpus
 
@@ -107,6 +115,7 @@ examples/language-features/
   CSharp/dotnet/10/latest/{exe,library,unsafe}/        # SDK-style net10.0
   CSharp/dotNetFramework/v4.8/CSharp_v1.0 … CSharp_v8.0   # non-SDK net48, one pinned <LangVersion> each
   CSharp/CSharpComTypeLib/                            # support assembly for the NoPIA row, not a corpus project
+  CSharp/CSharpRefReturnLib/                          # support assembly for the net48 VB ref-return row, not a corpus project
   VB.NET/dotnet/Net10/                                # src/ + a project per pin
   VB.NET/dotNetFramework/v4.8/                        # src/ + a project per pin, plus the my/ kind
   MANIFEST.md                                         # the index and completion oracle
@@ -149,22 +158,28 @@ needs removing.
 `docs/design/language-feature-showcase-design.md` has the applicability rule and the rest of the
 reasoning.
 
-**`CSharp_v8.0` and the eleven net48 VB projects carry `Microsoft.NETFramework.ReferenceAssemblies`**
-— the VB ones through their family's `Directory.Build.props`. Those projects, and only those, build
-with no machine-installed .NET Framework targeting pack. The net48 VB family project-references
-`CSharp_v8.0` for its ref-return subject, which is why both halves need it. `CSharp_v1.0-Unsafe` and
-`CSharp_v8.0-Unsafe` are SDK-style net48 too and carry nothing of the kind; the legacy non-SDK C#
-net48 projects stay Windows-only regardless, because they need Visual Studio's `MSBuild.exe`.
+**`CSharp_v8.0`, `CSharpRefReturnLib` and the eleven net48 VB projects carry
+`Microsoft.NETFramework.ReferenceAssemblies`** — the VB ones through their family's
+`Directory.Build.props`. Those projects, and only those, build with no machine-installed .NET
+Framework targeting pack. The net48 VB family project-references `CSharpRefReturnLib` for its
+ref-return subject, which is why both halves need it. `CSharp_v1.0-Unsafe` and `CSharp_v8.0-Unsafe`
+are SDK-style net48 too and carry nothing of the kind; the legacy non-SDK C# net48 projects stay
+Windows-only regardless, because they need Visual Studio's `MSBuild.exe`.
 
 ### Rules that are load-bearing
 
 - **Verification has three layers:** project builds prove validity at a declared SDK/TFM/language
   coordinate; isolated compilation cases prove positive and negative feature boundaries; runtime
   cases prove comments that assert observable behavior.
-- **Every project build requires 0 errors AND 0 warnings.** `TreatWarningsAsErrors` is inherited
-  from the root `Directory.Build.props` specifically so this layer is mechanical. Never add a
-  `#pragma warning disable` to get past a warning, and do not override the property in the corpus
-  subtree.
+- **Every project build requires 0 errors AND 0 warnings.** `TreatWarningsAsErrors` and
+  `MSBuildTreatWarningsAsErrors` are both inherited from the root `Directory.Build.props`
+  specifically so this layer is mechanical.
+  The pair is what makes the exit code sufficient: `TreatWarningsAsErrors` reaches the compilers and
+  NuGet, `MSBuildTreatWarningsAsErrors` reaches MSBuild's own `MSB####` warnings, and without the
+  second a build carrying one still exits 0.
+  Never add a `#pragma warning disable` to get past a warning, and do not override either property
+  in the corpus subtree.
+  `scripts/Directory.Build.props` resets both, because a dev script is not gated content.
 - **An older TFM does not select its historical compiler.** SDK 10 targeting an older TFM uses SDK
   10's compiler against the older reference pack. Keep SDK, TFM, `LangVersion`, and runtime
   execution as separate case inputs.
@@ -179,11 +194,25 @@ net48 projects stay Windows-only regardless, because they need Visual Studio's `
   `/langversion:5`, `Variance` (C# 2.0) at `ISO-1`. `scripts/verify-feature-floors.cs` settles these
   by escalating to compilers at a *native* ceiling — the in-box `%WINDIR%\Microsoft.NET\Framework64`
   csc for C# 2/3/5, `Microsoft.Net.Compilers` 1.3.2 for C# 6. C# 4 and C# 1.x have no compiler on a
-  modern machine, so those floors report `UNPROVEN` rather than a guess. `MISPLACED` and
-  `NOT-VERSION-SPECIFIC` fail the run; every other outcome is a finding about the toolchain.
-  Every verdict also carries an `evidence` field — `native-ceiling`, `legacy-pin`, `sdk-pin`, `none`
-  — because a floor settled by the installed SDK under `/langversion` is a fact about today's
-  toolchain and drifts, while one settled at a native ceiling does not.
+  modern machine, so those floors report `UNPROVEN` rather than a guess. `MISPLACED`,
+  `NOT-VERSION-SPECIFIC` and `UNDER-PLACED` fail the run; every other outcome is a finding about the
+  toolchain. Every verdict also carries an `evidence` field — `native-ceiling`, `legacy-pin`,
+  `sdk-pin`, `exempt`, `none` — because a floor settled by the installed SDK under `/langversion` is
+  a fact about today's toolchain and drifts, while one settled at a native ceiling does not, and a
+  row no compiler version could ever speak to is a third thing again.
+- **The C# half measures a second, separate quantity, and `MANIFEST.md`'s two version columns must
+  never be merged.** After classifying a row the probe walks the ladder *down* until a rung rejects
+  it, and reports the lowest rung the installed compiler still accepts — `MANIFEST.md`'s C#
+  **Lowest accepted `/langversion`** column, `LowestAcceptedLangVersion` in `--json`. VB's
+  **Measured floor** is placement-derived (the lowest pin whose project compiles the row) and VB does
+  not descend at all. The two disagree on exactly the rows the probe exists to find:
+  `GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling, so a real C# 6 compiler rejects it,
+  while today's compiler accepts it at `/langversion:5`. The descent is `sdk-pin` evidence and can be
+  nothing else — a period compiler has one fixed ceiling and cannot be walked down a ladder.
+- **`UNDER-PLACED` is the converse of `MISPLACED`.** A project holds *every* row that compiles at
+  its pin, so a row it could build and does not claim is as much a defect as one it claims and
+  cannot build. The check compiles each unclaimed `src/` row at the pin; VB only, because C#
+  projects own their rows on disk rather than globbing a shared tree.
 - **`MISPLACED` means a stale project file, not a row filed above its pin.** A project deliberately
   holds every row that compiles at its pin, so sitting above the pin is the corpus's model rather
   than an error. The probe compiles such a row at the pin first: accepted, it goes through the normal
@@ -195,9 +224,11 @@ net48 projects stay Windows-only regardless, because they need Visual Studio's `
   report `UNPROVEN`, and nothing above VB 14 has a native ceiling at all. In practice that reaches
   exactly one row of this corpus — `ConsumingCSharpRefReturnValues`, `UNGATED` at `native-ceiling`.
   Every other VB floor rests on `sdk-pin` or on nothing.
-- **Pinning an SDK-style project to `ISO-1`/`ISO-2` needs `GenerateTargetFrameworkAttribute=false`**
-  — the SDK's generated `AssemblyAttributes.cs` uses `global::`, so every C# 1.x era probe otherwise
-  reports a phantom `CS8022`.
+- **Pinning any project to C# 1.x needs `GenerateTargetFrameworkAttribute=false`** — the generated
+  `AssemblyAttributes.cs` uses `global::`, so every C# 1.x era probe otherwise reports a phantom
+  `CS8022`. This is not an SDK-only hazard, and `ISO-1`/`ISO-2` are not the only spellings that hit
+  it: `Microsoft.Common.CurrentVersion.targets` generates the same file for a legacy non-SDK
+  project, which is how `CSharp_v1.0` sat broken while every probe of its rows reported clean.
 - **Both net48 C# project families need an explicit `Microsoft.CSharp` reference** for the C# 4.0
   `dynamic` row. That failure is `CS0656` at *emit*, so any earlier binding error in the project
   hides it entirely.

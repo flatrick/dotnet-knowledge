@@ -1,8 +1,8 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
+using static DotNetKnowledge.Mcp.Tests.Features.ApiDocs.ApiDocsFixture;
 
 namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 
@@ -10,24 +10,6 @@ namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 public sealed class ApiDocsToolTests
 {
     private static readonly string[] ExpectedResolvedTypes = ["System.Widget"];
-
-    private const string WidgetXml = """
-        <Type Name="Widget" FullName="System.Widget">
-          <Members>
-            <Member MemberName="Create">
-              <MemberSignature Language="C#" Value="public static System.Widget Create(string name);" />
-              <Parameters><Parameter Name="name" Type="System.String" /></Parameters>
-              <ReturnValue><ReturnType>System.Widget</ReturnType></ReturnValue>
-              <Docs>
-                <summary>Creates a widget.</summary>
-                <param name="name">The widget name.</param>
-                <returns>The new widget.</returns>
-                <remarks>Names are case-sensitive.</remarks>
-              </Docs>
-            </Member>
-          </Members>
-        </Type>
-        """;
 
     [TestMethod]
     public async Task LookupApiNamesTheRequiredSyncWhenSourceIsMissing()
@@ -119,6 +101,161 @@ public sealed class ApiDocsToolTests
     }
 
     [TestMethod]
+    public async Task LookupApiReturnsAnEmptyPageWhenACursorLandsExactlyAtTheEnd()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+            var whole = await service.LookupAsync(
+                "Widget", "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
+
+            // Paging runs over one flat member sequence, with a placeholder slot for a type
+            // carrying no members, so this is the offset one past the last page's last item.
+            var end = whole.Matches.Sum(match => Math.Max(1, match.Members.Count));
+            var pin = (await RunGitAsync(Path.Combine(root, "origin"), "rev-parse", "HEAD")).Trim();
+            var atTheEnd = ApiDocsQueryService.EncodeCursor(
+                "lookup", "Widget", end, [$"test/dotnet-api-docs@pinned@{pin}"]);
+
+            var json = await ApiDocsTool.LookupApi(
+                "Widget",
+                service,
+                CancellationToken.None,
+                "dotnet-api-docs",
+                cursor: atTheEnd);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.IsFalse(
+                document.RootElement.TryGetProperty("error", out var error),
+                $"a valid cursor at the end of the result set is an empty page, not {error}.");
+            Assert.IsEmpty(document.RootElement.GetProperty("matches").EnumerateArray().ToArray());
+            Assert.IsFalse(document.RootElement.GetProperty("isPartial").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindApiReferencesSaysWhetherAHitIsTheTypeItselfOrAParameterizationOfIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var json = await ApiDocsTool.FindApiReferences(
+                "System.String",
+                service,
+                CancellationToken.None,
+                source: "dotnet-api-docs",
+                limit: 100);
+
+            using var document = JsonDocument.Parse(json);
+            var hits = document.RootElement.GetProperty("hits").EnumerateArray().ToArray();
+            var bare = hits
+                .Where(hit => hit.GetProperty("typeExpression").GetString() == "System.String")
+                .ToArray();
+            var compound = hits
+                .Where(hit => hit.GetProperty("typeExpression").GetString() != "System.String")
+                .ToArray();
+
+            Assert.IsNotEmpty(bare);
+            Assert.IsNotEmpty(compound);
+            Assert.IsTrue(bare.All(hit => hit.GetProperty("isExact").GetBoolean()));
+            Assert.IsFalse(compound.Any(hit => hit.GetProperty("isExact").GetBoolean()));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindApiReferencesCarriesTheResolvedAttributeTypeAndNamesAnExcludedSibling()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateAttributeSiblingServiceAsync(root);
+
+            var found = await ApiDocsTool.FindApiReferences(
+                "System.WidgetSealAttribute",
+                service,
+                CancellationToken.None,
+                kind: ApiReferenceKind.Attribute,
+                source: "dotnet-api-docs",
+                limit: 100);
+
+            using var foundDocument = JsonDocument.Parse(found);
+            var hit = foundDocument.RootElement.GetProperty("hits").EnumerateArray().Single();
+            Assert.AreEqual("[System.WidgetSeal]", hit.GetProperty("typeExpression").GetString());
+            Assert.AreEqual("System.WidgetSealAttribute", hit.GetProperty("attributeType").GetString());
+
+            // The note exists so an exclusion is never silent, so it has to survive serialization.
+            var excluded = await ApiDocsTool.FindApiReferences(
+                "System.WidgetTrait",
+                service,
+                CancellationToken.None,
+                source: "dotnet-api-docs",
+                limit: 100);
+
+            using var excludedDocument = JsonDocument.Parse(excluded);
+            var note = excludedDocument.RootElement.GetProperty("note");
+            Assert.AreEqual("System.WidgetTraitAttribute", note.GetProperty("siblingType").GetString());
+            Assert.AreEqual(1, note.GetProperty("attributeApplications").GetInt32());
+            StringAssert.Contains(note.GetProperty("remedy").GetString(), "find_api_references");
+
+            // Absent rather than null on the kinds and the queries that have nothing to say, which
+            // is what keeps the field free on every other response.
+            var parameterHit = excludedDocument.RootElement.GetProperty("hits")
+                .EnumerateArray()
+                .Single(item => item.GetProperty("kind").GetString() == ApiReferenceKind.Parameter);
+            Assert.IsFalse(parameterHit.TryGetProperty("attributeType", out _));
+            Assert.IsFalse(foundDocument.RootElement.TryGetProperty("note", out _));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchApiSaysHowFarBelowTheNamedNamespaceEachMatchSits()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var json = await ApiDocsTool.SearchApi("System", service, CancellationToken.None, limit: 100);
+
+            using var document = JsonDocument.Parse(json);
+            var items = document.RootElement.GetProperty("items")
+                .EnumerateArray()
+                .ToDictionary(item => item.GetProperty("name").GetString()!, item => item);
+
+            // Both readings are returned, as they must be, but a caller wanting only what is
+            // declared in System itself cannot otherwise express it.
+            Assert.AreEqual(0, items["System.Widget"].GetProperty("namespaceDepth").GetInt32());
+            Assert.AreEqual(1, items["System.Widgets.Gadget"].GetProperty("namespaceDepth").GetInt32());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupApiReturnsInvalidCursorForAMalformedCursor()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -149,80 +286,4 @@ public sealed class ApiDocsToolTests
         }
     }
 
-    private static async Task<ApiDocsQueryService> CreateWidgetServiceAsync(string root)
-    {
-        var repository = Path.Combine(root, "origin");
-        var namespaceDirectory = Path.Combine(repository, "xml", "System");
-        Directory.CreateDirectory(namespaceDirectory);
-        await RunGitAsync(null, "init", "--initial-branch=main", repository);
-        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
-        await RunGitAsync(repository, "config", "user.name", "Tests");
-        await File.WriteAllTextAsync(Path.Combine(namespaceDirectory, "Widget.xml"), WidgetXml);
-        await RunGitAsync(repository, "add", ".");
-        await RunGitAsync(repository, "commit", "-m", "docs");
-        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
-        var catalogPath = Path.Combine(root, "sources.json");
-        await WriteCatalogAsync(catalogPath, repository, pin);
-        var catalog = new SourceCatalog(catalogPath);
-        var cache = new SourceCache(Path.Combine(root, "cache"));
-        var synchronizer = new SourceSynchronizer(catalog, cache);
-        await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
-        return new ApiDocsQueryService(catalog, cache, synchronizer);
-    }
-
-    private static async Task WriteCatalogAsync(string path, string repository, string pin)
-    {
-        var document = new
-        {
-            schemaVersion = 1,
-            sources = new Dictionary<string, object>
-            {
-                ["dotnet-api-docs"] = new
-                {
-                    repository = "test/dotnet-api-docs",
-                    url = repository,
-                    pin,
-                    head = "main",
-                    sparse = new[] { "xml" },
-                    purpose = "Test API docs.",
-                },
-            },
-        };
-
-        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
-    }
-
-    private static async Task<string> RunGitAsync(string? workingDirectory, params string[] arguments)
-    {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "git",
-                WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            },
-        };
-
-        foreach (var argument in arguments)
-            process.StartInfo.ArgumentList.Add(argument);
-
-        process.Start();
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        Assert.AreEqual(0, process.ExitCode, $"git {string.Join(' ', arguments)} failed: {stderr}");
-        return stdout;
-    }
-
-    private static void DeleteDirectory(string path)
-    {
-        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-            File.SetAttributes(file, FileAttributes.Normal);
-
-        Directory.Delete(path, recursive: true);
-    }
 }

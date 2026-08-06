@@ -24,6 +24,77 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · The net48 VB ref-return subject comes from a support assembly, not a corpus project
+
+`CSharpRefReturnLib` is a dedicated SDK-style net48 support assembly supplying `RefSamples.Find` and
+`RefSamples.ReplaceInPlace`, referenced by the net48 VB family's `Directory.Build.props`; a support
+assembly is registered in six places — the project, `CorpusProjectBuildTests`'s
+`SharedProjectReferences`, `CorpusProjectDiscoveryTests`'s not-discovered assertion,
+`verify-project-namespaces.cs`'s exemption list, `CLAUDE.md`'s tree, and `MANIFEST.md`.
+Rejected: retargeting to `CSharp_v7.0`, which actually owns the C# 7.0 row — it is legacy non-SDK,
+so `dotnet build` cannot traverse to it and it cannot consume
+`Microsoft.NETFramework.ReferenceAssemblies` at all. Also rejected: keeping the reference on
+`CSharp_v8.0`, which made a corpus project double as a build dependency, coupled a C# 7.0 subject to
+a C# 8.0 coordinate, and forced `[ClassInitialize]` to publish its prebuild result into
+`MatrixBuilds` to avoid rebuilding an assembly nine VB projects were reading concurrently.
+`CSharp_v8.0` now has no dependents, that special case is gone, and all 915 VB floor-probe verdicts
+are byte-identical across the change.
+
+### 2026-08-06 · The legacy net48 projects get a second runner, not an exemption
+
+The eleven legacy non-SDK C# projects are now a fourth discovery root built through Visual Studio's
+`MSBuild.exe`, located with the same `vswhere` query `scripts/verify-feature-floors.cs` uses; a host
+without Visual Studio reports them inconclusive and names the path it inspected.
+Rejected: recording that `verify-feature-floors.cs` already verifies them. It compiles rows in
+isolation and never builds the project, and `CSharp_v1.0` is the proof — every one of its rows
+probed clean while the project failed to build at all. A verification that cannot see a total build
+failure is not verification of the build.
+Cost measured: 17.3 s for all eleven serially, and +2 s on the suite once they share the matrix's
+existing concurrency (1 m 56 s → 1 m 58 s).
+
+### 2026-08-06 · The zero-warning gate is closed at the build, not in the assertion
+
+`TreatWarningsAsErrors` reaches the compilers and NuGet but not MSBuild's own `MSB####` warnings, so
+a build carrying one exited 0 and only `CorpusCompilationTests`/`CorpusRuntimeTests` matching the
+substring `"warning "` caught it — a word `verify-feature-floors.cs` already treats as localized.
+Rejected: rewriting those assertions to match diagnostic codes, which leaves the exit code lying and
+has to be repeated in every future harness; `MSBuildTreatWarningsAsErrors=true` at the root makes the
+exit code sufficient regardless of locale, and the substring assertions stay as belt and braces.
+Measured before changing anything: zero `MSB####` and zero `NU####` warnings across both solutions
+and all 53 corpus projects, so closing the gate cost nothing.
+`scripts/Directory.Build.props` resets it as it already resets `TreatWarningsAsErrors` — a dev script
+is not gated content, and an environmental `MSB####` must not stop every `verify-*` script running.
+
+### 2026-08-06 · C# gets a probe-derived column, not a per-pin restructure
+
+A sweep of the whole C# ladder (90 distinct rows, 1,022 compiles) found 7 rows compiling below the
+pin that houses them, and the placement and probe readings disagreeing on exactly one —
+`EmbeddedInteropTypes`, over a `ProjectReference` rather than a language rule.
+Rejected: restructuring the C# tree into per-pin placement, which relocates those 7 rows, two of them
+into positions a period compiler actively contradicts (`CS0410` for `Variance`, `CS1983` for
+`GeneralizedAsyncReturnTypes`), to obtain numbers one extra descent in `verify-feature-floors.cs`
+already produces.
+The column is named **Lowest accepted `/langversion`** and never "floor", because VB's is
+placement-derived and a shared name would make one column false for both.
+
+### 2026-08-06 · A query for `Foo` excludes `FooAttribute`'s applications and names the sibling
+
+ECMA XML spells an attribute application in C# short form, so 78 of 617 attribute types collide with
+a de-suffixed sibling in the same namespace. Unioning the two readings was rejected: it inflates the
+`attribute` total with hits belonging to a different type, and any caller filtering on `kind` alone
+gets a wrong count. Excluding them silently was rejected as a plausible absence. The response
+therefore carries a `note` naming the sibling, its application count, and the call that reaches it —
+the shape `lookup_api`'s `member_not_found` envelope already uses.
+
+### 2026-08-06 · The corpus build matrix keeps `-t:Rebuild` and gains parallelism instead
+
+Dropping `-t:Rebuild` was rejected on correctness: over an unchanged tree a plain build logs
+`Skipping target "CoreCompile" because all output files are up-to-date` and still reports 0 warnings
+and 0 errors — a green gate that compiled nothing. Deleting each output directory first is sound but
+saved only 10% (125.1 s against 138.8 s). Prebuilding the two shared references
+(`CSharpComTypeLib`, `CSharp_v8.0`) and building the matrix concurrently behind them took the suite
+from ~157 s to ~55 s while keeping the clean-compile guarantee.
+
 ### 2026-08-06 · Whole-corpus scans stay uncached
 
 `search_api_text` and `find_api_references` re-read every XML file in every selected source on every

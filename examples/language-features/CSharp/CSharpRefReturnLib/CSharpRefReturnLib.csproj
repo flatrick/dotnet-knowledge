@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CSharpRefReturnLib</RootNamespace>
+    <!--
+      net48 only, because the one consumer is the net48 VB family. The net10 VB family's form of
+      the same row consumes CollectionsMarshal.GetValueRefOrNullRef from the BCL and references
+      nothing here, so there is no second target framework to serve.
+    -->
+    <TargetFramework>net48</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Supplies the net48 reference assemblies so this project builds without a machine-installed
+         .NET Framework targeting pack. PrivateAssets keeps it out of the compile surface. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

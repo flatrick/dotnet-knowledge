@@ -52,6 +52,35 @@ family's nine `library.vbproj` files `Compile Remove`s the row. The net10 family
 they build without a machine-installed .NET Framework targeting pack. The net48 VB family
 project-references `CSharp_v8.0` for its ref-return subject, so both halves need the package.
 
+**The C# and VB tables carry different measurements, and merging them would make one column that is
+false for both.** C#'s **Lowest accepted `/langversion`** is *probe-derived*: the lowest rung at which
+the installed compiler still accepts the row's own source, found by walking the ladder down until a
+rung rejects it. VB's **Measured floor** is *placement-derived*: the lowest pin whose project
+compiles the row, which VB can state because every VB row is placed at every pin that compiles it.
+Both come from `dotnet scripts/verify-feature-floors.cs`, which reports the first under that name and
+emits it as `LowestAcceptedLangVersion` in `--json`.
+
+The two answer different questions, and on the rows the probe exists to find they disagree.
+`GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling — a real C# 6.0 compiler rejects it
+with `CS1983` — while today's compiler accepts it down at `/langversion:5`. **A number in the C#
+column is therefore never a claim that the feature existed at that version.** It is how far a
+`/langversion` pin can be lowered before today's compiler complains, and nothing more; the version a
+row is filed under is the Version column, sourced as every other row is.
+
+The C# cell vocabulary:
+
+- `<rung> (sdk-pin)` — measured. Always `sdk-pin`, never a stronger tier: a period compiler has one
+  fixed ceiling and cannot be walked down a ladder, so none is consulted and the number drifts as
+  SDKs ship.
+- `— (exempt)` — the row is `EXEMPT` from the floor probe, so no rung was measured at all.
+- `— (unmeasured)` — the probe reached the row and could not compile it standalone, so it has no
+  rung. Every one of these is an `/unsafe` row: the probe compiles `/target:library` and never passes
+  `/unsafe`, so they fail with `CS0227` before any language version is in question.
+- `— (not probed)` — outside the tree the probe walks. It covers
+  `CSharp/dotNetFramework/v4.8/CSharp_v*` and nothing else, and that tree tops out at C# 8.0, so
+  every C# 9.0-and-later row is here.
+- `—` — the row names no group folder, so there is no source to compile.
+
 **The Measured floor column is probed, not asserted.** It names the lowest pin at which the row
 compiles, and in parentheses the kind of evidence that floor rests on, in the vocabulary
 `dotnet scripts/verify-feature-floors.cs -- --language vb` emits:
@@ -60,6 +89,11 @@ compiles, and in parentheses the kind of evidence that floor rests on, in the vo
   not drift as SDKs ship.
 - `sdk-pin` — only the installed SDK's compiler under `/langversion` bears on the floor. That is a
   fact about today's toolchain rather than about the language, and it drifts as SDKs ship.
+- `exempt` — the row is `EXEMPT` from the floor probe, so no floor was measured and there is no
+  evidence to tier. The three VB 17.13 consumption rows are here: each demonstrates the compiler
+  honoring metadata a C# assembly emitted, VB can express none of them in source, and no compiler
+  version can reject a feature absent from the compilation. Their floor number is still the lowest
+  pin that holds the row, which is what makes it a placement fact rather than a probe result.
 - `none` — nothing the probe compiled bears on a floor. Every `Baseline` row is here: the bucket is
   `EXEMPT` from the floor probe because it spans VS.NET 2002 to VS2012, and `11` is the ladder's
   lowest rung in any case.
@@ -88,6 +122,12 @@ never appears in a target column. It exists so the *Embedded interop types (NoPI
 from something: NoPIA is a property of a reference rather than a source construct, so demonstrating
 it needs an assembly marked `[assembly: ImportedFromTypeLib]` to reference with
 `EmbedInteropTypes="true"`.
+
+**`CSharpRefReturnLib` is a support assembly too**, on the same terms. It exists so the VB 15
+*Consuming C# reference return values* row has a subject on net48: VB can call a ref-returning
+method but cannot declare one, and `CollectionsMarshal.GetValueRefOrNullRef` — the net10 form's
+subject — has no net48 backport. It is a support assembly rather than a reference into the C#
+corpus so that no corpus project doubles as a build dependency of the VB half.
 
 **A blank "Excluded from" cell is the common case, not an omission.** When a row's "Target
 project(s)" cell leaves out a project, and no reason is given, the convention is that the omission is
@@ -146,177 +186,177 @@ The two families keep separate `src/` trees because four rows genuinely diverge:
 
 ## C#
 
-| Version | Feature(s) | Group folder | Target project(s) | Excluded from (reason) | Source | Note |
-|---|---|---|---|---|---|---|
-| C# 1.0 | Classes, Structs, Enums | `ClassesStructsEnums` | Fw73, Fw80, Latest | | Language-Version-History.md § C# 1.0 | |
-| C# 1.0 | Interfaces | `Interfaces` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Events, Delegates | `EventsAndDelegates` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Operator overloading, user-defined conversion operators | `OperatorOverloading` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Properties, Indexers | `PropertiesAndIndexers` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Output parameters (out/ref), params arrays | `ParameterModifiers` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | using statement, goto statement | `ControlFlowStatements` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Preprocessor directives | `Preprocessor` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Unsafe code and pointers | `UnsafeCodeAndPointers` | Fw80Unsafe, Net10Unsafe | Fw73, Fw80, Latest (policy: needs `/unsafe`, housed in the `*Unsafe` projects) | § C# 1.0 | |
-| C# 1.0 | Attributes | `Attributes` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Literals, verbatim identifiers, unsigned integer types, expressions | `LiteralsAndExpressions` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.0 | Boxing and unboxing | `Boxing` | Fw73, Fw80, Latest | | § C# 1.0 | |
-| C# 1.2 | Dispose in foreach, foreach over string specialization | `ForeachEnhancements` | Fw73, Fw80, Latest | | § C# 1.2 | |
-| C# 2.0 | Generics | `Generics` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Partial types | `PartialTypes` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Anonymous methods | `AnonymousMethods` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Iterators (yield) | `Iterators` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Nullable value types | `NullableValueTypes` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Getter/setter separate accessibility | `PropertyAccessorAccessibility` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Method group conversions, delegate inference | `DelegateInferenceAndConversions` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Static classes | `StaticClasses` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 2.0 | Type and namespace aliases | `NamespaceAndTypeAliases` | Fw73, Fw80, Latest | | § C# 2 | The source document files using-alias directives under C# 2.0, but they shipped in C# 1.0; what C# 2.0 genuinely added is the `global::`/`::` qualifier and extern aliases. |
-| C# 2.0 | Covariance and contravariance | `Variance` | Fw73, Fw80, Latest | | § C# 2 | |
-| C# 3.0 | Implicitly typed locals (`var`) | `ImplicitlyTypedLocals` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Object and collection initializers | `ObjectCollectionInitializers` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Auto-implemented properties | `AutoImplementedProperties` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Anonymous types | `AnonymousTypes` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Extension methods | `ExtensionMethods` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Query expressions (LINQ) | `Linq` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Lambda expressions | `LambdaExpressions` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Expression trees | `ExpressionTrees` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Partial methods | `PartialMethods` | Fw73, Fw80, Latest | | § C# 3 | |
-| C# 3.0 | Lock statement | `LockStatement` | Fw73, Fw80, Latest | | § C# 3 | The source document files this under C# 3.0, but the `lock` statement shipped in C# 1.0 (ECMA-334 1st edition). csharplang commit `f4b11176` split C# 1.0's catch-all "Statements" bullet into named statements, moving `using` and `goto` into C# 1.0 and landing `lock` in the C# 3 list; its link targets the general `lock` reference page, not a C# 3 change note. |
-| C# 4.0 | Dynamic binding | `DynamicBinding` | Fw73, Fw80, Latest | | § C# 4 | |
-| C# 4.0 | Named and optional arguments | `NamedAndOptionalArguments` | Fw73, Fw80, Latest | | § C# 4 | |
-| C# 4.0 | Co/contra-variance for generic delegates/interfaces | `GenericDelegateVariance` | Fw73, Fw80, Latest | | § C# 4 | |
-| C# 4.0 | Embedded interop types (NoPIA) | `EmbeddedInteropTypes` | Fw73, Fw80, Latest | | § C# 4 | |
-| C# 5.0 | Asynchronous methods | `AsyncAwait` | Fw73, Fw80, Latest | | § C# 5 | |
-| C# 5.0 | Caller info attributes | `CallerInfoAttributes` | Fw73, Fw80, Latest | | § C# 5 | |
-| C# 5.0 | foreach loop variable per-iteration scoping | `ForeachLoopVariableScope` | Fw73, Fw80, Latest | | § C# 5 | |
-| C# 6.0 | `using static` | `UsingStatic` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | Exception filters | `ExceptionFilters` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | Await in catch/finally | `AwaitInCatchFinally` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | Auto property initializers, default values for getter-only properties | `AutoPropertyInitializers` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | Expression-bodied members | `ExpressionBodiedMembers` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | Null-conditional operator | `NullConditionalOperator` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | String interpolation | `StringInterpolation` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | `nameof` operator | `NameOfOperator` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 6.0 | Dictionary initializer | `DictionaryInitializer` | Fw73, Fw80, Latest | | § C# 6 | |
-| C# 7.0 | Out variables | `OutVariables` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Pattern matching (`is` type pattern) | `PatternMatching70` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Tuples, deconstruction | `TuplesAndDeconstruction` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Discards | `Discards` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Local functions | `LocalFunctions` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Binary literals, digit separators | `NumericLiteralImprovements` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Ref returns and locals | `RefReturnsAndLocals` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Generalized async return types | `GeneralizedAsyncReturnTypes` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | More expression-bodied members | `ExpressionBodiedMembersExtended` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.0 | Throw expressions | `ThrowExpressions` | Fw73, Fw80, Latest | | § C# 7.0 | |
-| C# 7.1 | Async main | `AsyncMain` | Fw73, Fw80, Latest | | § C# 7.1 | |
-| C# 7.1 | Default literal expressions | `DefaultLiteralExpressions` | Fw73, Fw80, Latest | | § C# 7.1 | |
-| C# 7.1 | Inferred tuple element names | `InferredTupleElementNames` | Fw73, Fw80, Latest | | § C# 7.1 | |
-| C# 7.1 | Pattern matching with generics | `GenericPatternMatching` | Fw73, Fw80, Latest | | § C# 7.1 | |
-| C# 7.1 | Reference assemblies | — | | Fw73, Fw80, Latest (compiler/tooling output feature, not a source-level construct) | § C# 7.1 | |
-| C# 7.2 | Span and ref-like types | `SpanAndRefLikeTypes` | Fw73*, Fw80 (needs `System.Memory`), Latest | | § C# 7.2 | |
-| C# 7.2 | In parameters, readonly references | `InParametersReadonlyReferences` | Fw73, Fw80, Latest | | § C# 7.2 | |
-| C# 7.2 | Ref conditional expressions | `RefConditionalExpressions` | Fw73, Fw80, Latest | | § C# 7.2 | |
-| C# 7.2 | Non-trailing named arguments | `NonTrailingNamedArguments` | Fw73, Fw80, Latest | | § C# 7.2 | |
-| C# 7.2 | Private protected accessibility | `PrivateProtectedAccessibility` | Fw73, Fw80, Latest | | § C# 7.2 | |
-| C# 7.2 | Digit separator after base specifier | `DigitSeparatorAfterBaseSpecifier` | Fw73, Fw80, Latest | | § C# 7.2 | |
-| C# 7.3 | `unmanaged`/`Enum`/`Delegate` constraints | `ExtendedGenericConstraints` | Fw73, Fw80, Latest | | § C# 7.3 | |
-| C# 7.3 | Ref local reassignment | `RefLocalReassignment` | Fw73, Fw80, Latest | | § C# 7.3 | |
-| C# 7.3 | Stackalloc initializers (Span) | `StackallocInitializers` | Fw73*, Fw80 (needs `System.Memory`), Latest | | § C# 7.3 | |
-| C# 7.3 | Indexing movable fixed buffers | `FixedBufferIndexing` | Fw80Unsafe, Net10Unsafe | Fw73, Fw80, Latest (policy: needs `/unsafe`, housed in the `*Unsafe` projects) | § C# 7.3 | |
-| C# 7.3 | Custom `fixed` statement (pattern-based) | `CustomFixedStatement` | Fw80Unsafe, Net10Unsafe | Fw73, Fw80, Latest (policy: needs `/unsafe`, housed in the `*Unsafe` projects) | § C# 7.3 | |
-| C# 7.3 | Improved overload candidates | `OverloadResolutionImprovements73` | Fw73, Fw80, Latest | | § C# 7.3 | |
-| C# 7.3 | Expression variables in initializers/queries | `ExpressionVariablesInInitializers` | Fw73, Fw80, Latest | | § C# 7.3 | |
-| C# 7.3 | Tuple comparison | `TupleEquality` | Fw73, Fw80, Latest | | § C# 7.3 | |
-| C# 7.3 | Attributes on backing fields | `BackingFieldAttributes` | Fw73, Fw80, Latest | | § C# 7.3 | |
-| C# 8.0 | Nullable reference types | `NullableReferenceTypes` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Default interface members | `DefaultInterfaceMembers` | Latest | Fw80 (CS8701/CS8703 — target runtime doesn't support default interface implementation; net48 doesn't advertise `RuntimeFeature.DefaultImplementationsOfInterfaces`; verified via `dotnet build` probe) | § C# 8.0 | |
-| C# 8.0 | Recursive patterns, switch expressions | `RecursivePatternsSwitchExpressions` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Async streams (`await foreach`/`await using`, async iterators) | `AsyncStreams` | Fw80 (needs `Microsoft.Bcl.AsyncInterfaces`), Latest | | § C# 8.0 | |
-| C# 8.0 | Enhanced `using` declarations | `EnhancedUsingDeclarations` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Ranges and indexes | `RangesAndIndexes` | Latest | Fw80 (`System.Index`/`System.Range` have no official net48 backport package — CS0518/CS0656 confirmed via probe even with `System.Memory` referenced) | § C# 8.0 | |
-| C# 8.0 | Null-coalescing assignment | `NullCoalescingAssignment` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Static local functions | `StaticLocalFunctions` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Unmanaged generic structs | `UnmanagedGenericStructs` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Readonly members | `ReadonlyMembers` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Stackalloc in nested contexts | `StackallocNestedContexts` | Fw80 (needs `System.Memory`), Latest | | § C# 8.0 | |
-| C# 8.0 | Alternative interpolated verbatim strings (`@$"..."`) | `AlternativeInterpolatedVerbatimStrings` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | Obsolete on property accessors | `ObsoleteOnPropertyAccessors` | Fw80, Latest | | § C# 8.0 | |
-| C# 8.0 | `is null` on unconstrained type parameter | `IsNullOnUnconstrainedTypeParameter` | Fw80, Latest | | § C# 8.0 | |
-| C# 9.0 | Records, `with` expressions | `RecordsAndWithExpressions` | Latest | | § C# 9.0 | |
-| C# 9.0 | Init-only setters | `InitOnlySetters` | Latest | | § C# 9.0 | |
-| C# 9.0 | Top-level statements | `TopLevelStatements` | Net10Exe | Fw73, Fw80, Latest (capability: the feature requires an executable compilation — a library is rejected with `CS8805`) | § C# 9.0 | |
-| C# 9.0 | Pattern matching enhancements (relational, combinator, parenthesized, type patterns) | `PatternMatchingEnhancements9` | Latest | | § C# 9.0 | |
-| C# 9.0 | Native sized integers (`nint`/`nuint`) | `NativeSizedIntegers` | Latest | | § C# 9.0 | |
-| C# 9.0 | Function pointers | `FunctionPointers` | Net10Unsafe | Latest (policy: needs `/unsafe`, housed in `Net10Unsafe`) | § C# 9.0 | |
-| C# 9.0 | `[SkipLocalsInit]` | `SkipLocalsInit` | Net10Unsafe | Latest (policy: needs `/unsafe` despite being an attribute rather than a pointer construct — CS0227 confirmed via probe; housed in `Net10Unsafe`) | § C# 9.0 | |
-| C# 9.0 | Target-typed `new` expressions | `TargetTypedNewExpressions` | Latest | | § C# 9.0 | |
-| C# 9.0 | Static anonymous functions | `StaticAnonymousFunctions` | Latest | | § C# 9.0 | |
-| C# 9.0 | Target-typed conditional expressions | `TargetTypedConditionalExpressions` | Latest | | § C# 9.0 | |
-| C# 9.0 | Covariant return types | `CovariantReturnTypes` | Latest | | § C# 9.0 | |
-| C# 9.0 | Lambda discard parameters | `LambdaDiscardParameters` | Latest | | § C# 9.0 | |
-| C# 9.0 | Attributes on local functions | `AttributesOnLocalFunctions` | Latest | | § C# 9.0 | |
-| C# 9.0 | Module initializers | `ModuleInitializers` | Latest | | § C# 9.0 | |
-| C# 9.0 | Extension `GetEnumerator` | `ExtensionGetEnumerator` | Latest | | § C# 9.0 | |
-| C# 9.0 | Partial methods with returned values | `PartialMethodsWithReturnedValues` | Latest | | § C# 9.0 | |
-| C# 9.0 | Source generators | — | | Latest (requires a separate analyzer/generator project, not a single-file example; out of scope for this corpus) | § C# 9.0 | |
-| C# 10.0 | Record structs, `with` on structs/anonymous types | `RecordStructsAndWithExpressions` | Latest | | § C# 10.0 | |
-| C# 10.0 | Global using directives | `GlobalUsingDirectives` | Latest | | § C# 10.0 | |
-| C# 10.0 | Improved definite assignment | `ImprovedDefiniteAssignment` | Latest | | § C# 10.0 | |
-| C# 10.0 | Constant interpolated strings | `ConstantInterpolatedStrings` | Latest | | § C# 10.0 | |
-| C# 10.0 | Extended property patterns | `ExtendedPropertyPatterns` | Latest | | § C# 10.0 | |
-| C# 10.0 | Sealed record `ToString` | `SealedRecordToString` | Latest | | § C# 10.0 | |
-| C# 10.0 | Incremental source generators | — | | Latest (tooling/generator-pipeline feature, same reasoning as C# 9.0 source generators) | § C# 10.0 | |
-| C# 10.0 | Mixed deconstructions | `MixedDeconstructions` | Latest | | § C# 10.0 | |
-| C# 10.0 | Method-level `AsyncMethodBuilder` | `MethodLevelAsyncMethodBuilder` | Latest | | § C# 10.0 | |
-| C# 10.0 | `#line` span directive | `LineSpanDirective` | Latest | | § C# 10.0 | |
-| C# 10.0 | Lambda improvements (attributes, return types, natural delegate type) | `LambdaImprovements` | Latest | | § C# 10.0 | |
-| C# 10.0 | Interpolated string handlers | `InterpolatedStringHandlers` | Latest | | § C# 10.0 | |
-| C# 10.0 | File-scoped namespaces | `FileScopedNamespaces` | Latest | | § C# 10.0 | |
-| C# 10.0 | Parameterless struct constructors | `ParameterlessStructConstructors` | Latest | | § C# 10.0 | |
-| C# 10.0 | `CallerArgumentExpression` | `CallerArgumentExpression` | Latest | | § C# 10.0 | |
-| C# 11.0 | Raw string literals | `RawStringLiterals` | Latest | | § C# 11.0 | |
-| C# 11.0 | UTF-8 string literals | `Utf8StringLiterals` | Latest | | § C# 11.0 | |
-| C# 11.0 | Pattern match `Span<char>` on constant string | `SpanCharPatternMatching` | Latest | | § C# 11.0 | |
-| C# 11.0 | Newlines in interpolations | `NewlinesInInterpolations` | Latest | | § C# 11.0 | |
-| C# 11.0 | List patterns | `ListPatterns` | Latest | | § C# 11.0 | |
-| C# 11.0 | File-local types | `FileLocalTypes` | Latest | | § C# 11.0 | |
-| C# 11.0 | Ref fields, `scoped`, `[UnscopedRef]` | `RefFields` | Latest | | § C# 11.0 | |
-| C# 11.0 | Required members | `RequiredMembers` | Latest | | § C# 11.0 | |
-| C# 11.0 | Static abstract members in interfaces | `StaticAbstractMembersInInterfaces` | Latest | | § C# 11.0 | |
-| C# 11.0 | Unsigned right-shift operator | `UnsignedRightShiftOperator` | Latest | | § C# 11.0 | |
-| C# 11.0 | `checked` user-defined operators | `CheckedUserDefinedOperators` | Latest | | § C# 11.0 | |
-| C# 11.0 | Relaxed shift operator requirements | `RelaxedShiftOperatorRequirements` | Latest | | § C# 11.0 | |
-| C# 11.0 | Numeric IntPtr | `NumericIntPtr` | Latest | | § C# 11.0 | |
-| C# 11.0 | Auto-default structs | `AutoDefaultStructs` | Latest | | § C# 11.0 | |
-| C# 11.0 | Generic attributes | `GenericAttributes` | Latest | | § C# 11.0 | |
-| C# 11.0 | Extended `nameof` scope in attributes | `ExtendedNameofScopeInAttributes` | Latest | | § C# 11.0 | |
-| C# 12.0 | Collection expressions | `CollectionExpressions` | Latest | | § C# 12.0 | |
-| C# 12.0 | Primary constructors | `PrimaryConstructors` | Latest | | § C# 12.0 | |
-| C# 12.0 | Inline arrays | `InlineArrays` | Latest | | § C# 12.0 | |
-| C# 12.0 | Using aliases for any type | `UsingAliasesForAnyType` | Latest | | § C# 12.0 | |
-| C# 12.0 | Ref readonly parameters | `RefReadonlyParameters` | Latest | | § C# 12.0 | |
-| C# 12.0 | `nameof` accessing instance members | `NameofAccessingInstanceMembers` | Latest | | § C# 12.0 | |
-| C# 12.0 | Lambda optional parameters | `LambdaOptionalParameters` | Latest | | § C# 12.0 | |
-| C# 13.0 | `\e` ESC escape sequence | `EscEscapeSequence` | Latest | | § C# 13.0 | |
-| C# 13.0 | Method group natural type improvements | `MethodGroupNaturalTypeImprovements` | Latest | | § C# 13.0 | |
-| C# 13.0 | `Lock` object | `LockObject` | Latest | | § C# 13.0 | |
-| C# 13.0 | Implicit indexer access in object initializers | `ImplicitIndexerInObjectInitializers` | Latest | | § C# 13.0 | |
-| C# 13.0 | `params` collections | `ParamsCollections` | Latest | | § C# 13.0 | |
-| C# 13.0 | `ref`/`unsafe` in iterators/async | `RefUnsafeInIteratorsAsync` | Net10Unsafe | Latest (policy: needs `/unsafe`, housed in `Net10Unsafe`) | § C# 13.0 | |
-| C# 13.0 | `ref struct` interfaces, `allows ref struct` | `RefStructInterfaces` | Latest | | § C# 13.0 | |
-| C# 13.0 | Overload resolution priority | `OverloadResolutionPriority` | Latest | | § C# 13.0 | |
-| C# 13.0 | Partial properties | `PartialProperties` | Latest | | § C# 13.0 | |
-| C# 13.0 | Better conversion from collection expression element | `BetterConversionFromCollectionExpressionElement` | Latest | | § C# 13.0 | |
-| C# 14.0 | Extension methods and properties | `ExtensionMethodsAndProperties` | Latest | | § C# 14.0 | |
-| C# 14.0 | Extension operators | `ExtensionOperators` | Latest | | § C# 14.0 | |
-| C# 14.0 | `field` keyword in properties | `FieldKeywordInProperties` | Latest | | § C# 14.0 | |
-| C# 14.0 | Partial events and constructors | `PartialEventsAndConstructors` | Latest | | § C# 14.0 | |
-| C# 14.0 | User-defined compound assignment operators | `UserDefinedCompoundAssignmentOperators` | Latest | | § C# 14.0 | |
-| C# 14.0 | First-class `Span` types | `FirstClassSpanTypes` | Latest | | § C# 14.0 | |
-| C# 14.0 | Null-conditional assignment | `NullConditionalAssignment` | Latest | | § C# 14.0 | |
-| C# 14.0 | Unbound generic types in `nameof` | `UnboundGenericTypesInNameof` | Latest | | § C# 14.0 | |
-| C# 14.0 | Simple lambda parameters with modifiers | `SimpleLambdaParametersWithModifiers` | Latest | | § C# 14.0 | |
-| C# 14.0 | Ignored directives (`#:`) | `IgnoredDirectives` | Latest | | § C# 14.0 | |
-| C# 14.0 | Optional/named arguments in expression trees | `OptionalAndNamedArgumentsInExpressionTrees` | Latest | | § C# 14.0 | |
+| Version | Feature(s) | Group folder | Target project(s) | Lowest accepted `/langversion` (evidence) | Excluded from (reason) | Source | Note |
+|---|---|---|---|---|---|---|---|
+| C# 1.0 | Classes, Structs, Enums | `ClassesStructsEnums` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | Language-Version-History.md § C# 1.0 | |
+| C# 1.0 | Interfaces | `Interfaces` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Events, Delegates | `EventsAndDelegates` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Operator overloading, user-defined conversion operators | `OperatorOverloading` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Properties, Indexers | `PropertiesAndIndexers` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Output parameters (out/ref), params arrays | `ParameterModifiers` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | using statement, goto statement | `ControlFlowStatements` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Preprocessor directives | `Preprocessor` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Unsafe code and pointers | `UnsafeCodeAndPointers` | Fw80Unsafe, Net10Unsafe | — (unmeasured) | Fw73, Fw80, Latest (policy: needs `/unsafe`, housed in the `*Unsafe` projects) | § C# 1.0 | |
+| C# 1.0 | Attributes | `Attributes` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Literals, verbatim identifiers, unsigned integer types, expressions | `LiteralsAndExpressions` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.0 | Boxing and unboxing | `Boxing` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.0 | |
+| C# 1.2 | Dispose in foreach, foreach over string specialization | `ForeachEnhancements` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 1.2 | |
+| C# 2.0 | Generics | `Generics` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Partial types | `PartialTypes` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Anonymous methods | `AnonymousMethods` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Iterators (yield) | `Iterators` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Nullable value types | `NullableValueTypes` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Getter/setter separate accessibility | `PropertyAccessorAccessibility` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Method group conversions, delegate inference | `DelegateInferenceAndConversions` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Static classes | `StaticClasses` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | |
+| C# 2.0 | Type and namespace aliases | `NamespaceAndTypeAliases` | Fw73, Fw80, Latest | 2.0 (sdk-pin) | | § C# 2 | The source document files using-alias directives under C# 2.0, but they shipped in C# 1.0; what C# 2.0 genuinely added is the `global::`/`::` qualifier and extern aliases. |
+| C# 2.0 | Covariance and contravariance | `Variance` | Fw73, Fw80, Latest | 1.0 (sdk-pin) | | § C# 2 | |
+| C# 3.0 | Implicitly typed locals (`var`) | `ImplicitlyTypedLocals` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Object and collection initializers | `ObjectCollectionInitializers` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Auto-implemented properties | `AutoImplementedProperties` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Anonymous types | `AnonymousTypes` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Extension methods | `ExtensionMethods` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Query expressions (LINQ) | `Linq` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Lambda expressions | `LambdaExpressions` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Expression trees | `ExpressionTrees` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Partial methods | `PartialMethods` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 3 | |
+| C# 3.0 | Lock statement | `LockStatement` | Fw73, Fw80, Latest | — (exempt) | | § C# 3 | The source document files this under C# 3.0, but the `lock` statement shipped in C# 1.0 (ECMA-334 1st edition). csharplang commit `f4b11176` split C# 1.0's catch-all "Statements" bullet into named statements, moving `using` and `goto` into C# 1.0 and landing `lock` in the C# 3 list; its link targets the general `lock` reference page, not a C# 3 change note. |
+| C# 4.0 | Dynamic binding | `DynamicBinding` | Fw73, Fw80, Latest | 4.0 (sdk-pin) | | § C# 4 | |
+| C# 4.0 | Named and optional arguments | `NamedAndOptionalArguments` | Fw73, Fw80, Latest | 4.0 (sdk-pin) | | § C# 4 | |
+| C# 4.0 | Co/contra-variance for generic delegates/interfaces | `GenericDelegateVariance` | Fw73, Fw80, Latest | 4.0 (sdk-pin) | | § C# 4 | |
+| C# 4.0 | Embedded interop types (NoPIA) | `EmbeddedInteropTypes` | Fw73, Fw80, Latest | — (exempt) | | § C# 4 | |
+| C# 5.0 | Asynchronous methods | `AsyncAwait` | Fw73, Fw80, Latest | 5.0 (sdk-pin) | | § C# 5 | |
+| C# 5.0 | Caller info attributes | `CallerInfoAttributes` | Fw73, Fw80, Latest | 4.0 (sdk-pin) | | § C# 5 | |
+| C# 5.0 | foreach loop variable per-iteration scoping | `ForeachLoopVariableScope` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 5 | |
+| C# 6.0 | `using static` | `UsingStatic` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | Exception filters | `ExceptionFilters` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | Await in catch/finally | `AwaitInCatchFinally` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | Auto property initializers, default values for getter-only properties | `AutoPropertyInitializers` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | Expression-bodied members | `ExpressionBodiedMembers` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | Null-conditional operator | `NullConditionalOperator` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | String interpolation | `StringInterpolation` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | `nameof` operator | `NameOfOperator` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 6.0 | Dictionary initializer | `DictionaryInitializer` | Fw73, Fw80, Latest | 6.0 (sdk-pin) | | § C# 6 | |
+| C# 7.0 | Out variables | `OutVariables` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Pattern matching (`is` type pattern) | `PatternMatching70` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Tuples, deconstruction | `TuplesAndDeconstruction` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Discards | `Discards` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Local functions | `LocalFunctions` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Binary literals, digit separators | `NumericLiteralImprovements` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Ref returns and locals | `RefReturnsAndLocals` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Generalized async return types | `GeneralizedAsyncReturnTypes` | Fw73, Fw80, Latest | 5.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | More expression-bodied members | `ExpressionBodiedMembersExtended` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.0 | Throw expressions | `ThrowExpressions` | Fw73, Fw80, Latest | 7.0 (sdk-pin) | | § C# 7.0 | |
+| C# 7.1 | Async main | `AsyncMain` | Fw73, Fw80, Latest | 5.0 (sdk-pin) | | § C# 7.1 | The `5.0` is a harness limit rather than a fact about the feature. C# 7.1 gates an *entry point* signature, and the probe compiles `/target:library`, so the gate never fires and what the descent measures is the async method body. |
+| C# 7.1 | Default literal expressions | `DefaultLiteralExpressions` | Fw73, Fw80, Latest | 7.1 (sdk-pin) | | § C# 7.1 | |
+| C# 7.1 | Inferred tuple element names | `InferredTupleElementNames` | Fw73, Fw80, Latest | 7.1 (sdk-pin) | | § C# 7.1 | |
+| C# 7.1 | Pattern matching with generics | `GenericPatternMatching` | Fw73, Fw80, Latest | 7.1 (sdk-pin) | | § C# 7.1 | |
+| C# 7.1 | Reference assemblies | — | | — | Fw73, Fw80, Latest (compiler/tooling output feature, not a source-level construct) | § C# 7.1 | |
+| C# 7.2 | Span and ref-like types | `SpanAndRefLikeTypes` | Fw73*, Fw80 (needs `System.Memory`), Latest | 7.2 (sdk-pin) | | § C# 7.2 | |
+| C# 7.2 | In parameters, readonly references | `InParametersReadonlyReferences` | Fw73, Fw80, Latest | 7.2 (sdk-pin) | | § C# 7.2 | |
+| C# 7.2 | Ref conditional expressions | `RefConditionalExpressions` | Fw73, Fw80, Latest | 7.2 (sdk-pin) | | § C# 7.2 | |
+| C# 7.2 | Non-trailing named arguments | `NonTrailingNamedArguments` | Fw73, Fw80, Latest | 7.2 (sdk-pin) | | § C# 7.2 | |
+| C# 7.2 | Private protected accessibility | `PrivateProtectedAccessibility` | Fw73, Fw80, Latest | 7.2 (sdk-pin) | | § C# 7.2 | |
+| C# 7.2 | Digit separator after base specifier | `DigitSeparatorAfterBaseSpecifier` | Fw73, Fw80, Latest | 7.2 (sdk-pin) | | § C# 7.2 | |
+| C# 7.3 | `unmanaged`/`Enum`/`Delegate` constraints | `ExtendedGenericConstraints` | Fw73, Fw80, Latest | 7.3 (sdk-pin) | | § C# 7.3 | |
+| C# 7.3 | Ref local reassignment | `RefLocalReassignment` | Fw73, Fw80, Latest | 7.3 (sdk-pin) | | § C# 7.3 | |
+| C# 7.3 | Stackalloc initializers (Span) | `StackallocInitializers` | Fw73*, Fw80 (needs `System.Memory`), Latest | 7.3 (sdk-pin) | | § C# 7.3 | |
+| C# 7.3 | Indexing movable fixed buffers | `FixedBufferIndexing` | Fw80Unsafe, Net10Unsafe | — (unmeasured) | Fw73, Fw80, Latest (policy: needs `/unsafe`, housed in the `*Unsafe` projects) | § C# 7.3 | |
+| C# 7.3 | Custom `fixed` statement (pattern-based) | `CustomFixedStatement` | Fw80Unsafe, Net10Unsafe | — (unmeasured) | Fw73, Fw80, Latest (policy: needs `/unsafe`, housed in the `*Unsafe` projects) | § C# 7.3 | |
+| C# 7.3 | Improved overload candidates | `OverloadResolutionImprovements73` | Fw73, Fw80, Latest | 7.3 (sdk-pin) | | § C# 7.3 | |
+| C# 7.3 | Expression variables in initializers/queries | `ExpressionVariablesInInitializers` | Fw73, Fw80, Latest | 7.3 (sdk-pin) | | § C# 7.3 | |
+| C# 7.3 | Tuple comparison | `TupleEquality` | Fw73, Fw80, Latest | 7.3 (sdk-pin) | | § C# 7.3 | |
+| C# 7.3 | Attributes on backing fields | `BackingFieldAttributes` | Fw73, Fw80, Latest | 3.0 (sdk-pin) | | § C# 7.3 | |
+| C# 8.0 | Nullable reference types | `NullableReferenceTypes` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Default interface members | `DefaultInterfaceMembers` | Latest | — (not probed) | Fw80 (CS8701/CS8703 — target runtime doesn't support default interface implementation; net48 doesn't advertise `RuntimeFeature.DefaultImplementationsOfInterfaces`; verified via `dotnet build` probe) | § C# 8.0 | |
+| C# 8.0 | Recursive patterns, switch expressions | `RecursivePatternsSwitchExpressions` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Async streams (`await foreach`/`await using`, async iterators) | `AsyncStreams` | Fw80 (needs `Microsoft.Bcl.AsyncInterfaces`), Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Enhanced `using` declarations | `EnhancedUsingDeclarations` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Ranges and indexes | `RangesAndIndexes` | Latest | — (not probed) | Fw80 (`System.Index`/`System.Range` have no official net48 backport package — CS0518/CS0656 confirmed via probe even with `System.Memory` referenced) | § C# 8.0 | |
+| C# 8.0 | Null-coalescing assignment | `NullCoalescingAssignment` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Static local functions | `StaticLocalFunctions` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Unmanaged generic structs | `UnmanagedGenericStructs` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Readonly members | `ReadonlyMembers` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Stackalloc in nested contexts | `StackallocNestedContexts` | Fw80 (needs `System.Memory`), Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Alternative interpolated verbatim strings (`@$"..."`) | `AlternativeInterpolatedVerbatimStrings` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | Obsolete on property accessors | `ObsoleteOnPropertyAccessors` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 8.0 | `is null` on unconstrained type parameter | `IsNullOnUnconstrainedTypeParameter` | Fw80, Latest | 8.0 (sdk-pin) | | § C# 8.0 | |
+| C# 9.0 | Records, `with` expressions | `RecordsAndWithExpressions` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Init-only setters | `InitOnlySetters` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Top-level statements | `TopLevelStatements` | Net10Exe | — (not probed) | Fw73, Fw80, Latest (capability: the feature requires an executable compilation — a library is rejected with `CS8805`) | § C# 9.0 | |
+| C# 9.0 | Pattern matching enhancements (relational, combinator, parenthesized, type patterns) | `PatternMatchingEnhancements9` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Native sized integers (`nint`/`nuint`) | `NativeSizedIntegers` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Function pointers | `FunctionPointers` | Net10Unsafe | — (not probed) | Latest (policy: needs `/unsafe`, housed in `Net10Unsafe`) | § C# 9.0 | |
+| C# 9.0 | `[SkipLocalsInit]` | `SkipLocalsInit` | Net10Unsafe | — (not probed) | Latest (policy: needs `/unsafe` despite being an attribute rather than a pointer construct — CS0227 confirmed via probe; housed in `Net10Unsafe`) | § C# 9.0 | |
+| C# 9.0 | Target-typed `new` expressions | `TargetTypedNewExpressions` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Static anonymous functions | `StaticAnonymousFunctions` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Target-typed conditional expressions | `TargetTypedConditionalExpressions` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Covariant return types | `CovariantReturnTypes` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Lambda discard parameters | `LambdaDiscardParameters` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Attributes on local functions | `AttributesOnLocalFunctions` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Module initializers | `ModuleInitializers` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Extension `GetEnumerator` | `ExtensionGetEnumerator` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Partial methods with returned values | `PartialMethodsWithReturnedValues` | Latest | — (not probed) | | § C# 9.0 | |
+| C# 9.0 | Source generators | — | | — | Latest (requires a separate analyzer/generator project, not a single-file example; out of scope for this corpus) | § C# 9.0 | |
+| C# 10.0 | Record structs, `with` on structs/anonymous types | `RecordStructsAndWithExpressions` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Global using directives | `GlobalUsingDirectives` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Improved definite assignment | `ImprovedDefiniteAssignment` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Constant interpolated strings | `ConstantInterpolatedStrings` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Extended property patterns | `ExtendedPropertyPatterns` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Sealed record `ToString` | `SealedRecordToString` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Incremental source generators | — | | — | Latest (tooling/generator-pipeline feature, same reasoning as C# 9.0 source generators) | § C# 10.0 | |
+| C# 10.0 | Mixed deconstructions | `MixedDeconstructions` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Method-level `AsyncMethodBuilder` | `MethodLevelAsyncMethodBuilder` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | `#line` span directive | `LineSpanDirective` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Lambda improvements (attributes, return types, natural delegate type) | `LambdaImprovements` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Interpolated string handlers | `InterpolatedStringHandlers` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | File-scoped namespaces | `FileScopedNamespaces` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | Parameterless struct constructors | `ParameterlessStructConstructors` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 10.0 | `CallerArgumentExpression` | `CallerArgumentExpression` | Latest | — (not probed) | | § C# 10.0 | |
+| C# 11.0 | Raw string literals | `RawStringLiterals` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | UTF-8 string literals | `Utf8StringLiterals` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Pattern match `Span<char>` on constant string | `SpanCharPatternMatching` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Newlines in interpolations | `NewlinesInInterpolations` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | List patterns | `ListPatterns` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | File-local types | `FileLocalTypes` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Ref fields, `scoped`, `[UnscopedRef]` | `RefFields` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Required members | `RequiredMembers` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Static abstract members in interfaces | `StaticAbstractMembersInInterfaces` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Unsigned right-shift operator | `UnsignedRightShiftOperator` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | `checked` user-defined operators | `CheckedUserDefinedOperators` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Relaxed shift operator requirements | `RelaxedShiftOperatorRequirements` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Numeric IntPtr | `NumericIntPtr` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Auto-default structs | `AutoDefaultStructs` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Generic attributes | `GenericAttributes` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 11.0 | Extended `nameof` scope in attributes | `ExtendedNameofScopeInAttributes` | Latest | — (not probed) | | § C# 11.0 | |
+| C# 12.0 | Collection expressions | `CollectionExpressions` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 12.0 | Primary constructors | `PrimaryConstructors` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 12.0 | Inline arrays | `InlineArrays` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 12.0 | Using aliases for any type | `UsingAliasesForAnyType` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 12.0 | Ref readonly parameters | `RefReadonlyParameters` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 12.0 | `nameof` accessing instance members | `NameofAccessingInstanceMembers` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 12.0 | Lambda optional parameters | `LambdaOptionalParameters` | Latest | — (not probed) | | § C# 12.0 | |
+| C# 13.0 | `\e` ESC escape sequence | `EscEscapeSequence` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | Method group natural type improvements | `MethodGroupNaturalTypeImprovements` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | `Lock` object | `LockObject` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | Implicit indexer access in object initializers | `ImplicitIndexerInObjectInitializers` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | `params` collections | `ParamsCollections` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | `ref`/`unsafe` in iterators/async | `RefUnsafeInIteratorsAsync` | Net10Unsafe | — (not probed) | Latest (policy: needs `/unsafe`, housed in `Net10Unsafe`) | § C# 13.0 | |
+| C# 13.0 | `ref struct` interfaces, `allows ref struct` | `RefStructInterfaces` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | Overload resolution priority | `OverloadResolutionPriority` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | Partial properties | `PartialProperties` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 13.0 | Better conversion from collection expression element | `BetterConversionFromCollectionExpressionElement` | Latest | — (not probed) | | § C# 13.0 | |
+| C# 14.0 | Extension methods and properties | `ExtensionMethodsAndProperties` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Extension operators | `ExtensionOperators` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | `field` keyword in properties | `FieldKeywordInProperties` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Partial events and constructors | `PartialEventsAndConstructors` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | User-defined compound assignment operators | `UserDefinedCompoundAssignmentOperators` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | First-class `Span` types | `FirstClassSpanTypes` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Null-conditional assignment | `NullConditionalAssignment` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Unbound generic types in `nameof` | `UnboundGenericTypesInNameof` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Simple lambda parameters with modifiers | `SimpleLambdaParametersWithModifiers` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Ignored directives (`#:`) | `IgnoredDirectives` | Latest | — (not probed) | | § C# 14.0 | |
+| C# 14.0 | Optional/named arguments in expression trees | `OptionalAndNamedArgumentsInExpressionTrees` | Latest | — (not probed) | | § C# 14.0 | |
 
 \* `Fw73` inclusion for `System.Memory`-dependent rows is by the full-cumulative rule (project 1's
 ceiling is 7.3, which covers 7.2/7.3). Those rows build there: `Fw73` declares `System.Memory` for
@@ -385,7 +425,7 @@ the "Version" column below is informational provenance only, not a folder split)
 | VB 14 | Ambiguous interface method resolution | `AmbiguousInterfaceMethodResolution` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
 | VB 15 | Tuples | `Tuples` | VbFw48, VbLatest | 15 (sdk-pin) | | Learn whats-new#visual-basic-15 | |
 | VB 15 | Binary literals, digit separators | `BinaryLiteralsAndDigitSeparators` | VbFw48, VbLatest | 15 (sdk-pin) | | Learn whats-new#visual-basic-15 | |
-| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | 11 (native-ceiling) | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `Net48_CSharp8_Library` — this corpus's own C# 7.0 ref-returns row — which suits the row's name at least as well. Both projects carry the same `Span` half. The `11 (native-ceiling)` floor and the `native-ceiling` tier disagree in direction: the `11` is the lowest pin an SDK-pin compile accepts; the native-ceiling evidence comes from a different measurement — the native VB 14 compiler rejecting the row with `BC30657` (net48) / `BC30643` (net10) at the 14→15 boundary. No period compiler accepts this row at any version; the row is genuinely version-dependent, just not gated by `LangVersion`. |
+| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | 11 (native-ceiling) | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `CSharpRefReturnLib`, the support assembly authored for this row. Both projects carry the same `Span` half. The `11 (native-ceiling)` floor and the `native-ceiling` tier disagree in direction: the `11` is the lowest pin an SDK-pin compile accepts; the native-ceiling evidence comes from a different measurement — the native VB 14 compiler rejecting the row with `BC30657` (net48) / `BC36954` (net10) at the 14→15 boundary. No period compiler accepts this row at any version; the row is genuinely version-dependent, just not gated by `LangVersion`. |
 | VB 15.3 | Named tuple inference | `NamedTupleInference` | VbFw48, VbLatest | 15.3 (sdk-pin) | | Learn whats-new#visual-basic-153 | |
 | VB 15.3 | `-refout`/`-refonly` compiler switches | — | | — | VbFw48, VbLatest (compiler switch, not a source-level construct) | Learn whats-new#visual-basic-153 | |
 | VB 15.5 | Non-trailing named arguments | `NonTrailingNamedArguments` | VbFw48, VbLatest | 15.5 (sdk-pin) | | Language-Version-History.md § VB 15.5 | |
@@ -394,9 +434,9 @@ the "Version" column below is informational provenance only, not a folder split)
 | VB 16.0 | Comments allowed in more statement positions | `CommentsInMorePlaces` | VbFw48, VbLatest | 14 (sdk-pin) | | Learn whats-new#visual-basic-160 | |
 | VB 16.0 | Optimized floating-point-to-integer conversion | `OptimizedFloatToIntConversion` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-160 | |
 | VB 16.9 | Consuming init-only properties | `ConsumingInitOnlyProperties` | VbFw48, VbLatest | 16.9 (sdk-pin) | | Learn whats-new#visual-basic-1713 | |
-| VB 17.13 | Consuming `CallerArgumentExpression` | `CallerArgumentExpressionConsumption` | VbLatest | 14 (sdk-pin) | VbFw48 (capability: `CallerArgumentExpressionAttribute` is .NET 5+ and has no official net48 backport package, so net48 has no attributed API to consume) | Learn whats-new#visual-basic-1713 | There is no VB 17.0 language version: the compiler rejects both `17` and `17.0` with `BC2014`, and its accepted values step from `16.9` straight to `17.13`. This row is filed at 17.13, matching the section of the source document it is drawn from. |
-| VB 17.13 | `unmanaged` constraint recognition | `UnmanagedConstraintRecognition` | VbFw48, VbLatest | 11 (sdk-pin) | | Language-Version-History.md § VB 17.13 | |
-| VB 17.13 | Consuming `OverloadResolutionPriorityAttribute` | `OverloadResolutionPriorityConsumption` | VbLatest | 11 (sdk-pin) | VbFw48 (capability: the attribute is .NET 9+ with no net48 backport; *applying* it also needs C# 13, above every net48 C# project's ceiling — CS8400 confirmed via probe — so no net48 assembly here can supply a prioritized API) | Language-Version-History.md § VB 17.13 | |
+| VB 17.13 | Consuming `CallerArgumentExpression` | `CallerArgumentExpressionConsumption` | VbLatest | 14 (exempt) | VbFw48 (capability: `CallerArgumentExpressionAttribute` is .NET 5+ and has no official net48 backport package, so net48 has no attributed API to consume) | Learn whats-new#visual-basic-1713 | There is no VB 17.0 language version: the compiler rejects both `17` and `17.0` with `BC2014`, and its accepted values step from `16.9` straight to `17.13`. This row is filed at 17.13, matching the section of the source document it is drawn from. |
+| VB 17.13 | `unmanaged` constraint recognition | `UnmanagedConstraintRecognition` | VbFw48, VbLatest | 11 (exempt) | | Language-Version-History.md § VB 17.13 | |
+| VB 17.13 | Consuming `OverloadResolutionPriorityAttribute` | `OverloadResolutionPriorityConsumption` | VbLatest | 11 (exempt) | VbFw48 (capability: the attribute is .NET 9+ with no net48 backport; *applying* it also needs C# 13, above every net48 C# project's ceiling — CS8400 confirmed via probe — so no net48 assembly here can supply a prioritized API) | Language-Version-History.md § VB 17.13 | |
 
 ## Authoring status
 
@@ -411,6 +451,7 @@ warnings.
 | `Net10_CSharpLatest_Unsafe` | all 6 unsafe rows (C# 1.0, 7.3 ×2, 9.0 ×2, 13.0) — **complete** | — |
 | `Net10_CSharpLatest_Exe` | `TopLevelStatements` (C# 9.0) | — |
 | `CSharpComTypeLib` | support assembly (no feature rows) | — |
+| `CSharpRefReturnLib` | support assembly (no feature rows) | — |
 | `Net48_CSharp7_3_Library` | C# 1.0 → 7.3 — 75 group folders under `CSharp1/` … `CSharp7_3/` — **complete** | — |
 | `Net48_CSharp8_Library` | C# 1.0 → 8.0 — 87 group folders under `CSharp1/` … `CSharp8/` — **complete** | — |
 | `VbFw48` | VB baseline → 17.13 — every group folder under `src/Baseline/` … `src/Vb17_13/`, including `MyNamespaceHelpers`, which lives in the `my/` projects and which no net10 project can carry — **complete** | — |

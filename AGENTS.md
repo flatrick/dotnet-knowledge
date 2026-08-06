@@ -12,8 +12,10 @@ C#, VB.NET and Roslyn:
 1. **`examples/language-features/`** — an authored corpus of every C# and VB.NET language feature,
    one example per feature per language version across several TFM/project-format combinations,
    plus a curated C# script showcase. It is complete against `MANIFEST.md`, which is the count of
-   record; every project builds at 0 errors and 0 warnings, and every script scenario has verified
-   host behavior.
+   record; every project **in the build matrix** builds at 0 errors and 0 warnings, and every script
+   scenario has verified host behavior. The matrix is 45 of the corpus's 53 projects; what is in it,
+   what is deliberately outside it, and what is still an open gap are under "Building the corpus"
+   below.
 2. **`src/`** — an MCP stdio server that serves that corpus, plus API and language-design docs
    fetched from upstream Microsoft repositories.
 
@@ -102,18 +104,36 @@ itself, so one file serves every pin. Edit the file under `src/`; there is no se
 step, and `VbSourceCoverageTests` fails if a row under `src/` is compiled by no project.
 `MyType=Windows` is per-compilation and lives only in the net48 family's `my/` projects.
 
-**Building the corpus.** `CorpusProjectBuildTests` discovers and builds the SDK-style C# library
-projects under `examples/language-features/CSharp/dotnet/` and every VB project under
-`examples/language-features/VB.NET/`, all at 0 errors and 0 warnings.
-`CorpusProjectDiscoveryTests` holds the exact expected list; that is the count of record. The legacy
-`examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj` needs Visual
-Studio's `MSBuild.exe` on Windows — `dotnet build` restores its `PackageReference` items and then
-resolves none of them, failing with `CS0246` on `Span` and `ValueTask` while saying nothing about
-the toolchain. `CSharp_v8.0` and the eleven net48 VB projects — the latter through their family's
+**Building the corpus.** `CorpusProjectBuildTests` discovers and builds four roots at 0 errors and
+0 warnings: the SDK-style C# **library** projects under
+`examples/language-features/CSharp/dotnet/`, every SDK-style project under
+`examples/language-features/CSharp/dotNetFramework/`, every VB project under
+`examples/language-features/VB.NET/`, and — through Visual Studio's `MSBuild.exe` rather than the
+SDK host — every legacy non-SDK project under `examples/language-features/CSharp/dotNetFramework/`.
+`CorpusProjectDiscoveryTests` holds the exact expected list; that is the count of record.
+
+That is 45 of the corpus's 54 projects. Three of the remaining nine are outside it deliberately:
+`CSharp/CSharpComTypeLib/` and `CSharp/CSharpRefReturnLib/` are prebuilt as shared references at the
+same bar, and `CSharp/csx/roslyn-5.6.0/host/` has a Roslyn host coordinate rather than an SDK/TFM
+one. The other six — three `exe` and three `unsafe` projects under `CSharp/dotnet/` — are built by
+nothing and referenced by nothing, which is an open gap rather than a decision:
+[`docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md`](docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md).
+
+The eleven legacy projects need Visual Studio's `MSBuild.exe` on Windows — `dotnet build` restores
+their `PackageReference` items and then resolves none of them, failing with `CS0246` on `Span` and
+`ValueTask` while saying nothing about the toolchain. That host is machine-installed rather than
+supplied by the repository-private test host, so **on a machine without Visual Studio those eleven
+report inconclusive**, naming the `vswhere` path that was inspected. `CSharp_v8.0`,
+`CSharpRefReturnLib` and the eleven net48 VB projects — the last through their family's
 `Directory.Build.props` — carry `Microsoft.NETFramework.ReferenceAssemblies` and so need no
 machine-installed targeting pack. No other net48 project does: the two SDK-style `*-Unsafe` net48
 projects have no props above them supplying it, and a legacy non-SDK project cannot consume the
 package at all.
+
+`CSharp_v1.0` and `CSharp_v1.0-Unsafe` both carry `GenerateTargetFrameworkAttribute=false`. Any
+project pinned to C# 1.x needs it, SDK-style or not: the generated `AssemblyAttributes.cs` spells
+its `TargetFramework` attribute with `global::`, and the resulting `CS8022` names a generated file
+rather than a sample, so it reads as a broken corpus.
 
 **Corpus verification has three layers.**
 
@@ -121,10 +141,12 @@ package at all.
 2. Isolated compilation cases prove positive and negative feature boundaries.
 3. Runtime cases prove comments that assert observable behavior.
 
-Every project build still requires 0 errors and 0 warnings. `TreatWarningsAsErrors` is inherited so
-that layer is mechanical; never add a `#pragma warning disable` to get past a warning. A clean build
-does not prove a sample demonstrates its feature, because cumulative projects can accept constructs
-outside the row's intended boundary.
+Every project build still requires 0 errors and 0 warnings. `TreatWarningsAsErrors` and
+`MSBuildTreatWarningsAsErrors` are both inherited so that layer is mechanical; the first reaches the
+compilers and NuGet, the second reaches MSBuild's own `MSB####` warnings, and only the pair makes
+the exit code sufficient on its own. Never add a `#pragma warning disable` to get past a warning. A
+clean build does not prove a sample demonstrates its feature, because cumulative projects can accept
+constructs outside the row's intended boundary.
 
 Install or verify the exact test SDKs with `dotnet scripts/install-corpus-test-sdks.cs`; see
 [`scripts/install-corpus-test-sdks.md`](scripts/install-corpus-test-sdks.md) for the private-host
@@ -144,7 +166,14 @@ call; semantic and attribute-driven ones did not, so `/langversion:6` on a curre
 the C# 6 compiler. Two C# rows are known to compile far below their own version —
 `GeneralizedAsyncReturnTypes` (C# 7.0) and `Variance` (C# 2.0) — and VB's post-14 rows are ungated
 far more often than they are gated, because VB's later releases add recognition rather than syntax.
-`MANIFEST.md`'s **Measured floor** column records what each VB row actually needs.
+
+**`MANIFEST.md`'s two version columns are two different quantities and must never be merged.** VB's
+**Measured floor** is placement-derived: the lowest pin whose project compiles the row, derivable
+there because every VB row is placed at every pin that compiles it. C#'s **Lowest accepted
+`/langversion`** is probe-derived: the lowest rung the installed compiler still accepts the row's
+source at, found by walking the ladder down. They answer different questions, and on the rows this
+script exists to find they disagree — `GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling
+because a real C# 6 compiler rejects it, while today's compiler takes it down to `/langversion:5`.
 
 ```bash
 dotnet scripts/verify-feature-floors.cs                          # classify every group folder
@@ -173,14 +202,23 @@ gaps are VB 10 and VB 12, and nothing above VB 14 has a native ceiling at all.
 compiler are not the same claim: `native-ceiling` (a compiler topping out at the rung below settled
 it — stable), `legacy-pin` (a pre-Roslyn compiler held to that rung; a rejection proves version
 dependence, an acceptance proves nothing), `sdk-pin` (only the installed SDK under `/langversion` —
-a fact about today's toolchain, which drifts), and `none`.
+a fact about today's toolchain, which drifts), `exempt` (no probe evidence is possible for this row
+at all, which is a different claim from having gathered none), and `none`.
 
-`MISPLACED` and `NOT-VERSION-SPECIFIC` fail the run. `UNGATED`, `UNPROVEN`, `BASELINE` and
-`INCONCLUSIVE` report what the available compilers can and cannot settle. `EXEMPT` covers rows a
-floor probe structurally cannot judge — `LockStatement` (filed under C# 3.0 to mirror the source
-document, though `lock` is C# 1.0), `EmbeddedInteropTypes` (NoPIA lives in the reference, not the
-source), and VB's `Baseline` bucket (it spans VS.NET 2002 to VS2012, so no single previous-version
-pin is meaningful; it gets the own-version check only). Windows and Visual Studio's MSBuild only.
+`MISPLACED`, `NOT-VERSION-SPECIFIC` and `UNDER-PLACED` fail the run. `UNGATED`, `UNPROVEN`,
+`BASELINE` and `INCONCLUSIVE` report what the available compilers can and cannot settle. `EXEMPT`
+covers rows a floor probe structurally cannot judge — `LockStatement` (filed under C# 3.0 to mirror
+the source document, though `lock` is C# 1.0), `EmbeddedInteropTypes` (NoPIA lives in the reference,
+not the source), the three VB 17.13 consumption rows (`UnmanagedConstraintRecognition`,
+`CallerArgumentExpressionConsumption`, `OverloadResolutionPriorityConsumption` — each demonstrates
+the compiler honoring metadata a C# assembly emitted, which no `LangVersion` gates), and VB's
+`Baseline` bucket (it spans VS.NET 2002 to VS2012, so no single previous-version pin is meaningful;
+it gets the own-version check only). Windows and Visual Studio's MSBuild only.
+
+**`UNDER-PLACED` is the converse of `MISPLACED`.** A project holds *every* row that compiles at its
+pin, so a row a project could build and does not claim is as much a defect as one it claims and
+cannot. The check compiles each unclaimed `src/` row at the pin; VB only, since C# projects own
+their rows on disk rather than globbing a shared tree.
 
 **`MISPLACED` means a stale project file.** A project holds every row that compiles at its pin,
 including rows filed above it that `LangVersion` does not gate, so being filed above the pin is the

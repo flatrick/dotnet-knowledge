@@ -44,6 +44,7 @@ public sealed class ProbeProjectTests
             StringAssert.Contains(project, "<TargetFramework>net5.0</TargetFramework>");
             StringAssert.Contains(project, "<LangVersion>10.0</LangVersion>");
             StringAssert.Contains(project, "<TreatWarningsAsErrors>true</TreatWarningsAsErrors>");
+            StringAssert.Contains(project, "<MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>");
             StringAssert.Contains(project, "<EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
             StringAssert.Contains(project, "<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>");
             StringAssert.Contains(

@@ -24,6 +24,91 @@ needs more.
 
 ---
 
+### 2026-08-06 · `MSBuild.exe -v:minimal` prints no build summary, where `dotnet build -v:minimal` does · environment
+
+`CorpusProjectBuildTests` asserts on the exact lines `0 Warning(s)` and `0 Error(s)`, which
+`dotnet build -v:minimal` emits. Visual Studio's `MSBuild.exe` at the same verbosity emits the
+project's output line and nothing else — no `Build succeeded.` block at all — so a legacy project
+that built perfectly failed the assertion while its exit code was 0 and its log looked healthy. The
+summary is a console-logger parameter, not a verbosity level: `-clp:Summary` restores it at
+`-v:minimal`, and `-v:normal` restores it by printing everything.
+
+### 2026-08-06 · A green floor probe says nothing about whether the project builds · codebase
+
+`scripts/verify-feature-floors.cs` reported every row of `CSharp_v1.0` without complaint while the
+project itself failed with a single `CS8022` on MSBuild's generated `AssemblyAttributes.cs`. The
+probe compiles rows standalone with `csc` and sets `GenerateTargetFrameworkAttribute=false` on its
+own scratch projects, so the one file that breaks the real project is never in its inputs. Two
+verification layers that look redundant were not: a probe verifies rows, a matrix verifies projects,
+and only the second sees a project-level failure.
+
+### 2026-08-06 · A localized toolchain makes `--json` reproducible per machine, not per repository · environment
+
+On a sv-SE host the floor probe's `Detail` carried Swedish prose — `CS0410: Ingen överlagring för …`
+— so two machines produced different bytes from identical code, which silently voided the
+reproducibility the serialized VB binding was built for. Nothing about it looked like an error,
+because classification matches on codes and was never affected. `/preferreduilang:en-US` reaches
+five of the nine registered compilers and the remaining four have no lever at all, so the fix is the
+`DiagnosticCode` field: `--json` carries the code and the console report keeps the compiler's own
+prose.
+
+### 2026-08-06 · `/preferreduilang` support is per compiler binary, not per generation or language · environment
+
+Measured across all nine registered compilers on a sv-SE host. `IsRoslyn` is the wrong gate, and so
+is the language — `v4.0.30319` ships a `csc` that honors the switch beside a `vbc` that does not,
+in the same directory. That asymmetry is the thing a later reader will try to "fix".
+
+| Compiler | `/preferreduilang:en-US` | Baseline language here |
+|---|---|---|
+| `csc` v2.0.50727 (in-box) | `fatal error CS2007`, exit 1 | Swedish |
+| `csc` v3.5 (in-box) | `fatal error CS2007`, exit 1 | Swedish |
+| `csc` v4.0.30319 (in-box) | honored — Swedish → English | Swedish |
+| `vbc` v3.5 (in-box) | `Command line warning BC2007`, ignored | Swedish |
+| `vbc` v4.0.30319 (in-box) | `Command line warning BC2007`, ignored | Swedish |
+| `csc` / `vbc` `Microsoft.Net.Compilers` 1.3.2 | honored, silent, exit 0 | English (package ships no satellites) |
+| `csc` / `vbc` VS Roslyn | honored, silent, exit 0 | English (no `sv` satellites installed) |
+
+Both exclusions manufacture verdicts if ignored: the `csc` rejection fails every compile outright,
+and the `vbc` warning is a line ahead of the real error that the probe's first-diagnostic scan can
+classify on. The switch is honored from inside a response file, unlike `/noconfig`.
+
+### 2026-08-06 · "It already prints English" is a fact about the machine, not the compiler · environment
+
+VS, the .NET SDK and Roslyn ship 13 satellite languages and Swedish is not among them, while
+`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319` carries `sv` and `sv-SE`. That is the whole reason
+the modern compilers looked English on a sv-SE host and the in-box ones did not — install the
+Swedish VS language pack and the compilers that settle most verdicts, `ConsumingCSharpRefReturnValues`
+at the VB 14 native ceiling included, start emitting Swedish. So the Roslyn compilers are sent
+`/preferreduilang:en-US` even though it changes nothing here: leaving them alone would rest the
+output language on which resource packs happen to be installed. It also means a language knob must
+be tested against an *installed* culture — `de` proved the switch works, `en-US` alone proved
+nothing.
+
+### 2026-08-06 · MSBuild.exe honors `DOTNET_CLI_UI_LANGUAGE` and ignores `VSLANG` · environment
+
+Driving both knobs to an installed culture (`de`) on a sv-SE host: `DOTNET_CLI_UI_LANGUAGE` moved
+MSBuild.exe's own `MSB1009` and the SDK tasks' `NETSDK1004` alike, `VSLANG=1031` moved neither, and
+where the two conflict `DOTNET_CLI_UI_LANGUAGE` wins. The `dotnet` CLI honors both, so testing only
+`dotnet build` would have credited `VSLANG` with an effect it does not have on MSBuild.exe. Neither
+variable reaches a compiler binary — for `csc`/`vbc` the switch is the only lever.
+
+### 2026-08-06 · `/parallel-` is fatal to the in-box `csc` and merely a warning to the in-box `vbc` · environment
+
+The pre-Roslyn compilers do not treat an unknown switch alike: `%WINDIR%\Microsoft.NET\Framework64`'s
+`csc.exe` (v2.0.50727, v3.5, v4.0.30319) answers `fatal error CS2007` and exits 1, while the same
+directories' `vbc.exe` answers `Command line warning BC2007 … is unknown and ignored` and exits 0.
+An unconditional `/parallel-` on `verify-feature-floors.cs` would therefore have turned every C#
+period-compiler probe into a false `UNGATED` — CS2007 is not on the environment-error list — and
+left VB working. Gate a compiler switch on the compiler, not on the language.
+
+### 2026-08-06 · The floor probe's `Detail` rotation fires about 7% of the time · environment
+
+`ConsumingCSharpRefReturnValues` reports `BC30643` 28 times in 30 and `BC36954` twice, measured by
+driving `Microsoft.Net.Compilers` 1.3.2's `vbc` on the row directly. Diffing two `--json` runs is
+therefore a poor *reproducer* even though it is the symptom: three consecutive runs agreed while the
+underlying rotation was live. `/parallel-` makes it 30 of 30 and costs about 5% on a whole VB run.
+Reproduce with a response file rather than repeated sweeps — 30 compiles take 47 s, a sweep 85 s.
+
 ### 2026-08-06 · A guard that walks up to `.git` passes silently from a worktree · codebase
 
 `verify-project-namespaces.cs` tested `Directory.Exists(".git")` only. In a linked worktree `.git`

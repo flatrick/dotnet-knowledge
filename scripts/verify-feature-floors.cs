@@ -95,15 +95,36 @@
 //   dotnet scripts/verify-feature-floors.cs -- --json
 //   dotnet scripts/verify-feature-floors.cs -- --offline
 //
-// Exit code is 1 when any group is MISPLACED or NOT-VERSION-SPECIFIC -- the two outcomes that mean
-// the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the toolchain's reach,
-// not corpus defects, and do not fail the run.
+// The VB half also gets the converse of MISPLACED. A project holds every row that compiles at its
+// pin, so after a project's own rows are classified, every row under its family's src/ that it
+// neither compiles nor explicitly Compile Removes is compiled at the pin: one that succeeds is
+// UNDER-PLACED, a row the project should be claiming. Without it, deleting a Compile Include leaves
+// every guard green while MANIFEST.md's Measured floor cell for that row silently becomes false.
+// C# needs no such check -- a C# project owns its version folders on disk -- and neither does VB's
+// my/ kind, which exists to house the one row needing MyType=Windows and claims nothing else.
+//
+// Exit code is 1 when any group is MISPLACED, UNDER-PLACED or NOT-VERSION-SPECIFIC -- the three
+// outcomes that mean the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the
+// toolchain's reach, not corpus defects, and do not fail the run.
+//
+// The C# half also measures a second, separate quantity: the lowest /langversion the installed
+// compiler still accepts a row at, found by walking the ladder down one spellable rung at a time
+// until a rung rejects the row or the ladder bottoms out. It is not the outcome restated and must
+// never be read as one. The outcome answers "does anything in here require the version this row is
+// filed under", and a period compiler can settle it. This answers "how far can a /langversion pin be
+// lowered before today's compiler complains", which is an sdk-pin fact by construction: a period
+// compiler has one fixed ceiling and cannot be walked down a ladder, so none is consulted. The two
+// disagree on exactly the rows the script exists to find -- GeneralizedAsyncReturnTypes is UNGATED
+// at a native ceiling, meaning a real C# 6 compiler rejects it, while today's compiler accepts it
+// as low as /langversion:5. MANIFEST.md carries it as "Lowest accepted /langversion", never as a
+// floor, so it cannot be merged with VB's placement-derived "Measured floor" column.
 
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -172,14 +193,19 @@ var csharpProfile = new LanguageProfile(
     ProjectExtension: ".csproj",
     CompilerFileName: "csc.exe",
     Ladder: Versions.Ladder,
-    InBoxCompilers: [("2.0", "v2.0.50727"), ("3.0", "v3.5"), ("5.0", "v4.0.30319")],
+    // Only the v4.0.30319 csc honors /preferreduilang; the two older ones answer fatal error CS2007
+    // and exit 1, which would turn every probe against them into a manufactured verdict.
+    InBoxCompilers: [("2.0", "v2.0.50727", false), ("3.0", "v3.5", false), ("5.0", "v4.0.30319", true)],
     PackagedCompilerCeiling: "6.0",
     FolderVersion: ParseFolderVersion,
     LangVersionArg: LangVersionArg,
     LegacyLangVersionArg: LegacyLangVersionArg,
     CeilingVersion: CSharpCeilingVersion,
     IsEnvironmentError: IsEnvironmentError,
-    ControlSource: "internal class ReferenceSetControl { }\n");
+    ControlSource: "internal class ReferenceSetControl { }\n",
+    // MANIFEST.md's C# tables carry the result; see the descent's own comment for why it is a
+    // separate quantity from the outcome.
+    DescendToLowestAcceptedLangVersion: true);
 
 var vbProfile = new LanguageProfile(
     Name: "VB",
@@ -189,7 +215,9 @@ var vbProfile = new LanguageProfile(
     Ladder: Versions.VbLadder,
     // No v2.0.50727 entry: that vbc tops out at VB 8, which is below the ladder, so no row can ever
     // have it as a floor.
-    InBoxCompilers: [("9", "v3.5"), ("11", "v4.0.30319")],
+    // Neither in-box vbc honors /preferreduilang -- including v4.0.30319, whose csc sibling does.
+    // Each answers command line warning BC2007 and goes on emitting the host's language.
+    InBoxCompilers: [("9", "v3.5", false), ("11", "v4.0.30319", false)],
     PackagedCompilerCeiling: "14",
     FolderVersion: VbFolderVersion,
     // Every VB ladder value is spelled the same on the command line, unlike C#'s ISO-1 / ISO-2.
@@ -200,19 +228,30 @@ var vbProfile = new LanguageProfile(
     LegacyLangVersionArg: _ => null,
     CeilingVersion: VbCeilingVersion,
     IsEnvironmentError: IsVbEnvironmentError,
-    ControlSource: "Friend Class ReferenceSetControl\nEnd Class\n");
+    ControlSource: "Friend Class ReferenceSetControl\nEnd Class\n",
+    // VB does not descend. MANIFEST.md's VB tables already carry a Measured floor column, and that
+    // column is placement-derived -- the lowest pin whose project compiles the row. A probe-derived
+    // number printed beside it would be a second, differently-defined floor with nothing consuming
+    // it, and the two would be merged by the first reader who assumed one column had been duplicated.
+    DescendToLowestAcceptedLangVersion: false);
 
 var profile = language == "vb" ? vbProfile : csharpProfile;
 
-var modernCompiler = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
-if (!File.Exists(modernCompiler))
+var modernCompilerPath = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
+if (!File.Exists(modernCompilerPath))
 {
-    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompiler}'.");
+    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompilerPath}'.");
     return 2;
 }
 
+// Every Roslyn compiler honors /preferreduilang, csc and vbc alike. They print English on a machine
+// with no Swedish satellite resources installed for them, which is a property of that machine and
+// not of the compiler; sending the switch is what makes it a property of the invocation.
+var modernCompiler = new ProbeCompiler(
+    modernCompilerPath, IsRoslyn: true, HonorsPreferredUiLanguage: true);
+
 // Period compilers, keyed by the language version each one natively tops out at.
-var periodCompilers = new Dictionary<string, string>();
+var periodCompilers = new Dictionary<string, ProbeCompiler>();
 
 // The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
 // fixed. The C# list deliberately has no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in
@@ -221,12 +260,15 @@ var periodCompilers = new Dictionary<string, string>();
 var frameworkRoot = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64");
 
-foreach (var (version, directory) in profile.InBoxCompilers)
+foreach (var (version, directory, honorsPreferredUiLanguage) in profile.InBoxCompilers)
 {
     var candidate = Path.Combine(frameworkRoot, directory, profile.CompilerFileName);
     if (File.Exists(candidate))
     {
-        periodCompilers[version] = candidate;
+        // Pre-Roslyn, so no /parallel switch: the in-box csc rejects it outright with fatal error
+        // CS2007 and the in-box vbc answers with command line warning BC2007 and ignores it.
+        periodCompilers[version] = new ProbeCompiler(
+            candidate, IsRoslyn: false, HonorsPreferredUiLanguage: honorsPreferredUiLanguage);
     }
 }
 
@@ -235,14 +277,30 @@ foreach (var (version, directory) in profile.InBoxCompilers)
 var packagedCompiler = await AcquirePackagedCompilerAsync(repoRoot, offline, profile);
 if (packagedCompiler is not null)
 {
-    periodCompilers[profile.PackagedCompilerCeiling] = packagedCompiler;
+    periodCompilers[profile.PackagedCompilerCeiling] = new ProbeCompiler(
+        packagedCompiler, IsRoslyn: true, HonorsPreferredUiLanguage: true);
 }
 
 var skippedProjects = new List<string>();
 
-var discovery = profile.Name == "VB"
-    ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
-    : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+// Discovery throws InvalidOperationException on a layout it cannot read -- a Compile glob whose
+// shape is not "<directory>/**/*.vb", a source file at an unexpected depth under src/, a version
+// folder naming no ladder rung. Failing loudly on those is deliberate, because a silently skipped
+// row is far worse; only the shape of the failure would otherwise be wrong. A malformed layout is a
+// setup problem, so it takes the documented exit 2 and prints the message the exception already
+// carries rather than a stack trace.
+Discovery discovery;
+try
+{
+    discovery = profile.Name == "VB"
+        ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
+        : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine($"verify-feature-floors: {ex.Message}");
+    return 2;
+}
 
 if (discovery.Fatal is not null)
 {
@@ -255,9 +313,10 @@ Directory.CreateDirectory(workRoot);
 
 // The same group folder is duplicated across the cumulative projects, and its floor is a property
 // of the files rather than of the project holding them. Probe each distinct (scope, version,
-// content) once and reuse the verdict. The scope keeps rows that share a reference set together:
-// C# has one, and VB has one per family and project kind, since a net10 reference set and a net48
-// one can disagree about whether a row compiles at all.
+// content) once and reuse the verdict. The scope is derived from the project's resolved compile
+// inputs rather than declared, so a project whose reference set, constants or compiler options
+// differ from another's cannot silently reuse its verdict -- a net10 reference set and a net48 one
+// can disagree about whether a row compiles at all.
 var floorCache = new Dictionary<string, Verdict>(StringComparer.Ordinal);
 var results = new List<Result>();
 
@@ -266,9 +325,16 @@ foreach (var project in discovery.Projects)
     Console.Error.WriteLine($"verify-feature-floors: {project.Name} (ceiling {project.Ceiling})");
 
     ProjectInputs? inputs = null;
+    var resolutionFailed = false;
+    var scope = "";
 
-    // Resolving references costs a full MSBuild evaluation, so defer it until a project actually
-    // has work that needs it. False means the project resolved nothing usable and has been skipped.
+    // Resolving references costs a full MSBuild evaluation, so it still happens at most once per
+    // project and not at all for a project with nothing to classify. It can no longer be deferred
+    // past a cache read, though: the cache key names the reference set a verdict was measured
+    // against, and that is only knowable once the references are resolved. False means the project
+    // resolved nothing usable and has been skipped. The failure is latched, because the two loops
+    // below call this independently and a project should be reported skipped once, not once per
+    // loop that asked.
     bool EnsureInputs()
     {
         if (inputs is not null)
@@ -276,16 +342,23 @@ foreach (var project in discovery.Projects)
             return true;
         }
 
+        if (resolutionFailed)
+        {
+            return false;
+        }
+
         inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
         if (inputs.References.Length == 0)
         {
-            // Clear it again, so a later call re-reads the same failure instead of short-circuiting
-            // on a non-null field that was just declared unusable.
+            // Clear it again, so nothing downstream short-circuits on a non-null field that was
+            // just declared unusable.
             inputs = null;
+            resolutionFailed = true;
             skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
             return false;
         }
 
+        scope = ScopeOf(inputs);
         return true;
     }
 
@@ -294,7 +367,8 @@ foreach (var project in discovery.Projects)
         if (row.Files.Length == 0)
         {
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "INCONCLUSIVE", $"group folder holds no {profile.SourceExtension} files", Evidence.None));
+                "INCONCLUSIVE", $"group folder holds no {profile.SourceExtension} files", Evidence.None,
+                Diagnostic: ""));
             continue;
         }
 
@@ -316,7 +390,7 @@ foreach (var project in discovery.Projects)
                 results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
                     "INCONCLUSIVE",
                     $"{profile.Name} {project.Ceiling} has no /langversion spelling, so the pin this row sits above cannot be compiled at",
-                    Evidence.None));
+                    Evidence.None, Diagnostic: ""));
                 continue;
             }
 
@@ -338,7 +412,7 @@ foreach (var project in discovery.Projects)
                     results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
                         "INCONCLUSIVE",
                         $"{profile.Name} {row.Version} has no /langversion spelling, so its failure at this project's pin of {profile.Name} {project.Ceiling} ({atPin.FirstError}) cannot be attributed to the pin",
-                        Evidence.None));
+                        Evidence.None, atPin.FirstError));
                     continue;
                 }
 
@@ -347,14 +421,14 @@ foreach (var project in discovery.Projects)
                     results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
                         "INCONCLUSIVE",
                         $"does not compile standalone at /langversion:{ownArg} ({atOwn.FirstError}), so its failure at this project's pin of {profile.Name} {project.Ceiling} says nothing about the placement",
-                        Evidence.None));
+                        Evidence.None, atOwn.FirstError));
                     continue;
                 }
 
                 results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
                     "MISPLACED",
                     $"{profile.Name} {row.Version} group in a project pinned to {project.Ceiling}: it compiles at /langversion:{ownArg} but not at the pin ({atPin.FirstError})",
-                    Evidence.None));
+                    Evidence.None, atPin.FirstError));
                 continue;
             }
 
@@ -368,22 +442,26 @@ foreach (var project in discovery.Projects)
         var exemption = ExemptionReason(row.Group);
         if (exemption is not null)
         {
+            // Evidence.Exempt rather than WithAbovePinEvidence: no floor was measured here, and the
+            // at-the-pin compile such a row may have just received speaks to its placement, which
+            // the detail already records, not to its floor.
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", WithAbovePinNote(exemption, abovePinNote),
-                WithAbovePinEvidence(Evidence.None, abovePinNote)));
+                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.Exempt,
+                Diagnostic: "", null, ExemptLangVersionEvidence(profile)));
             continue;
         }
 
         var bucketExemption = ExemptionReason(row.VersionFolder);
 
-        var key = project.Scope + "|" + row.Version + "|" + HashFiles(row.Files);
+        // Before the key, not after: the scope half of it is this project's resolved reference set.
+        if (!EnsureInputs())
+        {
+            break;
+        }
+
+        var key = scope + "|" + row.Version + "|" + HashFiles(row.Files);
         if (!floorCache.TryGetValue(key, out var verdict))
         {
-            if (!EnsureInputs())
-            {
-                break;
-            }
-
             verdict = bucketExemption is not null
                 ? ProbeOwnVersion(profile, row.Version, row.Files, inputs!, workRoot, modernCompiler,
                     bucketExemption)
@@ -394,13 +472,45 @@ foreach (var project in discovery.Projects)
 
         results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
             verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote),
-            WithAbovePinEvidence(verdict.Evidence, abovePinNote)));
+            WithAbovePinEvidence(verdict.Evidence, abovePinNote), verdict.Diagnostic,
+            verdict.LowestAcceptedLangVersion, verdict.LowestAcceptedLangVersionEvidence));
+    }
+
+    // Second pass, and it has to be one: the loop above only ever visits rows the project claims,
+    // and this is the converse question. MISPLACED catches a project claiming a row it cannot build;
+    // nothing caught a row a project should claim and does not. Delete a Compile Include for a row
+    // placed below its own version and the project still builds, VbSourceCoverageTests still passes
+    // because some other project compiles the file, and the floor probe still passes because it only
+    // classifies claimed rows -- while that row's Measured floor cell in MANIFEST.md silently
+    // becomes false. UnclaimedRows is empty for every C# project and for VB's my/ kind.
+    if (project.UnclaimedRows.Count > 0)
+    {
+        var pinArg = profile.LangVersionArg(project.Ceiling);
+        if (pinArg is null)
+        {
+            skippedProjects.Add(
+                $"{project.Name}: {profile.Name} {project.Ceiling} has no /langversion spelling, so the rows it does not claim were not checked");
+        }
+        else if (EnsureInputs())
+        {
+            foreach (var row in project.UnclaimedRows)
+            {
+                var atPin = Compile(profile, modernCompiler, pinArg, row.Files, inputs!, workRoot);
+                if (atPin.Succeeded)
+                {
+                    results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                        "UNDER-PLACED",
+                        $"this project does not claim the row, but it compiles at the pin (/langversion:{pinArg}); a project holds every row that compiles at its pin, so either the Compile item is missing or the row's measured floor is wrong",
+                        Evidence.SdkPin, Diagnostic: ""));
+                }
+            }
+        }
     }
 }
 
 Report(profile, results, skippedProjects, periodCompilers, emitJson);
 
-var failures = results.Count(r => r.Outcome is "MISPLACED" or "NOT-VERSION-SPECIFIC");
+var failures = results.Count(r => r.Outcome is "MISPLACED" or "UNDER-PLACED" or "NOT-VERSION-SPECIFIC");
 return failures > 0 ? 1 : 0;
 
 // ---------------------------------------------------------------------------------------------
@@ -419,6 +529,57 @@ static string WithAbovePinNote(string detail, string? abovePinNote) =>
 static string WithAbovePinEvidence(string evidence, string? abovePinNote) =>
     abovePinNote is not null && evidence == Evidence.None ? Evidence.SdkPin : evidence;
 
+// The lowest /langversion the installed compiler still accepts this row at. Walk the ladder down one
+// spellable rung at a time from `next`, carrying `accepted` as the lowest rung known good so far,
+// and stop at the first rejection or at the bottom of the ladder. Callers seed both from compiles
+// ProbeFloor has already paid for, so a row the pin one rung down already rejected costs nothing
+// here and only a row that goes lower pays for the descent.
+//
+// The result is sdk-pin evidence and can be nothing else. A period compiler has one fixed ceiling,
+// so it cannot be walked down a ladder at all; the tier exists on this quantity to say out loud that
+// the number drifts with the SDK, not to leave room for a stronger one. The row's own Evidence field
+// is the separate, sometimes stronger claim, and it is about the row's own version rather than about
+// this rung.
+//
+// Monotone acceptance is assumed -- a rejection ends the walk rather than being stepped over. That
+// holds for every row in this corpus, and stepping over a rejection would report a rung the row does
+// not actually compile at everything above.
+static (string? Version, string? Evidence) Descend(
+    LanguageProfile profile,
+    string? accepted,
+    string? next,
+    string[] files,
+    ProjectInputs inputs,
+    string workRoot,
+    ProbeCompiler modernCompiler)
+{
+    if (!profile.DescendToLowestAcceptedLangVersion)
+    {
+        return (null, null);
+    }
+
+    while (next is not null)
+    {
+        // Below only ever returns a rung that has a /langversion spelling, so this cannot be null.
+        var arg = profile.LangVersionArg(next)!;
+        if (!Compile(profile, modernCompiler, arg, files, inputs, workRoot).Succeeded)
+        {
+            break;
+        }
+
+        accepted = next;
+        next = Below(next, profile);
+    }
+
+    return accepted is null ? (null, null) : (accepted, Evidence.SdkPin);
+}
+
+// An exempt row has no measured rung, and that is a different statement from having measured
+// nothing: the probe cannot see the feature, so no descent was attempted rather than attempted and
+// inconclusive. A language that does not descend says nothing at all.
+static string? ExemptLangVersionEvidence(LanguageProfile profile) =>
+    profile.DescendToLowestAcceptedLangVersion ? Evidence.Exempt : null;
+
 // Step 1 on its own, for buckets whose exemption is about the ladder rather than about the sources.
 // The row still has to compile at the version it claims; what it cannot be asked is what happens
 // one rung down, because the bucket spans many rungs.
@@ -428,21 +589,23 @@ static Verdict ProbeOwnVersion(
     string[] files,
     ProjectInputs inputs,
     string workRoot,
-    string modernCompiler,
+    ProbeCompiler modernCompiler,
     string exemption)
 {
     var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
         return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling",
-            Evidence.None);
+            Evidence.None, Diagnostic: "");
     }
 
     var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
     return own.Succeeded
-        ? new Verdict("EXEMPT", exemption, Evidence.None)
+        ? new Verdict("EXEMPT", exemption, Evidence.None,
+            Diagnostic: "", null, ExemptLangVersionEvidence(profile))
         : new Verdict("INCONCLUSIVE",
-            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None);
+            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None,
+            own.FirstError);
 }
 
 static Verdict ProbeFloor(
@@ -451,46 +614,65 @@ static Verdict ProbeFloor(
     string[] files,
     ProjectInputs inputs,
     string workRoot,
-    string modernCompiler,
-    Dictionary<string, string> periodCompilers)
+    ProbeCompiler modernCompiler,
+    Dictionary<string, ProbeCompiler> periodCompilers)
 {
     // Step 1 -- the group must stand on its own at its own language version, or nothing below
     // this can be interpreted.
     var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
+        // Nothing can be compiled at the row's own version, so the outcome is unprovable -- but the
+        // ladder below it is still walkable, and an acceptance down there bounds the row from below
+        // just as well. C# 1.2 is the only rung in either ladder this reaches.
+        var (unspellable, unspellableEvidence) = Descend(profile, accepted: null,
+            next: Below(featureVersion, profile), files, inputs, workRoot, modernCompiler);
         return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling",
-            Evidence.None);
+            Evidence.None, Diagnostic: "", unspellable, unspellableEvidence);
     }
 
     var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
     if (!own.Succeeded)
     {
         return new Verdict("INCONCLUSIVE",
-            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None);
+            $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None,
+            own.FirstError);
     }
+
+    // From here on the row is known to compile at its own version, so that rung is the highest the
+    // descent could ever report and the seed every path below starts from.
+    var ownAccepted = profile.DescendToLowestAcceptedLangVersion ? featureVersion : null;
+    var ownEvidence = ownAccepted is null ? null : Evidence.SdkPin;
 
     var floor = Below(featureVersion, profile);
     if (floor is null)
     {
         return new Verdict("BASELINE",
             $"{profile.Name} {featureVersion} is the oldest rung; there is no lower version to test against",
-            Evidence.None);
+            Evidence.None, Diagnostic: "", ownAccepted, ownEvidence);
     }
 
     var floorArg = profile.LangVersionArg(floor);
     if (floorArg is null)
     {
-        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling", Evidence.None);
+        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling",
+            Evidence.None, Diagnostic: "", ownAccepted, ownEvidence);
     }
 
     // Step 2 -- the modern compiler, held down to the rung below.
     var gated = Compile(profile, modernCompiler, floorArg, files, inputs, workRoot);
     if (!gated.Succeeded)
     {
+        // The descent ends here too, and at no extra cost: this rejection is the one that bounds it.
         return new Verdict("GATED", $"rejected at /langversion:{floorArg} ({gated.FirstError})",
-            Evidence.SdkPin);
+            Evidence.SdkPin, gated.FirstError, ownAccepted, ownEvidence);
     }
+
+    // The rung below was accepted, so the descent has somewhere to go. Walk it once here and let
+    // every escalation outcome below report the same number: how low a /langversion pin goes is a
+    // fact about this compiler, and none of steps 3 and 4 changes it.
+    var (lowest, lowestEvidence) = Descend(profile, accepted: floor, next: Below(floor, profile),
+        files, inputs, workRoot, modernCompiler);
 
     // Step 3 -- a compiler whose native ceiling is the rung below. Only this tier can settle the
     // question in both directions: a compiler that predates the feature and still accepts the code
@@ -505,7 +687,7 @@ static Verdict ProbeFloor(
         {
             return new Verdict("INCONCLUSIVE",
                 $"the {profile.Name} {floor} compiler cannot read this project's reference set ({control.FirstError})",
-                Evidence.None);
+                Evidence.None, control.FirstError, lowest, lowestEvidence);
         }
 
         var period = Compile(profile, periodCsc, langVersion: null, files, inputs, workRoot);
@@ -513,16 +695,16 @@ static Verdict ProbeFloor(
         {
             return new Verdict("NOT-VERSION-SPECIFIC",
                 $"the {profile.Name} {floor} compiler accepts it, so nothing here requires {profile.Name} {featureVersion}",
-                Evidence.NativeCeiling);
+                Evidence.NativeCeiling, Diagnostic: "", lowest, lowestEvidence);
         }
 
         return profile.IsEnvironmentError(period.FirstError)
             ? new Verdict("INCONCLUSIVE",
                 $"the {profile.Name} {floor} compiler could not process the group for a non-language reason ({period.FirstError})",
-                Evidence.None)
+                Evidence.None, period.FirstError, lowest, lowestEvidence)
             : new Verdict("UNGATED",
                 $"accepted at /langversion:{floorArg} but rejected by the {profile.Name} {floor} compiler ({period.FirstError})",
-                Evidence.NativeCeiling);
+                Evidence.NativeCeiling, period.FirstError, lowest, lowestEvidence);
     }
 
     // Step 4 -- no compiler tops out at this rung, so fall back to the nearest higher-ceiling
@@ -538,37 +720,37 @@ static Verdict ProbeFloor(
     var gate = periodCompilers
         .Where(kv => LadderIndex(profile.Ladder, kv.Key) > LadderIndex(profile.Ladder, floor))
         .OrderBy(kv => LadderIndex(profile.Ladder, kv.Key))
-        .Select(kv => (Ceiling: kv.Key, Path: kv.Value))
+        .Select(kv => (Ceiling: kv.Key, Compiler: kv.Value))
         .FirstOrDefault();
 
-    if (legacyArg is not null && gate.Path is not null)
+    if (legacyArg is not null && gate.Compiler is not null)
     {
         // Control run first. Unless this compiler can handle the files at its own ceiling, a
         // failure at the floor says nothing about language versions.
-        var control = Compile(profile, gate.Path, langVersion: null, files, inputs, workRoot);
+        var control = Compile(profile, gate.Compiler, langVersion: null, files, inputs, workRoot);
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
                 $"the {profile.Name} {gate.Ceiling} compiler cannot process the group even at its own ceiling ({control.FirstError})",
-                Evidence.None);
+                Evidence.None, control.FirstError, lowest, lowestEvidence);
         }
 
-        var legacy = Compile(profile, gate.Path, legacyArg, files, inputs, workRoot);
+        var legacy = Compile(profile, gate.Compiler, legacyArg, files, inputs, workRoot);
         if (!legacy.Succeeded)
         {
             return new Verdict("UNGATED",
                 $"accepted at /langversion:{floorArg} by the modern compiler but rejected by the {profile.Name} {gate.Ceiling} compiler held to the same setting ({legacy.FirstError})",
-                Evidence.LegacyPin);
+                Evidence.LegacyPin, legacy.FirstError, lowest, lowestEvidence);
         }
 
         return new Verdict("UNPROVEN",
             $"accepted at {profile.Name} {floor} by the modern compiler and by the {profile.Name} {gate.Ceiling} compiler held there, and no compiler topping out at {profile.Name} {floor} exists to settle it",
-            Evidence.LegacyPin);
+            Evidence.LegacyPin, Diagnostic: "", lowest, lowestEvidence);
     }
 
     return new Verdict("UNPROVEN",
         $"accepted at /langversion:{floorArg}, and no compiler for {profile.Name} {floor} is available",
-        Evidence.SdkPin);
+        Evidence.SdkPin, Diagnostic: "", lowest, lowestEvidence);
 }
 
 // A compile that exercises only the reference set, used to tell a metadata problem apart from a
@@ -583,7 +765,7 @@ static string TrivialSource(LanguageProfile profile, string workRoot)
 
 static CompileResult Compile(
     LanguageProfile profile,
-    string compiler,
+    ProbeCompiler compiler,
     string? langVersion,
     string[] files,
     ProjectInputs inputs,
@@ -597,6 +779,29 @@ static CompileResult Compile(
     // auto-references collide with the resolved set as CS1703 on the older compilers.
     var rsp = new StringBuilder();
     rsp.AppendLine("/nologo");
+
+    // Diagnostic prose is localized to the machine's UI language, and this switch is the only lever
+    // that reaches a compiler -- no environment variable does. Unlike /noconfig it is honored from
+    // inside a response file.
+    //
+    // The gate is per binary and measured, never IsRoslyn and never the language. /preferreduilang
+    // predates Roslyn, so the in-box compilers split on it in a way nothing about them predicts:
+    // csc gains it at v4.0.30319 and answers fatal error CS2007 with exit 1 at v3.5 and v2.0.50727,
+    // while vbc does not implement it at any in-box version -- v4.0.30319's vbc included, sitting in
+    // the same directory as the csc that does. That asymmetry is the thing to resist "fixing". Both
+    // exclusions would manufacture verdicts: the csc rejection fails every compile outright, and the
+    // vbc "vbc : Command line warning BC2007" line is a warning ahead of the real error, which the
+    // first-diagnostic scan below can pick up in its place.
+    //
+    // The Roslyn compilers get it even though they already print English here, because that is a
+    // fact about which satellite resources this machine has installed, not about the compiler.
+    //
+    // This switch is not what makes --json portable -- four of the nine registered compilers cannot
+    // be forced at all. The DiagnosticCode field is. See ToJsonResult.
+    if (compiler.HonorsPreferredUiLanguage)
+    {
+        rsp.AppendLine("/preferreduilang:en-US");
+    }
 
     if (profile.Name == "VB")
     {
@@ -613,6 +818,26 @@ static CompileResult Compile(
         }
 
         rsp.AppendLine($"/vbruntime:\"{vbRuntime}\"");
+
+        // A VB compilation prepends RootNamespace to every declaration, so a probe that omits it
+        // compiles the row in a different namespace than the project that ships it. csc has no
+        // /rootnamespace switch, which is why this is inside the VB branch.
+        if (!string.IsNullOrWhiteSpace(inputs.RootNamespace))
+        {
+            rsp.AppendLine($"/rootnamespace:{inputs.RootNamespace}");
+        }
+
+        // Roslyn's vbc binds method bodies concurrently, so which of several genuine errors a
+        // rejection reports first varies per process and makes the Detail string in --json
+        // irreproducible. Serializing binding fixes the reported diagnostic without changing the
+        // outcome. VB only, because that is where the rotation has been observed and C#'s --json is
+        // reproducible as it stands; Roslyn only, because /parallel does not exist before it -- the
+        // in-box csc rejects the switch with CS2007 and the in-box vbc warns with BC2007, which
+        // would then be the first diagnostic line the report picked up.
+        if (compiler.IsRoslyn)
+        {
+            rsp.AppendLine("/parallel-");
+        }
     }
     else
     {
@@ -645,7 +870,7 @@ static CompileResult Compile(
     var rspPath = Path.Combine(outDir, "probe.rsp");
     File.WriteAllText(rspPath, rsp.ToString());
 
-    var psi = new ProcessStartInfo(compiler, $"/noconfig @\"{rspPath}\"")
+    var psi = new ProcessStartInfo(compiler.Path, $"/noconfig @\"{rspPath}\"")
     {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
@@ -667,11 +892,10 @@ static CompileResult Compile(
     // can't be matched by spelling, and strictly better than the old behavior of finding nothing.
     // CS codes are always 4 digits; BC codes run 4 or 5 (BC2001 vs. BC30002, BC36716, BC42024 --
     // all real codes this corpus has hit), so both need the wider count.
-    var diagnosticCode = new Regex(@"\b(?:CS|BC)\d{4,5}\b");
     var output = stdout + stderr;
     var lines = output.Split('\n').Select(line => line.Trim()).ToArray();
     var firstError = lines.FirstOrDefault(line => line.Contains(": error ", StringComparison.Ordinal))
-        ?? lines.FirstOrDefault(line => diagnosticCode.IsMatch(line))
+        ?? lines.FirstOrDefault(line => Diagnostics.Code.IsMatch(line))
         ?? (process.ExitCode == 0 ? "" : "no diagnostic text");
 
     // Keep only the severity word, code, and message; the absolute path in front is noise in a
@@ -679,7 +903,7 @@ static CompileResult Compile(
     // and space right before the severity word are locale-independent even though the word itself
     // is not, so anchoring on the nearest ": " before the code keeps the severity word without
     // hardcoding its spelling.
-    var match = diagnosticCode.Match(firstError);
+    var match = Diagnostics.Code.Match(firstError);
     if (match.Success)
     {
         var marker = firstError.LastIndexOf(": ", match.Index, StringComparison.Ordinal);
@@ -701,8 +925,8 @@ static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, La
     var query = profile.Name == "VB"
         ? "-getItem:ReferencePath -getItem:Import -getProperty:FinalDefineConstants"
           + " -getProperty:OptionExplicit -getProperty:OptionStrict -getProperty:OptionInfer"
-          + " -getProperty:OptionCompare"
-        : "-getItem:ReferencePath -getProperty:DefineConstants";
+          + " -getProperty:OptionCompare -getProperty:RootNamespace"
+        : "-getItem:ReferencePath -getProperty:DefineConstants -getProperty:RootNamespace";
 
     var json = Run(msbuild, $"\"{projectPath}\" -t:ResolveReferences {query} -nologo");
 
@@ -740,17 +964,24 @@ static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, La
             defines = define.GetString();
         }
 
+        string? rootNamespace = null;
+        if (properties.ValueKind == JsonValueKind.Object
+            && properties.TryGetProperty("RootNamespace", out var declaredRoot))
+        {
+            rootNamespace = declaredRoot.GetString();
+        }
+
         var options = new List<string>();
         if (profile.Name == "VB")
         {
             options.AddRange(VbOptions(properties, items));
         }
 
-        return new ProjectInputs(references, defines, options);
+        return new ProjectInputs(references, defines, rootNamespace, options);
     }
     catch (JsonException)
     {
-        return new ProjectInputs(Array.Empty<string>(), null, Array.Empty<string>());
+        return new ProjectInputs(Array.Empty<string>(), null, null, Array.Empty<string>());
     }
 }
 
@@ -881,8 +1112,9 @@ static Discovery DiscoverCSharpProjects(
             }
         }
 
-        // One cache scope: every CSharp_v* project resolves against the same net48 reference set.
-        projects.Add(new ProbeProject(projectName, csproj, ceiling, Scope: "", rows));
+        // No unclaimed rows: a C# project owns its version folders on disk, so there is no shared
+        // tree for it to be under-claiming from.
+        projects.Add(new ProbeProject(projectName, csproj, ceiling, rows, []));
     }
 
     return new Discovery(projects, null);
@@ -917,7 +1149,6 @@ static Discovery DiscoverVbProjects(
     foreach (var family in families)
     {
         var sourceRoot = Path.Combine(family, "src");
-        var familyName = Path.GetRelativePath(vbRoot, family).Replace('\\', '/');
         var familyProjects = new List<ProbeProject>();
 
         foreach (var projectPath in Directory
@@ -940,20 +1171,27 @@ static Discovery DiscoverVbProjects(
             }
 
             var rows = VbRows(projectPath, sourceRoot, profile);
-            if (rows.Count == 0)
+            if (rows.Rows.Count == 0)
             {
                 skippedProjects.Add($"{projectName}: compiles no row folders under src/");
                 continue;
             }
 
-            // A net10 reference set and a net48 one disagree about what is available, and the my/
-            // projects compile with _MyType defined, so each of those is its own cache scope.
-            var scope = familyName + "|" + Path.GetFileName(projectDirectory);
-            familyProjects.Add(new ProbeProject(projectName, projectPath, ceiling, scope, rows));
+            // Under-placement is checked for a family's mainline library projects only. The my/ kind
+            // exists to house the one row that needs MyType=Windows, a per-compilation switch that
+            // cannot be scoped to a folder; it claims that row and nothing else by construction, so
+            // the rest of src/ being unclaimed there is the housing decision rather than a defect.
+            var kind = Path.GetFileName(projectDirectory);
+            var unclaimed = kind.Equals("library", StringComparison.OrdinalIgnoreCase)
+                ? UnclaimedVbRows(sourceRoot, rows, profile)
+                : [];
+
+            familyProjects.Add(
+                new ProbeProject(projectName, projectPath, ceiling, rows.Rows, unclaimed));
         }
 
         // Ascending pin order, so the lowest project probes each row first and the pins above it
-        // read the verdict out of the cache instead of paying for a second reference resolution.
+        // read the verdict out of the cache instead of paying to compile the row again.
         projects.AddRange(familyProjects
             .OrderBy(p => LadderIndex(profile.Ladder, p.Ceiling))
             .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
@@ -974,7 +1212,10 @@ static Discovery DiscoverVbProjects(
 // src/<version folder>/<group>/ path each surviving file sits under. Honoring Remove is what keeps
 // MyNamespaceHelpers attributed to the my/ projects alone; a directory-prefix reading would file it
 // under every library project too, none of which compiles it.
-static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
+//
+// The removed rows are returned alongside the compiled ones, because the under-placement check
+// needs them: a row a project deliberately excludes is a policy statement, not a row it forgot.
+static VbProjectRows VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
 {
     var projectDirectory = Path.GetDirectoryName(projectPath)!;
     var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1001,15 +1242,7 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
     var buckets = new Dictionary<(string Folder, string Group), List<string>>();
     foreach (var file in included)
     {
-        var relative = Path.GetRelativePath(sourceRoot, file);
-        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (segments.Length < 3 || segments[0] == "..")
-        {
-            throw new InvalidOperationException(
-                $"{projectPath} compiles '{file}', which is not a src/<version folder>/<group>/ row.");
-        }
-
-        var key = (segments[0], segments[1]);
+        var key = RowKey(projectPath, sourceRoot, file);
         if (!buckets.TryGetValue(key, out var files))
         {
             files = [];
@@ -1019,7 +1252,7 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
         files.Add(file);
     }
 
-    return buckets
+    var rows = buckets
         .Select(bucket => new RowGroup(
             bucket.Key.Folder,
             VbRowVersion(bucket.Key.Folder)
@@ -1027,6 +1260,68 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
                     $"{projectPath} compiles rows from '{bucket.Key.Folder}', which names no VB version."),
             bucket.Key.Group,
             bucket.Value.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray()))
+        .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
+        .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    var removedRows = removed
+        .Select(file => RowKey(projectPath, sourceRoot, file))
+        .ToHashSet();
+
+    return new VbProjectRows(rows, removedRows);
+}
+
+// Which src/<version folder>/<group>/ row a file belongs to. A file the project names but that does
+// not sit at that depth is a layout the probe cannot read, and saying so beats guessing.
+static (string Folder, string Group) RowKey(string projectPath, string sourceRoot, string file)
+{
+    var relative = Path.GetRelativePath(sourceRoot, file);
+    var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    if (segments.Length < 3 || segments[0] == "..")
+    {
+        throw new InvalidOperationException(
+            $"{projectPath} names '{file}' in a Compile item, which is not a src/<version folder>/<group>/ row.");
+    }
+
+    return (segments[0], segments[1]);
+}
+
+// Every row folder under a family's src/ that this project neither compiles nor explicitly removes.
+// The under-placement check compiles each of these at the project's pin: the corpus's model is that
+// a project holds every row that compiles at its pin, so one that succeeds here is a row the project
+// should be claiming and is not.
+static List<RowGroup> UnclaimedVbRows(string sourceRoot, VbProjectRows rows, LanguageProfile profile)
+{
+    var claimed = rows.Rows.Select(row => (row.VersionFolder, row.Group)).ToHashSet();
+    var unclaimed = new List<RowGroup>();
+
+    foreach (var versionDir in Directory.EnumerateDirectories(sourceRoot))
+    {
+        var folder = Path.GetFileName(versionDir);
+        var version = VbRowVersion(folder)
+            ?? throw new InvalidOperationException(
+                $"'{sourceRoot}' holds a folder '{folder}', which names no VB version.");
+
+        foreach (var groupDir in Directory.EnumerateDirectories(versionDir))
+        {
+            var group = Path.GetFileName(groupDir);
+            if (claimed.Contains((folder, group)) || rows.Removed.Contains((folder, group)))
+            {
+                continue;
+            }
+
+            var files = Directory
+                .EnumerateFiles(groupDir, "*" + profile.SourceExtension, SearchOption.AllDirectories)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (files.Length > 0)
+            {
+                unclaimed.Add(new RowGroup(folder, version, group, files));
+            }
+        }
+    }
+
+    return unclaimed
         .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
         .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
         .ToList();
@@ -1068,6 +1363,13 @@ static string Run(string exe, string arguments)
         RedirectStandardError = true,
         UseShellExecute = false,
     };
+
+    // MSBuild has no /preferreduilang; an environment variable is the whole mechanism. Measured on a
+    // sv-SE host by driving both knobs to an installed culture: DOTNET_CLI_UI_LANGUAGE moves
+    // MSBuild.exe's own messages and the SDK tasks' alike, and VSLANG moves neither, even though the
+    // dotnet CLI honors both. Where they conflict this one wins, so it is also what overrides a
+    // VSLANG the caller's environment already carries.
+    psi.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en-US";
 
     using var process = Process.Start(psi)!;
     var stdout = process.StandardOutput.ReadToEnd();
@@ -1122,11 +1424,33 @@ static async Task<string?> AcquirePackagedCompilerAsync(string repoRoot, bool of
     return File.Exists(compiler) ? compiler : null;
 }
 
+// The console-to-JSON projection, and the only place localized prose is removed. Substituting the
+// exact diagnostic substring the Detail embedded means nothing has to parse the composed sentence --
+// which matters, because a message can itself contain parentheses (CS0246's "(are you missing a
+// using directive...)") and any bracket-matching rule would eventually cut one in half.
+//
+// A diagnostic the code regex cannot name leaves DiagnosticCode empty and the Detail untouched.
+// That is deliberate: such a Detail is either prose the probe wrote itself, which is already
+// English, or compiler output with no recognizable code, where dropping the text would leave the
+// row with no description of its failure at all.
+static JsonResult ToJsonResult(Result result)
+{
+    var code = Diagnostics.CodeOf(result.Diagnostic);
+    var detail = code.Length == 0
+        ? result.Detail
+        : result.Detail.Replace(result.Diagnostic, code, StringComparison.Ordinal);
+
+    return new JsonResult(
+        result.Project, result.Ceiling, result.FeatureVersion, result.Group, result.Outcome,
+        code, detail, result.Evidence,
+        result.LowestAcceptedLangVersion, result.LowestAcceptedLangVersionEvidence);
+}
+
 static void Report(
     LanguageProfile profile,
     List<Result> results,
     List<string> skippedProjects,
-    Dictionary<string, string> periodCompilers,
+    Dictionary<string, ProbeCompiler> periodCompilers,
     bool emitJson)
 {
     // Ladder order, not string order: VB's rungs are bare numbers, and sorting them as text puts 11
@@ -1141,7 +1465,7 @@ static void Report(
         {
             periodCompilers = ceilings,
             skippedProjects,
-            results,
+            results = results.Select(ToJsonResult).ToArray(),
         };
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
         return;
@@ -1149,9 +1473,11 @@ static void Report(
 
     // Every group is listed under its outcome. Nothing is capped -- a quietly shortened report
     // reads as a clean corpus.
+    // Every outcome the run can produce has to appear here, or it is dropped from both the sectioned
+    // report and the Totals line.
     var order = new[]
     {
-        "MISPLACED", "NOT-VERSION-SPECIFIC", "UNGATED", "UNPROVEN", "INCONCLUSIVE",
+        "MISPLACED", "UNDER-PLACED", "NOT-VERSION-SPECIFIC", "UNGATED", "UNPROVEN", "INCONCLUSIVE",
         "EXEMPT", "BASELINE", "GATED",
     };
 
@@ -1209,6 +1535,11 @@ static void Report(
         }
     }
 
+    if (profile.DescendToLowestAcceptedLangVersion)
+    {
+        ReportLowestAcceptedLangVersion(profile, results);
+    }
+
     if (skippedProjects.Count > 0)
     {
         Console.WriteLine();
@@ -1231,6 +1562,58 @@ static void Report(
             .Select(o => (Outcome: o, Count: results.Count(r => r.Outcome == o)))
             .Where(x => x.Count > 0)
             .Select(x => $"{x.Count} {x.Outcome}")));
+}
+
+// The descent's findings, reported in a section of their own so the number cannot be read as one of
+// the outcomes above. Only rows that go below their own version are listed: every other row's number
+// is its own version, which the outcome sections already say. A row appears once per distinct rung,
+// because two projects resolve different reference sets and are not obliged to agree.
+static void ReportLowestAcceptedLangVersion(LanguageProfile profile, List<Result> results)
+{
+    var measured = results.Where(r => r.LowestAcceptedLangVersion is not null).ToArray();
+
+    var below = measured
+        .Select(r => (
+            r.FeatureVersion,
+            r.Group,
+            Rung: r.LowestAcceptedLangVersion!,
+            Evidence: r.LowestAcceptedLangVersionEvidence!))
+        .Distinct()
+        .Where(x => LadderIndex(profile.Ladder, x.Rung) < LadderIndex(profile.Ladder, x.FeatureVersion))
+        .OrderBy(x => x.Group, StringComparer.Ordinal)
+        .ThenBy(x => LadderIndex(profile.Ladder, x.Rung))
+        .ToArray();
+
+    var distinctRows = results.Select(r => (r.FeatureVersion, r.Group)).Distinct().Count();
+    var distinctMeasured = measured.Select(r => (r.FeatureVersion, r.Group)).Distinct().Count();
+    var distinctExempt = results
+        .Where(r => r.LowestAcceptedLangVersionEvidence == Evidence.Exempt)
+        .Select(r => (r.FeatureVersion, r.Group))
+        .Distinct()
+        .Count();
+
+    Console.WriteLine();
+    Console.WriteLine($"LOWEST ACCEPTED /langversion ({below.Length} distinct rows below their own version)");
+
+    foreach (var row in below)
+    {
+        var copies = measured.Count(r =>
+            r.Group == row.Group
+            && r.FeatureVersion == row.FeatureVersion
+            && r.LowestAcceptedLangVersion == row.Rung);
+        Console.WriteLine(
+            $"  {profile.Name} {row.FeatureVersion}/{row.Group} -> {row.Rung} ({row.Evidence}), "
+            + $"{copies} project copies");
+    }
+
+    Console.WriteLine(
+        $"  {distinctMeasured} of {distinctRows} distinct rows measured; {distinctRows - distinctMeasured} "
+        + $"have no rung at all ({distinctExempt} exempt from the probe, the rest listed under "
+        + "INCONCLUSIVE above).");
+    Console.WriteLine(
+        "  This is how far a /langversion pin can be lowered on the installed compiler, not the "
+        + "version the row requires. The Evidence field on each outcome above is the separate, "
+        + "sometimes stronger claim.");
 }
 
 // Walk down to the nearest rung the compiler can actually be held to. C# 1.2 is a corpus row
@@ -1291,6 +1674,18 @@ static string? ExemptionReason(string group) => group switch
         "NoPIA is a property of the reference (/link with EmbedInteropTypes), not of the source. "
         + "This harness compiles with /reference: only, so the feature is absent from the "
         + "compilation it performs and no compiler version can reveal it",
+
+    // VB's three 17.13 consumption rows are one category: each demonstrates the compiler honoring
+    // metadata a C# assembly emitted, and VB cannot express any of the three in source at all.
+    "CallerArgumentExpressionConsumption" or "OverloadResolutionPriorityConsumption"
+        or "UnmanagedConstraintRecognition" =>
+        "the VB 17.13 consumption rows demonstrate the compiler honoring metadata a C# assembly "
+        + "emitted -- CallerArgumentExpression, OverloadResolutionPriority, the unmanaged "
+        + "constraint -- and VB can express none of the three in source. The feature is absent "
+        + "from the compilation this harness performs, so no compiler version can reject it. A "
+        + "gated construct elsewhere in such a row -- CallerArgumentExpressionConsumption uses "
+        + "null-conditional access, VB 14 -- fixes a floor for that row's own sources and still "
+        + "says nothing about the 17.13 feature, which is what the probe is asked about",
 
     "Baseline" =>
         "the Baseline bucket spans VS.NET 2002 to VS2012, and the upstream sources give no "
@@ -1428,6 +1823,33 @@ static string? ReadLangVersion(string projectPath, LanguageProfile profile)
     return null;
 }
 
+// The floor cache's scope, derived from what a probe compile actually depends on rather than
+// declared alongside the project. Two projects share a cached verdict only when they resolve the
+// same reference set, the same conditional-compilation constants and the same compiler options --
+// the inputs that decide whether a row compiles at all. References are sorted first, so a set that
+// MSBuild happens to emit in a different order is still recognized as the same set.
+//
+// RootNamespace is deliberately excluded even though the probe passes it. It renames the
+// declarations a row emits without bearing on whether they compile, and it differs at every pin by
+// design, so hashing it would give each pin its own scope and empty the cache without making a
+// single verdict more accurate.
+static string ScopeOf(ProjectInputs inputs)
+{
+    var buffer = new StringBuilder();
+    foreach (var reference in inputs.References.OrderBy(r => r, StringComparer.OrdinalIgnoreCase))
+    {
+        buffer.Append(reference).Append('\0');
+    }
+
+    buffer.Append('\n').Append(inputs.Defines).Append('\0');
+    foreach (var option in inputs.Options)
+    {
+        buffer.Append(option).Append('\0');
+    }
+
+    return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(buffer.ToString())));
+}
+
 static string HashFiles(string[] files)
 {
     using var sha = SHA256.Create();
@@ -1522,9 +1944,41 @@ static class Evidence
     // Only the installed SDK's compiler under /langversion bears on this floor.
     public const string SdkPin = "sdk-pin";
 
+    // The row is exempt from the floor probe, so no floor was measured and there is no evidence to
+    // tier. Distinct from None, which reports that something was compiled and none of it bears on
+    // the floor. Any compile such a row did receive -- the at-the-pin check a row filed above its
+    // project's pin gets -- speaks to the placement rather than to the floor.
+    public const string Exempt = "exempt";
+
     // Nothing compiled here bears on the floor.
     public const string None = "none";
 }
+
+// The one place a diagnostic code is recognized. Both the first-error scan in Compile and the --json
+// projection use it, so there is a single definition of what "the code" means and no second parser
+// to drift from the first. CS codes are always 4 digits; BC codes run 4 or 5.
+static class Diagnostics
+{
+    public static readonly Regex Code = new(@"\b(?:CS|BC)\d{4,5}\b");
+
+    // The code alone, or "" when the text carries none. "" is a real answer, not a failure: a
+    // compile can fail with output the probe cannot name -- "no diagnostic text" is one such string
+    // the probe writes itself -- and a Detail with no code keeps its prose in --json rather than
+    // losing the only description of the failure it has.
+    public static string CodeOf(string diagnostic)
+    {
+        var match = Code.Match(diagnostic);
+        return match.Success ? match.Value : "";
+    }
+}
+
+// One compiler the probe drives, and whether it is a Roslyn build. The flag exists because
+// /parallel- is a Roslyn switch: the in-box csc rejects it with fatal error CS2007, and the in-box
+// vbc answers with command line warning BC2007 and ignores it.
+// HonorsPreferredUiLanguage means the binary implements /preferreduilang, not merely that it exits 0
+// when handed it: the pre-Roslyn vbc does the latter, warning and ignoring. Measured per binary, and
+// deliberately not derived from IsRoslyn -- see the switch's own comment in Compile.
+record ProbeCompiler(string Path, bool IsRoslyn, bool HonorsPreferredUiLanguage);
 
 // A language's identity within this probe: how to find its files, spell its language versions on
 // the compiler command line, and walk its version ladder.
@@ -1534,33 +1988,61 @@ record LanguageProfile(
     string ProjectExtension,
     string CompilerFileName,
     IReadOnlyList<string> Ladder,
-    IReadOnlyList<(string Version, string Directory)> InBoxCompilers,
+    IReadOnlyList<(string Version, string Directory, bool HonorsPreferredUiLanguage)> InBoxCompilers,
     string PackagedCompilerCeiling,
     Func<string, string?> FolderVersion,
     Func<string, string?> LangVersionArg,
     Func<string, string?> LegacyLangVersionArg,
     Func<string, string?> CeilingVersion,
     Func<string, bool> IsEnvironmentError,
-    string ControlSource);
+    string ControlSource,
+    bool DescendToLowestAcceptedLangVersion);
 
 // One feature group folder as a project compiles it. VersionFolder is kept alongside the version it
 // resolves to because a bucket exemption is keyed on the folder name, not on the group.
 record RowGroup(string VersionFolder, string Version, string Group, string[] Files);
 
-// One project to probe, with the rows it compiles already resolved. Scope names the reference set
-// its rows are probed against, so the floor cache never reuses a verdict across incompatible ones.
+// One project to probe, with the rows it compiles already resolved. The floor cache's scope is not
+// here: it is derived from the project's resolved compile inputs by ScopeOf, which needs an MSBuild
+// evaluation and so cannot be settled at discovery time.
 record ProbeProject(
     string Name,
     string ProjectPath,
     string Ceiling,
-    string Scope,
-    IReadOnlyList<RowGroup> Rows);
+    IReadOnlyList<RowGroup> Rows,
+    IReadOnlyList<RowGroup> UnclaimedRows);
+
+// What a VB project says about its family's shared src/ tree: the rows it compiles, and the rows it
+// explicitly excludes. The second set is what keeps a deliberate Compile Remove from reading as an
+// under-placement.
+record VbProjectRows(List<RowGroup> Rows, HashSet<(string Folder, string Group)> Removed);
 
 record Discovery(List<ProbeProject> Projects, string? Fatal);
 
-// Everything a probe compile needs from a project besides its sources.
-record ProjectInputs(string[] References, string? Defines, IReadOnlyList<string> Options);
+// Everything a probe compile needs from a project besides its sources. RootNamespace is VB-only in
+// effect: a VB compilation prepends it to every declaration, so omitting it compiles the row in a
+// different namespace than the project that ships it. csc has no such switch -- in C# the property
+// only seeds new-file templates -- so it is resolved for both languages and emitted for neither but
+// VB.
+record ProjectInputs(
+    string[] References,
+    string? Defines,
+    string? RootNamespace,
+    IReadOnlyList<string> Options);
 
+// One classified row, as the console report prints it. Never serialized -- JsonResult is what --json
+// emits, and ToJsonResult is the projection between them.
+//
+// Detail carries the compiler's own message, in whatever language that compiler emitted it, because
+// four of the nine compilers cannot be forced to English. Diagnostic is the exact substring of that
+// message which Detail embeds, or "" when the Detail quotes no compiler at all; it exists so the
+// projection can swap the code in for the prose by exact string replacement rather than parsing a
+// composed sentence. It is required rather than defaulted on purpose: a new construction site that
+// forgets it fails to compile, where a default would quietly leak translated text into --json.
+//
+// LowestAcceptedLangVersion is the C#-only second quantity. Its name deliberately avoids the word
+// "floor": MANIFEST.md's VB Measured floor column is a placement-derived number and merging the two
+// would produce one column that is false for both.
 record Result(
     string Project,
     string Ceiling,
@@ -1568,8 +2050,40 @@ record Result(
     string Group,
     string Outcome,
     string Detail,
-    string Evidence);
+    string Evidence,
+    string Diagnostic,
+    string? LowestAcceptedLangVersion = null,
+    string? LowestAcceptedLangVersionEvidence = null);
 
-record Verdict(string Outcome, string Detail, string Evidence);
+// The serialized shape. Detail here carries the diagnostic *code* where Result.Detail carries the
+// compiler's prose: four of the nine compilers this script drives cannot be forced to English, so
+// prose in --json makes the payload machine-dependent and defeats the reproducibility the serialized
+// VB binding was built for. The code is what MANIFEST.md and this script's own documentation quote,
+// and what IsEnvironmentError already matches on, so nothing in classification reads the prose.
+//
+// The two LowestAcceptedLangVersion fields are omitted rather than emitted as null when absent, so
+// that a language which does not descend, or a row no descent could measure, says nothing instead of
+// saying null.
+record JsonResult(
+    string Project,
+    string Ceiling,
+    string FeatureVersion,
+    string Group,
+    string Outcome,
+    string DiagnosticCode,
+    string Detail,
+    string Evidence,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? LowestAcceptedLangVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? LowestAcceptedLangVersionEvidence = null);
+
+record Verdict(
+    string Outcome,
+    string Detail,
+    string Evidence,
+    string Diagnostic,
+    string? LowestAcceptedLangVersion = null,
+    string? LowestAcceptedLangVersionEvidence = null);
 
 record CompileResult(bool Succeeded, string FirstError);
