@@ -72,8 +72,8 @@ different namespace than the project that ships it. **`csc` has no such switch**
 property only seeds new-file templates — so the value is resolved for both languages and emitted
 only for VB.
 
-Exit code is **1** when any group is `MISPLACED` or `NOT-VERSION-SPECIFIC` — the two outcomes that
-mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
+Exit code is **1** when any group is `MISPLACED`, `UNDER-PLACED` or `NOT-VERSION-SPECIFIC` — the
+three outcomes that mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
 argument, an unrecognized `--language` value, no repo root, a non-Windows host, no Visual Studio
 MSBuild, no compiler beside it, or one of discovery's three fatal cases — the corpus root itself
 missing, no projects found under it with no `--project` filter given (C#'s message names the
@@ -132,6 +132,33 @@ that project's own reference set:
 treats every above-pin placement as a defect would delete exactly the evidence the ladder exists to
 record.
 
+### A row a project should claim and does not
+
+`MISPLACED` is only half of the placement invariant. `MANIFEST.md` states it in both directions: a
+project holds **every** row that compiles at its pin, and a row lives in its family's projects from
+its measured floor upward. Delete a `<Compile Include>` for a row placed below its own version and
+nothing noticed — the project still builds because it now compiles strictly less,
+`VbSourceCoverageTests` still passes because it asks only that *some* project compiles each file,
+and the floor probe still passed because it only ever classified rows a project already claims —
+while that row's **Measured floor** cell became false.
+
+So after a project's own rows are classified, a second pass compiles every row under its family's
+`src/` that the project neither claims nor `Compile Remove`s, at the project's pin. One that
+succeeds is `UNDER-PLACED`. A `Compile Remove` is excluded because it is a policy statement rather
+than an omission — it is what houses `MyNamespaceHelpers` in the `my/` projects.
+
+**VB only, and only the `library` kind.** A C# project owns its version folders on disk, so it has
+no shared tree to be under-claiming from. VB's `my/` kind exists to house the one row that needs
+`MyType=Windows`, a per-compilation switch that cannot be scoped to a folder; it claims that row and
+nothing else by construction, so the rest of `src/` being unclaimed there is the housing decision
+and not a defect.
+
+Cost is one compile per (unclaimed row, pin) pair: **77 compiles across the whole VB sweep**,
+measured at 0.136 s each because a row that fails at the pin fails fast — about 10 s on an 85 s run,
+inside the sweep's own run-to-run spread. It shrinks as pins rise, because a row claimed at one pin
+is claimed at every pin above it: 21 and 20 unclaimed rows at the two families' `11` pins, none at
+all from `16.9` upward.
+
 ## Outcomes
 
 | Outcome | Meaning | Fails the run |
@@ -140,6 +167,7 @@ record.
 | `UNGATED` | A period compiler rejects it but the current compiler does not. Genuine feature, unenforceable ceiling. | |
 | `NOT-VERSION-SPECIFIC` | A compiler predating the feature accepts the code. The example does not demonstrate its own row. | yes |
 | `MISPLACED` | A row above its project's pin that compiles at its own version but not at the pin. The project file is stale. | yes |
+| `UNDER-PLACED` | A row the project does not claim that nonetheless compiles at its pin. The `Compile Include` is missing, or the row's measured floor is wrong. VB `library` projects only. | yes |
 | `UNPROVEN` | No compiler exists here that can settle the boundary. | |
 | `BASELINE` | A row at the ladder's lowest rung — there is no lower version to test against. | |
 | `INCONCLUSIVE` | The probe hit a failure it cannot attribute to a language version — for example the group will not compile standalone, a period or gate compiler cannot process the group for a non-language reason (its reference-set or own-ceiling control failed), a row above its pin failed at both the pin and its own version, the group folder holds no source files of the probed language, or the pin or the row's own version has no `/langversion` spelling to compile at. This list is representative of the script's `INCONCLUSIVE` sites, not exhaustive. | |

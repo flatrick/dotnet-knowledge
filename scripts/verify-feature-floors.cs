@@ -95,9 +95,17 @@
 //   dotnet scripts/verify-feature-floors.cs -- --json
 //   dotnet scripts/verify-feature-floors.cs -- --offline
 //
-// Exit code is 1 when any group is MISPLACED or NOT-VERSION-SPECIFIC -- the two outcomes that mean
-// the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the toolchain's reach,
-// not corpus defects, and do not fail the run.
+// The VB half also gets the converse of MISPLACED. A project holds every row that compiles at its
+// pin, so after a project's own rows are classified, every row under its family's src/ that it
+// neither compiles nor explicitly Compile Removes is compiled at the pin: one that succeeds is
+// UNDER-PLACED, a row the project should be claiming. Without it, deleting a Compile Include leaves
+// every guard green while MANIFEST.md's Measured floor cell for that row silently becomes false.
+// C# needs no such check -- a C# project owns its version folders on disk -- and neither does VB's
+// my/ kind, which exists to house the one row needing MyType=Windows and claims nothing else.
+//
+// Exit code is 1 when any group is MISPLACED, UNDER-PLACED or NOT-VERSION-SPECIFIC -- the three
+// outcomes that mean the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the
+// toolchain's reach, not corpus defects, and do not fail the run.
 
 using System.Diagnostics;
 using System.IO.Compression;
@@ -286,13 +294,16 @@ foreach (var project in discovery.Projects)
     Console.Error.WriteLine($"verify-feature-floors: {project.Name} (ceiling {project.Ceiling})");
 
     ProjectInputs? inputs = null;
+    var resolutionFailed = false;
     var scope = "";
 
     // Resolving references costs a full MSBuild evaluation, so it still happens at most once per
     // project and not at all for a project with nothing to classify. It can no longer be deferred
     // past a cache read, though: the cache key names the reference set a verdict was measured
     // against, and that is only knowable once the references are resolved. False means the project
-    // resolved nothing usable and has been skipped.
+    // resolved nothing usable and has been skipped. The failure is latched, because the two loops
+    // below call this independently and a project should be reported skipped once, not once per
+    // loop that asked.
     bool EnsureInputs()
     {
         if (inputs is not null)
@@ -300,12 +311,18 @@ foreach (var project in discovery.Projects)
             return true;
         }
 
+        if (resolutionFailed)
+        {
+            return false;
+        }
+
         inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
         if (inputs.References.Length == 0)
         {
-            // Clear it again, so a later call re-reads the same failure instead of short-circuiting
-            // on a non-null field that was just declared unusable.
+            // Clear it again, so nothing downstream short-circuits on a non-null field that was
+            // just declared unusable.
             inputs = null;
+            resolutionFailed = true;
             skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
             return false;
         }
@@ -424,11 +441,42 @@ foreach (var project in discovery.Projects)
             verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote),
             WithAbovePinEvidence(verdict.Evidence, abovePinNote)));
     }
+
+    // Second pass, and it has to be one: the loop above only ever visits rows the project claims,
+    // and this is the converse question. MISPLACED catches a project claiming a row it cannot build;
+    // nothing caught a row a project should claim and does not. Delete a Compile Include for a row
+    // placed below its own version and the project still builds, VbSourceCoverageTests still passes
+    // because some other project compiles the file, and the floor probe still passes because it only
+    // classifies claimed rows -- while that row's Measured floor cell in MANIFEST.md silently
+    // becomes false. UnclaimedRows is empty for every C# project and for VB's my/ kind.
+    if (project.UnclaimedRows.Count > 0)
+    {
+        var pinArg = profile.LangVersionArg(project.Ceiling);
+        if (pinArg is null)
+        {
+            skippedProjects.Add(
+                $"{project.Name}: {profile.Name} {project.Ceiling} has no /langversion spelling, so the rows it does not claim were not checked");
+        }
+        else if (EnsureInputs())
+        {
+            foreach (var row in project.UnclaimedRows)
+            {
+                var atPin = Compile(profile, modernCompiler, pinArg, row.Files, inputs!, workRoot);
+                if (atPin.Succeeded)
+                {
+                    results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                        "UNDER-PLACED",
+                        $"this project does not claim the row, but it compiles at the pin (/langversion:{pinArg}); a project holds every row that compiles at its pin, so either the Compile item is missing or the row's measured floor is wrong",
+                        Evidence.SdkPin));
+                }
+            }
+        }
+    }
 }
 
 Report(profile, results, skippedProjects, periodCompilers, emitJson);
 
-var failures = results.Count(r => r.Outcome is "MISPLACED" or "NOT-VERSION-SPECIFIC");
+var failures = results.Count(r => r.Outcome is "MISPLACED" or "UNDER-PLACED" or "NOT-VERSION-SPECIFIC");
 return failures > 0 ? 1 : 0;
 
 // ---------------------------------------------------------------------------------------------
@@ -936,7 +984,9 @@ static Discovery DiscoverCSharpProjects(
             }
         }
 
-        projects.Add(new ProbeProject(projectName, csproj, ceiling, rows));
+        // No unclaimed rows: a C# project owns its version folders on disk, so there is no shared
+        // tree for it to be under-claiming from.
+        projects.Add(new ProbeProject(projectName, csproj, ceiling, rows, []));
     }
 
     return new Discovery(projects, null);
@@ -993,13 +1043,23 @@ static Discovery DiscoverVbProjects(
             }
 
             var rows = VbRows(projectPath, sourceRoot, profile);
-            if (rows.Count == 0)
+            if (rows.Rows.Count == 0)
             {
                 skippedProjects.Add($"{projectName}: compiles no row folders under src/");
                 continue;
             }
 
-            familyProjects.Add(new ProbeProject(projectName, projectPath, ceiling, rows));
+            // Under-placement is checked for a family's mainline library projects only. The my/ kind
+            // exists to house the one row that needs MyType=Windows, a per-compilation switch that
+            // cannot be scoped to a folder; it claims that row and nothing else by construction, so
+            // the rest of src/ being unclaimed there is the housing decision rather than a defect.
+            var kind = Path.GetFileName(projectDirectory);
+            var unclaimed = kind.Equals("library", StringComparison.OrdinalIgnoreCase)
+                ? UnclaimedVbRows(sourceRoot, rows, profile)
+                : [];
+
+            familyProjects.Add(
+                new ProbeProject(projectName, projectPath, ceiling, rows.Rows, unclaimed));
         }
 
         // Ascending pin order, so the lowest project probes each row first and the pins above it
@@ -1024,7 +1084,10 @@ static Discovery DiscoverVbProjects(
 // src/<version folder>/<group>/ path each surviving file sits under. Honoring Remove is what keeps
 // MyNamespaceHelpers attributed to the my/ projects alone; a directory-prefix reading would file it
 // under every library project too, none of which compiles it.
-static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
+//
+// The removed rows are returned alongside the compiled ones, because the under-placement check
+// needs them: a row a project deliberately excludes is a policy statement, not a row it forgot.
+static VbProjectRows VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
 {
     var projectDirectory = Path.GetDirectoryName(projectPath)!;
     var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1051,15 +1114,7 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
     var buckets = new Dictionary<(string Folder, string Group), List<string>>();
     foreach (var file in included)
     {
-        var relative = Path.GetRelativePath(sourceRoot, file);
-        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (segments.Length < 3 || segments[0] == "..")
-        {
-            throw new InvalidOperationException(
-                $"{projectPath} compiles '{file}', which is not a src/<version folder>/<group>/ row.");
-        }
-
-        var key = (segments[0], segments[1]);
+        var key = RowKey(projectPath, sourceRoot, file);
         if (!buckets.TryGetValue(key, out var files))
         {
             files = [];
@@ -1069,7 +1124,7 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
         files.Add(file);
     }
 
-    return buckets
+    var rows = buckets
         .Select(bucket => new RowGroup(
             bucket.Key.Folder,
             VbRowVersion(bucket.Key.Folder)
@@ -1077,6 +1132,68 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
                     $"{projectPath} compiles rows from '{bucket.Key.Folder}', which names no VB version."),
             bucket.Key.Group,
             bucket.Value.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray()))
+        .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
+        .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    var removedRows = removed
+        .Select(file => RowKey(projectPath, sourceRoot, file))
+        .ToHashSet();
+
+    return new VbProjectRows(rows, removedRows);
+}
+
+// Which src/<version folder>/<group>/ row a file belongs to. A file the project names but that does
+// not sit at that depth is a layout the probe cannot read, and saying so beats guessing.
+static (string Folder, string Group) RowKey(string projectPath, string sourceRoot, string file)
+{
+    var relative = Path.GetRelativePath(sourceRoot, file);
+    var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    if (segments.Length < 3 || segments[0] == "..")
+    {
+        throw new InvalidOperationException(
+            $"{projectPath} names '{file}' in a Compile item, which is not a src/<version folder>/<group>/ row.");
+    }
+
+    return (segments[0], segments[1]);
+}
+
+// Every row folder under a family's src/ that this project neither compiles nor explicitly removes.
+// The under-placement check compiles each of these at the project's pin: the corpus's model is that
+// a project holds every row that compiles at its pin, so one that succeeds here is a row the project
+// should be claiming and is not.
+static List<RowGroup> UnclaimedVbRows(string sourceRoot, VbProjectRows rows, LanguageProfile profile)
+{
+    var claimed = rows.Rows.Select(row => (row.VersionFolder, row.Group)).ToHashSet();
+    var unclaimed = new List<RowGroup>();
+
+    foreach (var versionDir in Directory.EnumerateDirectories(sourceRoot))
+    {
+        var folder = Path.GetFileName(versionDir);
+        var version = VbRowVersion(folder)
+            ?? throw new InvalidOperationException(
+                $"'{sourceRoot}' holds a folder '{folder}', which names no VB version.");
+
+        foreach (var groupDir in Directory.EnumerateDirectories(versionDir))
+        {
+            var group = Path.GetFileName(groupDir);
+            if (claimed.Contains((folder, group)) || rows.Removed.Contains((folder, group)))
+            {
+                continue;
+            }
+
+            var files = Directory
+                .EnumerateFiles(groupDir, "*" + profile.SourceExtension, SearchOption.AllDirectories)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (files.Length > 0)
+            {
+                unclaimed.Add(new RowGroup(folder, version, group, files));
+            }
+        }
+    }
+
+    return unclaimed
         .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
         .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
         .ToList();
@@ -1199,9 +1316,11 @@ static void Report(
 
     // Every group is listed under its outcome. Nothing is capped -- a quietly shortened report
     // reads as a clean corpus.
+    // Every outcome the run can produce has to appear here, or it is dropped from both the sectioned
+    // report and the Totals line.
     var order = new[]
     {
-        "MISPLACED", "NOT-VERSION-SPECIFIC", "UNGATED", "UNPROVEN", "INCONCLUSIVE",
+        "MISPLACED", "UNDER-PLACED", "NOT-VERSION-SPECIFIC", "UNGATED", "UNPROVEN", "INCONCLUSIVE",
         "EXEMPT", "BASELINE", "GATED",
     };
 
@@ -1654,7 +1773,13 @@ record ProbeProject(
     string Name,
     string ProjectPath,
     string Ceiling,
-    IReadOnlyList<RowGroup> Rows);
+    IReadOnlyList<RowGroup> Rows,
+    IReadOnlyList<RowGroup> UnclaimedRows);
+
+// What a VB project says about its family's shared src/ tree: the rows it compiles, and the rows it
+// explicitly excludes. The second set is what keeps a deliberate Compile Remove from reading as an
+// under-placement.
+record VbProjectRows(List<RowGroup> Rows, HashSet<(string Folder, string Group)> Removed);
 
 record Discovery(List<ProbeProject> Projects, string? Fatal);
 
