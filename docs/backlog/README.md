@@ -9,12 +9,7 @@ file when the item is resolved; `git log` is the record.
 | Item | Area | Why it is deferred |
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
-| [`lookup_api`'s detail level is decided across sources](lookup-api-detail-level-is-decided-across-sources.md) | server | Unreachable with the two configured sources, whose namespace trees are disjoint |
-| [`lookup_api` reports `not_found` at the last page boundary](lookup-api-reports-not-found-at-the-last-page-boundary.md) | server | Unreachable without a hand-constructed cursor; `search_api` is already correct here |
-| [`find_api_references` omits generic constraints and attribute usages](find-api-references-omits-constraints-and-attributes.md) | server | Adding them wants new `kind` values, which is a payload decision |
 | [`find_api_references` reads attribute applications in C# short form](attribute-references-use-csharp-short-form.md) | server | Resolving the suffix is decidable only inside an attribute application; the payload question is open |
-| [`find_api_references` reports a parameterized base or interface as if it were the type](api-reference-kind-does-not-separate-exact-from-parameterized.md) | server | The payload already carries the answer in `typeExpression`; the fix is a convenience field |
-| [`search_api` cannot ask for one namespace without its descendants](search-api-has-no-exact-namespace-query.md) | server | The descendant reading is the right default and no answer is wrong today |
 | [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
 | [Glob resolution is implemented twice](glob-resolution-is-implemented-twice.md) | tooling, tests | The two agree; sharing code across the boundary is not possible |
 | [C# has no measured-floor column](csharp-has-no-measured-floor-column.md) | corpus | Requires the C# tree to adopt per-pin placement first |

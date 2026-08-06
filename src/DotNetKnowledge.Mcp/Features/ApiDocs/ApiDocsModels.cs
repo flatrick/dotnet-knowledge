@@ -20,10 +20,22 @@ public sealed record ApiMemberDocumentation(
     string? Returns,
     string? Remarks);
 
+/// <summary>
+/// Which reading of the requested symbol produced a match, and therefore how much of each member
+/// it carries. Without it a caller cannot tell a signatures-only answer from a signatures-only
+/// decision, because the two look identical in the payload.
+/// </summary>
+public static class ApiLookupDetail
+{
+    public const string Signatures = "signatures";
+    public const string Full = "full";
+}
+
 public sealed record ApiTypeDocumentation(
     string FullName,
     IReadOnlyList<ApiMemberDocumentation> Members,
-    SourceProvenance Source);
+    SourceProvenance Source,
+    string Detail);
 
 /// <summary>
 /// Why a lookup returned nothing. A type that does not exist and a member that does not exist need
@@ -44,9 +56,16 @@ public sealed record ApiLookupResult(
     bool IsPartial,
     string? NextPageToken);
 
+/// <param name="NamespaceDepth">
+/// How many namespace segments sit between the namespace the pattern named and the type — 0 for a
+/// type declared directly in it, 1 for one a namespace below, and so on. Present only on a
+/// <see cref="ApiNameMatch.Namespace"/> match, where it is the only thing separating "declared in
+/// this namespace" from "declared anywhere under it".
+/// </param>
 public sealed record ApiSearchItem(
     string Name,
     string MatchedOn,
+    int? NamespaceDepth,
     SourceProvenance Source);
 
 /// <summary>
@@ -91,15 +110,24 @@ public static class ApiReferenceKind
     public const string Return = "return";
     public const string Base = "base";
     public const string Interface = "interface";
+    public const string Constraint = "constraint";
+    public const string Attribute = "attribute";
 
-    public static readonly string[] All = [Parameter, Return, Base, Interface];
+    public static readonly string[] All = [Parameter, Return, Base, Interface, Constraint, Attribute];
 }
 
+/// <param name="IsExact">
+/// Whether the declaration names the type itself rather than an expression parameterized by it.
+/// A class implementing <c>IComparer&lt;string&gt;</c> is an <c>interface</c> hit for
+/// <c>System.String</c>; without this, telling that from a class implementing <c>System.String</c>
+/// means string-matching <see cref="TypeExpression"/> against the symbol in the caller.
+/// </param>
 public sealed record ApiReferenceHit(
     string Symbol,
     string Kind,
     string? ParameterName,
     string? TypeExpression,
+    bool IsExact,
     string? Signature,
     SourceProvenance Source);
 
@@ -107,7 +135,13 @@ public sealed record ApiReferenceHit(
 /// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
 /// of references, and paginating them twenty at a time is a way of not saying so.
 /// </summary>
-public sealed record ApiReferenceTotals(int Parameter, int Return, int Base, int Interface);
+public sealed record ApiReferenceTotals(
+    int Parameter,
+    int Return,
+    int Base,
+    int Interface,
+    int Constraint,
+    int Attribute);
 
 public sealed record ApiReferenceResult(
     IReadOnlyList<ApiReferenceHit> Hits,

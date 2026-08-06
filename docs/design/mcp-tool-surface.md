@@ -46,6 +46,11 @@ lookup_api(symbol, source?, limit?, cursor?)
       only, across every matching type; naming a member ("Type.Member")
       returns that member's full documentation — summary, parameters,
       returns, and remarks
+    → detail: "signatures" | "full" per match, because the tier is decided
+      per source — one source resolving the string as a type must not
+      collapse another source's member match, and a signatures-only
+      answer is otherwise indistinguishable from a signatures-only
+      decision
     → limit: 1-100, default 20, over one flat member sequence across all
       matched types; cursor: opaque, bound to the symbol and to the
       searched sources' revisions, so a cursor from before a
@@ -64,6 +69,10 @@ search_api(pattern, limit?, cursor?)
     → matchedOn: "fullName" | "type" | "namespace" — so "every type in
       this namespace" is distinguishable from "types whose name contains
       this"
+    → namespaceDepth, on a namespace match only: 0 for a type declared in
+      the named namespace itself, 1 for one a namespace below it, and so
+      on — the descendants always come back, and this is what separates
+      them
 search_api_text(query, source?, limit?, cursor?)
     query: a literal, case-insensitive substring — no regex, see
       "Searching API documentation text" below
@@ -75,13 +84,19 @@ search_api_text(query, source?, limit?, cursor?)
       at 300 characters with isTruncated stating it — never bodies
     → limit: 1-100, default 20
 
-find_api_references(symbol, kind?, source?, limit?, cursor?)
+find_api_references(symbol, kind?, exact?, source?, limit?, cursor?)
     symbol: a fully-qualified TYPE name — the thing being used
-    kind: "parameter" | "return" | "base" | "interface"; omit for all
+    kind: "parameter" | "return" | "base" | "interface" | "constraint" |
+      "attribute"; omit for all
+    exact: true for declarations naming the type itself, false for ones
+      naming an expression parameterized by it; omit for both
     → declarations that use the type structurally, matched inside
       compound expressions: string[], out string, IEnumerable<string>
     → hits: owning symbol, kind, parameterName, the type expression as
-      declared, and the C# signature
+      declared, isExact, and the C# signature
+    → an "attribute" hit's typeExpression is the whole application text;
+      a "constraint" hit's parameterName is the constrained type
+      parameter
     → totals: per-kind counts over the WHOLE result set, not the page
     → limit: 1-100, default 20
 
@@ -177,6 +192,16 @@ did not ask, and it cannot tell without being told. `fullName` outranks `type`, 
 reaching the type name is `fullName`, while a single segment equal to the type name is just `type`
 spelled exactly.
 
+**A namespace pattern always returns descendants, and says how far down each one is.**
+`Microsoft.CSharp` names `Microsoft.CSharp.RuntimeBinder.Binder` as well as
+`Microsoft.CSharp.CSharpCodeProvider`, and that is the right default — an agent naming a namespace
+almost always wants what is under it, and silently excluding sub-namespaces would be a plausible
+absence. But where a root is large and its direct contents are small, `System` above all, the
+handful of types actually declared there is otherwise unreachable. `namespaceDepth` reports the
+distinction the match already computed: 0 for a direct member, higher for a descendant. Reporting
+rather than filtering keeps the tool's surface at one pattern, and narrowing a page already in hand
+costs the caller nothing.
+
 ### Searching API documentation text
 
 "Which API mentions this behavior?" is the question an agent asks when it knows what it needs and not
@@ -224,10 +249,32 @@ because the text is part of the key.
 ### Structural references are a different question from prose
 
 `search_api_text` answers "which docs mention this type". `find_api_references` answers "which
-declarations use it" — a parameter, a return, a base class, an interface list. Measured on the
-pinned corpus, the two differ by an order of magnitude for a popular type: `System.String` has
-roughly 2,000 prose references and over 18,000 structural ones. Merging them would produce a result
-serving neither question.
+declarations use it" — a parameter, a return, a base class, an interface list, a generic
+constraint, an attribute application. Measured on the pinned corpus, the two differ by an order of
+magnitude for a popular type: `System.String` has roughly 2,000 prose references and over 18,000
+structural ones. Merging them would produce a result serving neither question.
+
+**A constraint and an attribute are structural uses that live outside the signature.**
+`where TContext : JsonSerializerContext` says a type is a required capability, which is exactly the
+relationship someone asking "what uses this" wants, and it sits in a `TypeParameter` rather than in
+`Base`; members carry type parameters too, so generic methods are read the same way generic types
+are. Interface constraints count alongside base-type ones — `dotnet-api-docs` carries four times as
+many of them, and reading only `BaseTypeName` would report a plausible absence.
+
+Attributes are the one place where the volume is worth watching, and it lands where it should.
+Measured on the pinned `dotnet-api-docs`, `System.String` gains 11 attribute hits against 18,277
+structural ones, `System.Type` 1, and `System.IO.Stream` and `System.IDisposable` none; the large
+numbers belong to types that really are applied everywhere — 6,507 for
+`System.Runtime.CompilerServices.Nullable`, 1,349 for `System.Obsolete` — where totals and the
+cursor say so. Two things keep it there: only a declaration's own `<Attributes>` is read, never a
+parameter's, and a `FrameworkAlternate` variant rendering to identical text is one application
+recorded twice, so it is reported once.
+
+ECMA XML records an application in its C# short form — `[System.Obsolete("…")]`, not
+`ObsoleteAttribute` — so `typeExpression` carries the whole application text, arguments included,
+and `isExact` is decided against the attribute being applied. That separates "decorated with this
+attribute" from "this type named inside its arguments", which is the common case for a
+`typeof(…)` argument.
 
 **Matching is on type-name boundaries, not equality and not substring.** A parameter is far more
 often `System.String[]`, `System.String&`, or `IEnumerable<System.String>` than a bare
@@ -241,9 +288,11 @@ the type out in an attribute or element with no rendering step in between, so th
 guaranteed to contain it.
 
 **`kind` says where a reference sits, not what the type is to it.** A class implementing
-`IComparer<string>` is an `interface` hit for `System.String`; `typeExpression` carries the
-interface as declared, and comparing it against the symbol is what distinguishes an exact base or
-interface from a parameterized one. That is why the field is in the payload rather than inferred.
+`IComparer<string>` is an `interface` hit for `System.String`. `isExact` carries that distinction —
+true when the declaration names the type itself, false when it names an expression parameterized by
+it — and `exact` filters on it, because "what derives from `Stream`" and "what has a base
+parameterized by `Stream`" are different questions. `typeExpression` still carries the expression as
+declared, so a caller can see *how* it was parameterized.
 
 **Totals cover the whole result set, before `kind` narrows it.** A widely-used type has tens of
 thousands of references, and paginating them twenty at a time is a way of not saying so; a caller

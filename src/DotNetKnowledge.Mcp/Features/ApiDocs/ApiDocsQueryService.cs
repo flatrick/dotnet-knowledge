@@ -49,7 +49,6 @@ public sealed class ApiDocsQueryService
         var matches = new List<ApiTypeDocumentation>();
         var resolvedTypeNames = new List<string>();
         var searchedSources = new List<SourceProvenance>();
-        var reads = new List<LookupRead>();
 
         foreach (var sourceName in sourceNames)
         {
@@ -69,7 +68,6 @@ public sealed class ApiDocsQueryService
             }
 
             searchedSources.Add(read.Provenance);
-            reads.Add(read);
             matches.AddRange(read.Matches);
             resolvedTypeNames.AddRange(read.ResolvedTypeNames);
         }
@@ -86,12 +84,6 @@ public sealed class ApiDocsQueryService
         var distinctTypeNames = resolvedTypeNames.Distinct(StringComparer.Ordinal)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
-
-        // A bare type name asks for an inventory; naming a member asks for its documentation. The
-        // symbol is the whole selector, so the expensive response is unreachable rather than
-        // merely opt-out. The reads already answered this question when they resolved the symbol,
-        // so it is carried out rather than recomputed — recomputing risks the two disagreeing.
-        var signaturesOnly = reads.Any(read => read.Matches.Count > 0 && !read.SymbolNamedAMember);
 
         // Paging runs over one flat, ordinally-ordered member sequence across every match, so a
         // three-type result such as List has one pagination state rather than three. A type with
@@ -125,7 +117,9 @@ public sealed class ApiDocsQueryService
             {
                 Members = group
                     .Where(pair => pair.Member is not null)
-                    .Select(pair => signaturesOnly ? ToSignature(pair.Member!) : pair.Member!)
+                    .Select(pair => pair.Type.Detail == ApiLookupDetail.Signatures
+                        ? ToSignature(pair.Member!)
+                        : pair.Member!)
                     .ToArray(),
             })
             .ToArray();
@@ -406,7 +400,7 @@ public sealed class ApiDocsQueryService
 
     /// <summary>
     /// Finds declarations that use a type structurally — as a parameter, as a return type, as a
-    /// base class, or in an interface list.
+    /// base class, in an interface list, as a generic constraint, or in an attribute application.
     /// </summary>
     /// <remarks>
     /// The inverse of <see cref="LookupAsync"/>: not "what does this type offer" but "what uses it".
@@ -416,6 +410,7 @@ public sealed class ApiDocsQueryService
     public async Task<ApiReferenceResult> FindReferencesAsync(
         string symbol,
         string? kind,
+        bool? exact,
         string? source,
         int limit,
         string? cursor,
@@ -455,22 +450,26 @@ public sealed class ApiDocsQueryService
             hits.AddRange(read.Items);
         }
 
-        // Totals describe the whole matched set before the kind filter narrows it, so a caller
+        // Totals describe the whole matched set before the filters narrow it, so a caller
         // asking only for parameters can still see that a thousand types derive from this one.
         var totals = new ApiReferenceTotals(
             Parameter: hits.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
             Return: hits.Count(hit => hit.Kind == ApiReferenceKind.Return),
             Base: hits.Count(hit => hit.Kind == ApiReferenceKind.Base),
-            Interface: hits.Count(hit => hit.Kind == ApiReferenceKind.Interface));
+            Interface: hits.Count(hit => hit.Kind == ApiReferenceKind.Interface),
+            Constraint: hits.Count(hit => hit.Kind == ApiReferenceKind.Constraint),
+            Attribute: hits.Count(hit => hit.Kind == ApiReferenceKind.Attribute));
 
         var revisions = searchedSources
             .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
             .ToArray();
-        var scope = JsonSerializer.Serialize(new[] { symbol, kind ?? string.Empty, source ?? string.Empty });
+        var scope = JsonSerializer.Serialize(
+            new[] { symbol, kind ?? string.Empty, exact?.ToString() ?? string.Empty, source ?? string.Empty });
         var offset = DecodeCursor(cursor, "references", scope, revisions);
 
         var ordered = hits
             .Where(hit => kind is null || hit.Kind == kind)
+            .Where(hit => exact is null || hit.IsExact == exact)
             .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
             .ThenBy(hit => hit.Kind, StringComparer.Ordinal)
             .ThenBy(hit => hit.ParameterName ?? string.Empty, StringComparer.Ordinal)
@@ -559,18 +558,27 @@ public sealed class ApiDocsQueryService
             yield break;
 
         var baseTypeName = root.Element("Base")?.Element("BaseTypeName")?.Value;
-        if (baseTypeName is not null && ReferencesType(baseTypeName, symbol))
-            yield return new ApiReferenceHit(fullName, ApiReferenceKind.Base, null, baseTypeName, null, provenance);
+        if (baseTypeName is not null && ReferencesType(baseTypeName, symbol, out var baseIsExact))
+        {
+            yield return new ApiReferenceHit(
+                fullName, ApiReferenceKind.Base, null, baseTypeName, baseIsExact, null, provenance);
+        }
 
         foreach (var interfaceName in root.Element("Interfaces")?.Elements("Interface")
                      .Select(item => item.Element("InterfaceName")?.Value) ?? [])
         {
-            if (interfaceName is not null && ReferencesType(interfaceName, symbol))
+            if (interfaceName is not null && ReferencesType(interfaceName, symbol, out var interfaceIsExact))
             {
                 yield return new ApiReferenceHit(
-                    fullName, ApiReferenceKind.Interface, null, interfaceName, null, provenance);
+                    fullName, ApiReferenceKind.Interface, null, interfaceName, interfaceIsExact, null, provenance);
             }
         }
+
+        foreach (var hit in ReadConstraintHits(root, symbol, fullName, null, provenance))
+            yield return hit;
+
+        foreach (var hit in ReadAttributeHits(root, symbol, fullName, null, provenance))
+            yield return hit;
 
         foreach (var member in root.Descendants("Member"))
         {
@@ -580,23 +588,30 @@ public sealed class ApiDocsQueryService
                 .LastOrDefault(element => string.Equals(element.Attribute("Language")?.Value, "C#", StringComparison.Ordinal))
                 ?.Attribute("Value")?.Value;
 
+            foreach (var hit in ReadConstraintHits(member, symbol, memberSymbol, signature, provenance))
+                yield return hit;
+
+            foreach (var hit in ReadAttributeHits(member, symbol, memberSymbol, signature, provenance))
+                yield return hit;
+
             var returnType = member.Element("ReturnValue")?.Element("ReturnType")?.Value;
-            if (returnType is not null && ReferencesType(returnType, symbol))
+            if (returnType is not null && ReferencesType(returnType, symbol, out var returnIsExact))
             {
                 yield return new ApiReferenceHit(
-                    memberSymbol, ApiReferenceKind.Return, null, returnType, signature, provenance);
+                    memberSymbol, ApiReferenceKind.Return, null, returnType, returnIsExact, signature, provenance);
             }
 
             foreach (var parameter in member.Element("Parameters")?.Elements("Parameter") ?? [])
             {
                 var parameterType = parameter.Attribute("Type")?.Value;
-                if (parameterType is not null && ReferencesType(parameterType, symbol))
+                if (parameterType is not null && ReferencesType(parameterType, symbol, out var parameterIsExact))
                 {
                     yield return new ApiReferenceHit(
                         memberSymbol,
                         ApiReferenceKind.Parameter,
                         parameter.Attribute("Name")?.Value,
                         parameterType,
+                        parameterIsExact,
                         signature,
                         provenance);
                 }
@@ -605,7 +620,116 @@ public sealed class ApiDocsQueryService
     }
 
     /// <summary>
-    /// Whether a type expression uses <paramref name="symbol"/> as a whole type.
+    /// Constraint references on one declaration's own type parameters — <c>where T : Stream</c> —
+    /// which live in a <c>TypeParameter</c> and never in <c>Base</c>.
+    /// </summary>
+    /// <remarks>
+    /// Interface constraints count alongside base-type ones: <c>where T : IDisposable</c> is the
+    /// same relationship, and the corpus carries four times as many of them, so reading only
+    /// <c>BaseTypeName</c> would report the plausible absence this tool exists to avoid. Members
+    /// carry type parameters too, so generic methods are read the same way generic types are.
+    /// </remarks>
+    private static IEnumerable<ApiReferenceHit> ReadConstraintHits(
+        XElement declaration,
+        string symbol,
+        string owningSymbol,
+        string? signature,
+        SourceProvenance provenance)
+    {
+        foreach (var typeParameter in declaration.Element("TypeParameters")?.Elements("TypeParameter") ?? [])
+        {
+            foreach (var constraint in typeParameter.Element("Constraints")?.Elements() ?? [])
+            {
+                if (constraint.Name.LocalName is not ("BaseTypeName" or "InterfaceName"))
+                    continue;
+
+                if (ReferencesType(constraint.Value, symbol, out var isExact))
+                {
+                    yield return new ApiReferenceHit(
+                        owningSymbol,
+                        ApiReferenceKind.Constraint,
+
+                        // The constrained type parameter, which is the only thing that says which
+                        // of a declaration's constraints this hit came from.
+                        typeParameter.Attribute("Name")?.Value,
+                        constraint.Value,
+                        isExact,
+                        signature,
+                        provenance);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attribute applications on one declaration — <c>[JsonConverter(typeof(SomeConverter))]</c>.
+    /// </summary>
+    /// <remarks>
+    /// The C# rendering is the one read, since the F# sibling spells the same application
+    /// differently and would double every hit. A repeated <c>FrameworkAlternate</c> variant that
+    /// renders to identical text is one application recorded twice, so it is reported once; text
+    /// that genuinely differs between variants survives.
+    /// </remarks>
+    private static IEnumerable<ApiReferenceHit> ReadAttributeHits(
+        XElement declaration,
+        string symbol,
+        string owningSymbol,
+        string? signature,
+        SourceProvenance provenance)
+    {
+        var applications = (declaration.Element("Attributes")?.Elements("Attribute") ?? [])
+            .Select(attribute => attribute.Elements("AttributeName")
+                .FirstOrDefault(name => name.Attribute("Language") is not { } language
+                    || string.Equals(language.Value, "C#", StringComparison.Ordinal))
+                ?.Value)
+            .Where(application => application is not null)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (var application in applications)
+        {
+            if (!ReferencesType(application!, symbol, out _))
+                continue;
+
+            // The application text carries the attribute's arguments, where a type is named as
+            // readily as in the attribute's own name — [JsonConverter(typeof(X))] names two. So
+            // exactness is decided against the attribute being applied, which is what separates
+            // "decorated with this attribute" from "named inside its arguments".
+            var isExact = ReferencesType(AttributeTypeName(application!), symbol, out var namesTheAttribute)
+                && namesTheAttribute;
+            yield return new ApiReferenceHit(
+                owningSymbol,
+                ApiReferenceKind.Attribute,
+                null,
+                application,
+                isExact,
+                signature,
+                provenance);
+        }
+    }
+
+    /// <summary>
+    /// The attribute type an application names, out of the text ECMA XML records for it:
+    /// <c>[get: System.Obsolete("…")]</c> names <c>System.Obsolete</c>.
+    /// </summary>
+    private static string AttributeTypeName(string application)
+    {
+        var text = application.AsSpan().Trim();
+        if (text is ['[', .., ']'])
+            text = text[1..^1];
+
+        // Before the argument list, because a string argument can hold anything — including the
+        // colon a target specifier is found by.
+        var arguments = text.IndexOf('(');
+        if (arguments >= 0)
+            text = text[..arguments];
+
+        var target = text.IndexOf(':');
+        return text[(target + 1)..].Trim().ToString();
+    }
+
+    /// <summary>
+    /// Whether a type expression uses <paramref name="symbol"/> as a whole type, and whether the
+    /// expression is that type itself rather than one parameterized by it.
     /// </summary>
     /// <remarks>
     /// Equality is not enough and substring is too much. A parameter is far more often
@@ -615,21 +739,27 @@ public sealed class ApiDocsQueryService
     /// A plain substring test would instead match <c>System.StringComparer</c>, so the occurrence
     /// has to sit on type-name boundaries.
     /// </remarks>
-    private static bool ReferencesType(string typeExpression, string symbol)
+    private static bool ReferencesType(string typeExpression, string symbol, out bool isExact)
     {
         var start = 0;
         while (true)
         {
             var index = typeExpression.IndexOf(symbol, start, StringComparison.Ordinal);
             if (index < 0)
+            {
+                isExact = false;
                 return false;
+            }
 
             var before = index == 0 ? '\0' : typeExpression[index - 1];
             var afterIndex = index + symbol.Length;
             var after = afterIndex >= typeExpression.Length ? '\0' : typeExpression[afterIndex];
 
             if (!ContinuesName(before) && !ContinuesName(after))
+            {
+                isExact = index == 0 && afterIndex == typeExpression.Length;
                 return true;
+            }
 
             start = index + 1;
         }
@@ -680,15 +810,13 @@ public sealed class ApiDocsQueryService
 
             // Every type whose name matched, before member filtering. This is what distinguishes
             // "no such type" from "the type exists and the member did not match".
-            documented.Select(type => type.FullName).ToArray(),
-            memberName is not null);
+            documented.Select(type => type.FullName).ToArray());
     }
 
     private sealed record LookupRead(
         SourceProvenance Provenance,
         IReadOnlyList<ApiTypeDocumentation> Matches,
-        IReadOnlyList<string> ResolvedTypeNames,
-        bool SymbolNamedAMember);
+        IReadOnlyList<string> ResolvedTypeNames);
 
     private static SourceRead<ApiSearchItem> ReadSearchSource(
         string sourceName,
@@ -710,9 +838,13 @@ public sealed class ApiDocsQueryService
             foreach (var file in Directory.EnumerateFiles(namespaceDirectory, "*.xml"))
             {
                 var typeName = Path.GetFileNameWithoutExtension(file);
-                var matchedOn = ClassifyMatch(namespaceSegments, typeName, pattern, patternSegments);
+                var (matchedOn, namespaceDepth) =
+                    ClassifyMatch(namespaceSegments, typeName, pattern, patternSegments);
                 if (matchedOn is not null)
-                    items.Add(new ApiSearchItem($"{namespaceName}.{typeName}", matchedOn, provenance));
+                {
+                    items.Add(new ApiSearchItem(
+                        $"{namespaceName}.{typeName}", matchedOn, namespaceDepth, provenance));
+                }
             }
         }
 
@@ -720,7 +852,8 @@ public sealed class ApiDocsQueryService
     }
 
     /// <summary>
-    /// Decides which part of a fully-qualified name a pattern matched, or null for no match.
+    /// Decides which part of a fully-qualified name a pattern matched, or null for no match, and
+    /// for a namespace match how far below the named namespace the type sits.
     /// </summary>
     /// <remarks>
     /// A caller cannot know which kind of string it is holding — a whole name copied out of a
@@ -731,7 +864,7 @@ public sealed class ApiDocsQueryService
     /// it as a namespace would bury the type the caller wanted under everything that namespace
     /// holds.
     /// </remarks>
-    private static string? ClassifyMatch(
+    private static (string? MatchedOn, int? NamespaceDepth) ClassifyMatch(
         string[] namespaceSegments,
         string typeName,
         string pattern,
@@ -744,20 +877,26 @@ public sealed class ApiDocsQueryService
         fullNameSegments[^1] = typeName;
 
         var runStart = IndexOfSegmentRun(fullNameSegments, patternSegments);
+        var runEnd = runStart + patternSegments.Length - 1;
         if (runStart >= 0)
         {
-            var runEnd = runStart + patternSegments.Length - 1;
             // Only a multi-segment run reaching the type name is a whole-name match. A single
             // segment equal to the type name is just a type match spelled exactly.
             if (runEnd == fullNameSegments.Length - 1 && patternSegments.Length > 1)
-                return ApiNameMatch.FullName;
+                return (ApiNameMatch.FullName, null);
         }
 
         // Substring, not segment: "Concurrent" has to keep finding ConcurrentDictionary.
         if (typeName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-            return ApiNameMatch.Type;
+            return (ApiNameMatch.Type, null);
 
-        return runStart >= 0 ? ApiNameMatch.Namespace : null;
+        // A run ending one segment before the type name names the namespace the type is declared
+        // in; one ending earlier names an ancestor of it. Reported rather than filtered, because
+        // the descendant reading is what a caller naming a namespace means nearly every time, and
+        // a page already in hand is where the narrowing costs nothing.
+        return runStart >= 0
+            ? (ApiNameMatch.Namespace, fullNameSegments.Length - 2 - runEnd)
+            : (null, null);
     }
 
     /// <summary>
@@ -898,7 +1037,14 @@ public sealed class ApiDocsQueryService
                 Repo: definition.Repository,
                 Ref: state.Ref,
                 Commit: state.Commit,
-                FetchedAt: state.FetchedAt));
+                FetchedAt: state.FetchedAt),
+
+            // A bare type name asks for an inventory; naming a member asks for its documentation.
+            // The symbol is the whole selector, so the expensive response is unreachable rather
+            // than merely opt-out. The tier is settled here because the reading is per source: one
+            // source resolving the string as a type must not collapse another source's member
+            // match, for which full documentation was the right answer.
+            Detail: memberName is null ? ApiLookupDetail.Signatures : ApiLookupDetail.Full);
     }
 
     private static ApiMemberDocumentation? ReadMember(XElement member)
@@ -1048,7 +1194,7 @@ public sealed class ApiDocsQueryService
     private static SourceProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
         new(definition.Repository, state.Ref, state.Commit, state.FetchedAt);
 
-    private static string EncodeCursor(string kind, string scope, int offset, IReadOnlyList<string> revisions)
+    internal static string EncodeCursor(string kind, string scope, int offset, IReadOnlyList<string> revisions)
     {
         var json = JsonSerializer.Serialize(
             new PageCursor(Version: 1, Kind: kind, Scope: scope, Offset: offset, Revisions: revisions));
