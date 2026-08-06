@@ -2,6 +2,7 @@ using System.Xml.Linq;
 using System.Text;
 using System.Text.Json;
 using DotNetKnowledge.Mcp.Sources;
+using DotNetKnowledge.Mcp.Text;
 
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
@@ -13,6 +14,12 @@ public sealed class ApiDocsQueryService
             ["dotnet-api-docs"] = ["xml"],
             ["roslyn-api-docs"] = ["dotnet", "xml"],
         };
+
+    /// <summary>
+    /// Characters of matched prose a search hit carries. Enough to judge relevance, not enough to
+    /// stand in for the entry; lookup_api is one call away with the symbol the hit names.
+    /// </summary>
+    private const int MatchTextBudget = 300;
 
     private readonly SourceCatalog _catalog;
     private readonly SourceSynchronizer _synchronizer;
@@ -380,19 +387,19 @@ public sealed class ApiDocsQueryService
             if (name is not ("summary" or "remarks" or "returns" or "param" or "typeparam" or "value" or "exception"))
                 continue;
 
-            var rendered = CleanDocumentation(RenderDocumentation(element));
+            var rendered = RenderDocumentation(element);
             if (rendered is null || !rendered.Contains(query, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var label = element.Attribute("name")?.Value is { Length: > 0 } parameterName
                 ? $"{name}:{parameterName}"
                 : name;
-            var truncated = rendered.Length > 300;
+            var (text, isTruncated) = DocumentationText.Budget(rendered, MatchTextBudget);
             yield return new ApiTextHit(
                 Symbol: symbol,
                 Element: label,
-                Text: truncated ? rendered[..300] : rendered,
-                IsTruncated: truncated,
+                Text: text,
+                IsTruncated: isTruncated,
                 Source: provenance);
         }
     }
@@ -678,7 +685,7 @@ public sealed class ApiDocsQueryService
                         element.Attribute("name")?.Value,
                         name,
                         StringComparison.Ordinal));
-                return new ApiParameterDocumentation(name, CleanDocumentation(RenderDocumentation(description)));
+                return new ApiParameterDocumentation(name, RenderDocumentation(description));
             })
             .ToArray()
             ?? [];
@@ -686,10 +693,10 @@ public sealed class ApiDocsQueryService
         return new ApiMemberDocumentation(
             Name: member.Attribute("MemberName")?.Value ?? string.Empty,
             Signature: signature,
-            Summary: CleanDocumentation(RenderDocumentation(docs?.Element("summary"))),
+            Summary: RenderDocumentation(docs?.Element("summary")),
             Parameters: parameters,
-            Returns: CleanDocumentation(RenderDocumentation(docs?.Element("returns"))),
-            Remarks: CleanDocumentation(RenderDocumentation(docs?.Element("remarks"))));
+            Returns: RenderDocumentation(docs?.Element("returns")),
+            Remarks: RenderDocumentation(docs?.Element("remarks")));
     }
 
     /// <summary>
@@ -698,6 +705,8 @@ public sealed class ApiDocsQueryService
     /// and ECMA XML carries every type and parameter reference as an empty element — so it turns
     /// "converts the value into a &lt;see cref="T:System.String" /&gt;." into "converts the value
     /// into a .", a sentence that still reads as complete while missing the thing it names.
+    /// The result is normalized before it is returned, so no caller can match against text that
+    /// differs from the text it will later hand back.
     /// </summary>
     private static string? RenderDocumentation(XElement? element)
     {
@@ -706,7 +715,11 @@ public sealed class ApiDocsQueryService
 
         var builder = new StringBuilder();
         AppendNodes(element, builder);
-        return builder.ToString();
+
+        // A <format> child means the body is markdown, where the line structure is content: folding
+        // it would run fenced code blocks and lists into one line.
+        var isMarkdown = element.Descendants("format").Any();
+        return DocumentationText.Normalize(builder.ToString(), collapseWhitespace: !isMarkdown);
 
         static void AppendNodes(XElement parent, StringBuilder builder)
         {
@@ -770,17 +783,6 @@ public sealed class ApiDocsQueryService
         cref is { Length: > 2 } && cref[1] == ':' && char.IsAsciiLetter(cref[0])
             ? cref[2..]
             : cref;
-
-    private static string? CleanDocumentation(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)
-            || string.Equals(text.Trim(), "To be added.", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        return text.Trim();
-    }
 
     private static void ValidateSymbol(string symbol)
     {

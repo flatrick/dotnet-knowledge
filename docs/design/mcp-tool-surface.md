@@ -80,7 +80,8 @@ search_language_docs(query, regex?, source?, limit?, cursor?)
     query: a literal substring; regex: true switches to full .NET
       regex, evaluated with the non-backtracking engine so no
       caller-supplied pattern can stall the server
-    → hits: path, line, the matched line's text (length-capped), and a
+    → hits: path, line, the matched line's text (capped at 300 with
+      isTruncated stating it, as everywhere else), and a
       server-issued section heading path — no file bodies
     → searches every markdown source the tool supports (csharplang,
       vblang, and roslyn-wiki today; the supported set is configuration,
@@ -209,6 +210,37 @@ Hits are deduplicated on symbol, element and text. Overloads each carry their ow
 `MemberName`, so identical prose on `Create(a)` and `Create(a, b)` would otherwise arrive as
 repeated hits a caller cannot tell apart; prose that genuinely differs between overloads survives,
 because the text is part of the key.
+
+### Text is normalized at the read, and budgeted at the payload
+
+`DocumentationText` is one seam with two stages, and which stage a rule belongs to is not a matter
+of taste.
+
+**Normalization runs where text is read from a source**, before anything matches against it:
+references resolved, the source's own line wrapping folded away, `"To be added."` recognized as the
+placeholder it is. It has to run there, because `search_api_text` matches the same string it later
+returns — that is the only reason it can find a phrase spanning a resolved reference. Normalizing on
+the way out instead would make the text searched and the text shown two different strings, which is
+the defect the reference renderer was written to fix, reintroduced one layer up.
+
+**Budgeting runs at the payload**, after matching and paging. It has to run there for the mirror
+reason: capping text before a match would drop every hit past the cap and report nothing, a
+plausible absence rather than a visible failure.
+
+Two consequences worth stating, because both were inconsistencies before the seam existed:
+
+- **A reference renders the same regardless of how upstream wrote it.** ECMA XML's
+  `<see cref="T:System.String"/>` and MSDocs markdown's `<xref:System.String>` both become
+  `System.String`, which is also what `lookup_api` accepts back. The xref form carries presentation
+  the symbol does not — a `?displayProperty=` query, a `*` naming an overload group, percent-encoded
+  punctuation — and all of it is stripped.
+- **Truncation is reported, never marked.** One budget, one contract: the text is cut and
+  `isTruncated` says so. An ellipsis in the text cannot be told from one the source itself wrote,
+  and forces a caller to parse prose to learn a fact the payload should carry.
+
+Whitespace folding is skipped for markdown-bodied documentation, where line structure is content:
+collapsing it would run a fenced code block onto one line. That is why the rule is a parameter of
+normalization rather than a property of it.
 
 ### Sections are the retrieval unit for language docs
 

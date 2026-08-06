@@ -4,11 +4,18 @@ using System.Text.RegularExpressions;
 using DotNetKnowledge.Markdown;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
+using DotNetKnowledge.Mcp.Text;
 
 namespace DotNetKnowledge.Mcp.Features.LanguageDocs;
 
 public sealed class LanguageDocsQueryService
 {
+    /// <summary>
+    /// Characters of a matched line a search hit carries — the same budget the API search uses, so
+    /// the two tools cap and report alike.
+    /// </summary>
+    private const int MatchTextBudget = 300;
+
     private readonly SourceCatalog _catalog;
     private readonly SourceSynchronizer _synchronizer;
 
@@ -246,8 +253,9 @@ public sealed class LanguageDocsQueryService
 
             foreach (var hit in MarkdownLineSearch.Search(text, outline, query, compiledPattern))
             {
-                var truncated = hit.Text.Length > 300 ? hit.Text[..300] + "…" : hit.Text;
-                hits.Add(new LanguageDocLineHit(relativePath, hit.Line, truncated, hit.SectionPath, provenance));
+                var (matchedText, isTruncated) = DocumentationText.Budget(hit.Text, MatchTextBudget);
+                hits.Add(new LanguageDocLineHit(
+                    relativePath, hit.Line, matchedText, isTruncated, hit.SectionPath, provenance));
             }
         }
 
