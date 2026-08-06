@@ -51,12 +51,18 @@ jobs:
           $env:DOTNET_HOST_PATH = (Resolve-Path .artifacts\dotnet\dotnet.exe)
           & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj --configuration Release --nologo --no-restore --logger "trx;LogFileName=corpus-tests.trx"
 
+      # The solution, not one project: DotNetKnowledge.slnx is the server side and nothing else,
+      # so this covers Markdown.Tests too. It deliberately does not run under the private host --
+      # that host exists for the corpus matrix above, and these tests want the machine SDK.
       - name: Test the MCP server
         shell: pwsh
-        run: dotnet test tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
+        run: dotnet test DotNetKnowledge.slnx --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
 
       - name: Verify no vendored content
         run: dotnet scripts/verify-no-vendored-content.cs
+
+      - name: Verify project namespaces
+        run: dotnet scripts/verify-project-namespaces.cs
 
       - name: Upload corpus test results
         if: always()

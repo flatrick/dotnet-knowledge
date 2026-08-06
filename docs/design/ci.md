@@ -1,7 +1,15 @@
 # Continuous integration
 
 One workflow, `.github/workflows/corpus-tests.yml`, running one job, `corpus-tests`, whose steps
-cover the corpus suite, the MCP server suite, and the vendored-content guard.
+cover the corpus suite, the MCP server suite, the vendored-content guard, and the project-namespace
+guard.
+
+The two suites are separate concerns and run as separate steps, because they need **different .NET
+hosts**: the corpus matrix runs under the repository-private host that carries SDK 5.0.408 and
+7.0.410, the server suite under the machine SDK. That is also why they have separate solutions —
+`Corpus.slnx` and `DotNetKnowledge.slnx`. The server step names the solution rather than a single
+project, so every server-side suite is covered by construction; the corpus step names its project
+explicitly, because a solution file cannot select a host.
 
 **Nothing here currently executes.** Actions is disabled for this repository, so no trigger below
 fires and verification is whatever is run locally. Minutes cost money on a private repository, and
