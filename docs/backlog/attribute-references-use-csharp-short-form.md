@@ -55,21 +55,40 @@ each `*Attribute.xml` against a de-suffixed sibling in the same directory.
 
 ## Suggested fix
 
-Resolve the short form at the point the hit is built, where the element is known to be an attribute
-application, rather than by rewriting the query. Inside `<AttributeName>` a name can only be an
-attribute type, so the reading is decidable there and nowhere else:
+The payload carries the *spelling* and never the *identity*: for an attribute hit `typeExpression`
+is the whole application text, and the attribute's own type appears in no field. `kind` already says
+the reference sits in an attribute position, so what is missing is what that reference resolves to.
 
-- Match an `attribute` hit when the applied name equals the symbol **or** the symbol equals the
-  applied name plus `Attribute`. That closes the absence.
-- Report the resolved type rather than the spelling, so an application of `JsonConverterAttribute`
-  is a hit for `JsonConverterAttribute` and not for `JsonConverter`. That closes the wrong answer.
+**Carry the resolved type.** Add `attributeType` to `ApiReferenceHit`, holding the CLR name
+(`System.ObsoleteAttribute`) beside the `typeExpression` that holds the source spelling
+(`[System.Obsolete("…")]`). It costs nothing on other kinds — `DefaultIgnoreCondition` is already
+`WhenWritingNull`.
 
-Both changes are confined to the `attribute` kind. Do not apply the suffix rule to `parameter`,
-`return`, `base`, `interface` or `constraint`: outside an attribute application, `JsonConverter`
-means the class, and the suffix would manufacture the conflation this item is about.
+**Resolve the suffix where it is decidable, which is inside `<AttributeName>` and nowhere else.**
+A name in an attribute application can only be an attribute type, so match an `attribute` hit when
+the applied name equals the symbol or the symbol equals the applied name plus `Attribute`. Do not
+apply the rule to `parameter`, `return`, `base`, `interface` or `constraint`: outside an
+application, `JsonConverter` means the class, and the suffix would manufacture the conflation this
+item is about.
 
-Whether the payload should also carry the applied spelling alongside the resolved type is open. It
-is the only thing that would let a caller see that the two differ.
+For the 539 non-colliding attribute types that is the whole fix — `System.Obsolete` names nothing
+else, so the caller simply gets the hits.
+
+**For the 78 colliding pairs, exclude the sibling's hits and name it.** A query for `Foo` returns
+references to `Foo` only; applications of `FooAttribute` belong to a different type and inflating
+the `attribute` total with them would give a wrong count to any caller filtering on `kind` alone.
+Excluding them silently would recreate the plausible absence, so the response says what it left out
+and names the call that reaches it:
+
+```json
+{ "totals": { "parameter": 25, "attribute": 0 },
+  "note": { "siblingType": "System.Text.Json.Serialization.JsonConverterAttribute",
+            "attributeApplications": 9,
+            "remedy": "call find_api_references with …JsonConverterAttribute" } }
+```
+
+`lookup_api`'s `member_not_found` envelope is the precedent: it returns `resolvedTypes` and names
+the next call rather than guessing which reading the caller meant.
 
 The `isExact` field exists for the neighboring case, where a hit records where a reference sits
 rather than what it refers to. It does not reach this one, for the reason given above.
