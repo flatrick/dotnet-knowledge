@@ -123,6 +123,12 @@ from something: NoPIA is a property of a reference rather than a source construc
 it needs an assembly marked `[assembly: ImportedFromTypeLib]` to reference with
 `EmbedInteropTypes="true"`.
 
+**`CSharpRefReturnLib` is a support assembly too**, on the same terms. It exists so the VB 15
+*Consuming C# reference return values* row has a subject on net48: VB can call a ref-returning
+method but cannot declare one, and `CollectionsMarshal.GetValueRefOrNullRef` — the net10 form's
+subject — has no net48 backport. It is a support assembly rather than a reference into the C#
+corpus so that no corpus project doubles as a build dependency of the VB half.
+
 **A blank "Excluded from" cell is the common case, not an omission.** When a row's "Target
 project(s)" cell leaves out a project, and no reason is given, the convention is that the omission is
 simply because that project's language-version ceiling is below the feature's version — an
@@ -419,7 +425,7 @@ the "Version" column below is informational provenance only, not a folder split)
 | VB 14 | Ambiguous interface method resolution | `AmbiguousInterfaceMethodResolution` | VbFw48, VbLatest | 11 (sdk-pin) | | Learn whats-new#visual-basic-14 | |
 | VB 15 | Tuples | `Tuples` | VbFw48, VbLatest | 15 (sdk-pin) | | Learn whats-new#visual-basic-15 | |
 | VB 15 | Binary literals, digit separators | `BinaryLiteralsAndDigitSeparators` | VbFw48, VbLatest | 15 (sdk-pin) | | Learn whats-new#visual-basic-15 | |
-| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | 11 (native-ceiling) | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `Net48_CSharp8_Library` — this corpus's own C# 7.0 ref-returns row — which suits the row's name at least as well. Both projects carry the same `Span` half. The `11 (native-ceiling)` floor and the `native-ceiling` tier disagree in direction: the `11` is the lowest pin an SDK-pin compile accepts; the native-ceiling evidence comes from a different measurement — the native VB 14 compiler rejecting the row with `BC30657` (net48) / `BC36954` (net10) at the 14→15 boundary. No period compiler accepts this row at any version; the row is genuinely version-dependent, just not gated by `LangVersion`. |
+| VB 15 | Consuming C# reference return values | `ConsumingCSharpRefReturnValues` | VbFw48, VbLatest | 11 (native-ceiling) | | Learn whats-new#visual-basic-15 | The two projects consume different ref-returning subjects. `VbLatest` uses `CollectionsMarshal.GetValueRefOrNullRef`; that type is .NET 5+ with no net48 backport, so `VbFw48` consumes `RefSamples.Find` from `CSharpRefReturnLib`, the support assembly authored for this row. Both projects carry the same `Span` half. The `11 (native-ceiling)` floor and the `native-ceiling` tier disagree in direction: the `11` is the lowest pin an SDK-pin compile accepts; the native-ceiling evidence comes from a different measurement — the native VB 14 compiler rejecting the row with `BC30657` (net48) / `BC36954` (net10) at the 14→15 boundary. No period compiler accepts this row at any version; the row is genuinely version-dependent, just not gated by `LangVersion`. |
 | VB 15.3 | Named tuple inference | `NamedTupleInference` | VbFw48, VbLatest | 15.3 (sdk-pin) | | Learn whats-new#visual-basic-153 | |
 | VB 15.3 | `-refout`/`-refonly` compiler switches | — | | — | VbFw48, VbLatest (compiler switch, not a source-level construct) | Learn whats-new#visual-basic-153 | |
 | VB 15.5 | Non-trailing named arguments | `NonTrailingNamedArguments` | VbFw48, VbLatest | 15.5 (sdk-pin) | | Language-Version-History.md § VB 15.5 | |
@@ -445,6 +451,7 @@ warnings.
 | `Net10_CSharpLatest_Unsafe` | all 6 unsafe rows (C# 1.0, 7.3 ×2, 9.0 ×2, 13.0) — **complete** | — |
 | `Net10_CSharpLatest_Exe` | `TopLevelStatements` (C# 9.0) | — |
 | `CSharpComTypeLib` | support assembly (no feature rows) | — |
+| `CSharpRefReturnLib` | support assembly (no feature rows) | — |
 | `Net48_CSharp7_3_Library` | C# 1.0 → 7.3 — 75 group folders under `CSharp1/` … `CSharp7_3/` — **complete** | — |
 | `Net48_CSharp8_Library` | C# 1.0 → 8.0 — 87 group folders under `CSharp1/` … `CSharp8/` — **complete** | — |
 | `VbFw48` | VB baseline → 17.13 — every group folder under `src/Baseline/` … `src/Vb17_13/`, including `MyNamespaceHelpers`, which lives in the `my/` projects and which no net10 project can carry — **complete** | — |

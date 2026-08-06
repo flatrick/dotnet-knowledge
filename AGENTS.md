@@ -112,22 +112,23 @@ step, and `VbSourceCoverageTests` fails if a row under `src/` is compiled by no 
 SDK host — every legacy non-SDK project under `examples/language-features/CSharp/dotNetFramework/`.
 `CorpusProjectDiscoveryTests` holds the exact expected list; that is the count of record.
 
-That is 45 of the corpus's 53 projects. Two of the remaining eight are outside it deliberately:
-`CSharp/CSharpComTypeLib/` is prebuilt as a shared reference at the same bar, and
-`CSharp/csx/roslyn-5.6.0/host/` has a Roslyn host coordinate rather than an SDK/TFM one. The other
-six — three `exe` and three `unsafe` projects under `CSharp/dotnet/` — are built by nothing and
-referenced by nothing, which is an open gap rather than a decision:
+That is 45 of the corpus's 54 projects. Three of the remaining nine are outside it deliberately:
+`CSharp/CSharpComTypeLib/` and `CSharp/CSharpRefReturnLib/` are prebuilt as shared references at the
+same bar, and `CSharp/csx/roslyn-5.6.0/host/` has a Roslyn host coordinate rather than an SDK/TFM
+one. The other six — three `exe` and three `unsafe` projects under `CSharp/dotnet/` — are built by
+nothing and referenced by nothing, which is an open gap rather than a decision:
 [`docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md`](docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md).
 
 The eleven legacy projects need Visual Studio's `MSBuild.exe` on Windows — `dotnet build` restores
 their `PackageReference` items and then resolves none of them, failing with `CS0246` on `Span` and
 `ValueTask` while saying nothing about the toolchain. That host is machine-installed rather than
 supplied by the repository-private test host, so **on a machine without Visual Studio those eleven
-report inconclusive**, naming the `vswhere` path that was inspected. `CSharp_v8.0` and the eleven
-net48 VB projects — the latter through their family's `Directory.Build.props` — carry
-`Microsoft.NETFramework.ReferenceAssemblies` and so need no machine-installed targeting pack. No
-other net48 project does: the two SDK-style `*-Unsafe` net48 projects have no props above them
-supplying it, and a legacy non-SDK project cannot consume the package at all.
+report inconclusive**, naming the `vswhere` path that was inspected. `CSharp_v8.0`,
+`CSharpRefReturnLib` and the eleven net48 VB projects — the last through their family's
+`Directory.Build.props` — carry `Microsoft.NETFramework.ReferenceAssemblies` and so need no
+machine-installed targeting pack. No other net48 project does: the two SDK-style `*-Unsafe` net48
+projects have no props above them supplying it, and a legacy non-SDK project cannot consume the
+package at all.
 
 `CSharp_v1.0` and `CSharp_v1.0-Unsafe` both carry `GenerateTargetFrameworkAttribute=false`. Any
 project pinned to C# 1.x needs it, SDK-style or not: the generated `AssemblyAttributes.cs` spells

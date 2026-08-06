@@ -24,6 +24,22 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · The net48 VB ref-return subject comes from a support assembly, not a corpus project
+
+`CSharpRefReturnLib` is a dedicated SDK-style net48 support assembly supplying `RefSamples.Find` and
+`RefSamples.ReplaceInPlace`, referenced by the net48 VB family's `Directory.Build.props`; a support
+assembly is registered in six places — the project, `CorpusProjectBuildTests`'s
+`SharedProjectReferences`, `CorpusProjectDiscoveryTests`'s not-discovered assertion,
+`verify-project-namespaces.cs`'s exemption list, `CLAUDE.md`'s tree, and `MANIFEST.md`.
+Rejected: retargeting to `CSharp_v7.0`, which actually owns the C# 7.0 row — it is legacy non-SDK,
+so `dotnet build` cannot traverse to it and it cannot consume
+`Microsoft.NETFramework.ReferenceAssemblies` at all. Also rejected: keeping the reference on
+`CSharp_v8.0`, which made a corpus project double as a build dependency, coupled a C# 7.0 subject to
+a C# 8.0 coordinate, and forced `[ClassInitialize]` to publish its prebuild result into
+`MatrixBuilds` to avoid rebuilding an assembly nine VB projects were reading concurrently.
+`CSharp_v8.0` now has no dependents, that special case is gone, and all 915 VB floor-probe verdicts
+are byte-identical across the change.
+
 ### 2026-08-06 · The legacy net48 projects get a second runner, not an exemption
 
 The eleven legacy non-SDK C# projects are now a fourth discovery root built through Visual Studio's
