@@ -46,10 +46,72 @@ public sealed record ApiLookupResult(
 
 public sealed record ApiSearchItem(
     string Name,
+    string MatchedOn,
     SourceProvenance Source);
+
+/// <summary>
+/// Which part of a fully-qualified name a search pattern matched. A caller that asked for a type
+/// name and received a namespace's entire contents has been answered a question it did not ask, so
+/// the distinction belongs in the response rather than in the caller's assumptions.
+/// </summary>
+public static class ApiNameMatch
+{
+    public const string Type = "type";
+    public const string Namespace = "namespace";
+    public const string FullName = "fullName";
+}
 
 public sealed record ApiSearchResult(
     IReadOnlyList<ApiSearchItem> Items,
+    bool IsPartial,
+    string? NextPageToken,
+    IReadOnlyList<SourceProvenance> SearchedSources);
+
+public sealed record ApiTextHit(
+    string Symbol,
+    string Element,
+    string Text,
+    bool IsTruncated,
+    SourceProvenance Source);
+
+public sealed record ApiTextSearchResult(
+    IReadOnlyList<ApiTextHit> Hits,
+    bool IsPartial,
+    string? NextPageToken,
+    IReadOnlyList<SourceProvenance> SearchedSources);
+
+/// <summary>
+/// How a declaration uses the type asked about. These are different questions wearing one word:
+/// "what accepts a CancellationToken" and "what derives from Stream" have different answers and
+/// different uses, so a hit says which it is and a caller can ask for one.
+/// </summary>
+public static class ApiReferenceKind
+{
+    public const string Parameter = "parameter";
+    public const string Return = "return";
+    public const string Base = "base";
+    public const string Interface = "interface";
+
+    public static readonly string[] All = [Parameter, Return, Base, Interface];
+}
+
+public sealed record ApiReferenceHit(
+    string Symbol,
+    string Kind,
+    string? ParameterName,
+    string? TypeExpression,
+    string? Signature,
+    SourceProvenance Source);
+
+/// <summary>
+/// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
+/// of references, and paginating them twenty at a time is a way of not saying so.
+/// </summary>
+public sealed record ApiReferenceTotals(int Parameter, int Return, int Base, int Interface);
+
+public sealed record ApiReferenceResult(
+    IReadOnlyList<ApiReferenceHit> Hits,
+    ApiReferenceTotals Totals,
     bool IsPartial,
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);

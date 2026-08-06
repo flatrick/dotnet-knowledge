@@ -56,13 +56,42 @@ lookup_api(symbol, source?, limit?, cursor?)
 
 search_api(pattern, limit?, cursor?)
     → candidate fully-qualified names ONLY, no bodies
+    → pattern matches anywhere in the fully-qualified name: the whole
+      name ("System.Text.Json.JsonSerializer"), a namespace segment in
+      the middle of one ("Text" or "Json" in System.Text.Json.*), a
+      namespace prefix, or the type name alone
+    → namespaces match on complete segments, type names on any substring
+    → matchedOn: "fullName" | "type" | "namespace" — so "every type in
+      this namespace" is distinguishable from "types whose name contains
+      this"
+search_api_text(query, source?, limit?, cursor?)
+    query: a literal, case-insensitive substring — no regex, see
+      "Searching API documentation text" below
+    → searches summary, remarks, returns, value, param, typeparam and
+      exception text, matched AFTER reference elements are resolved, so
+      what was searched is what comes back
+    → hits: the owning symbol ("Type" or "Type.Member"), which element
+      matched ("summary", "param:name", …), and the matched text capped
+      at 300 characters with isTruncated stating it — never bodies
+    → limit: 1-100, default 20
+
+find_api_references(symbol, kind?, source?, limit?, cursor?)
+    symbol: a fully-qualified TYPE name — the thing being used
+    kind: "parameter" | "return" | "base" | "interface"; omit for all
+    → declarations that use the type structurally, matched inside
+      compound expressions: string[], out string, IEnumerable<string>
+    → hits: owning symbol, kind, parameterName, the type expression as
+      declared, and the C# signature
+    → totals: per-kind counts over the WHOLE result set, not the page
+    → limit: 1-100, default 20
 
 ── language design docs ──────────────────────────────────────────────
 search_language_docs(query, regex?, source?, limit?, cursor?)
     query: a literal substring; regex: true switches to full .NET
       regex, evaluated with the non-backtracking engine so no
       caller-supplied pattern can stall the server
-    → hits: path, line, the matched line's text (length-capped), and a
+    → hits: path, line, the matched line's text (capped at 300 with
+      isTruncated stating it, as everywhere else), and a
       server-issued section heading path — no file bodies
     → searches every markdown source the tool supports (csharplang,
       vblang, and roslyn-wiki today; the supported set is configuration,
@@ -116,6 +145,142 @@ narrow for almost nothing and then spend context on a single `lookup_api`. The s
 `search_language_docs` return `path:line` hits plus the single matched line rather than matched
 files: one line per hit is the triage budget, and the agent decides what is worth reading. A search
 tool that returns bodies turns one imprecise query into an unaffordable response.
+
+### What `search_api` matches
+
+An agent looking for an API arrives holding one of several things, and all of them are the same
+question: a fully-qualified name copied from a compiler error, a namespace it wants the contents of,
+a fragment it half-remembers from the middle of a namespace path, or a bare type name. `search_api`
+must answer all four, because the caller cannot know in advance which kind of string it is holding —
+and a search tool that silently returns nothing for one of them is worse than one that refuses, since
+an empty result set reads as "no such API".
+
+Listing a *type's* members is already covered: `lookup_api` with a bare type name returns every
+member's signature. The gap is namespaces.
+
+The layout keeps this cheap. Namespace directories are flat — one directory per complete namespace
+(`xml/System.Text.Json/`), never nested — so a namespace segment, a run of segments, and a whole-name
+match are all operations on a directory name already in hand.
+
+**The two sides of a name match differently, and deliberately.** A type name matches on any
+substring, because `Concurrent` must keep finding `ConcurrentDictionary`. A namespace matches only on
+complete dot-separated segments, because the alternative has an unacceptable blast radius: a raw
+`Contains` over the joined name makes `search_api("Json")` mean "every type in `System.Text.Json`" as
+well as "types named `*Json*`", and `Jso` mean it too, against a limit of 100. Whole-segment matching
+keeps `Json` naming the namespace — a question worth answering — while `Jso` stays what it almost
+certainly was, a type-name fragment.
+
+Even so, `Json` legitimately matches both ways, which is why every item carries `matchedOn`. An agent
+that asked for a type name and received a namespace's entire contents has been answered a question it
+did not ask, and it cannot tell without being told. `fullName` outranks `type`, which outranks
+`namespace`, so the most specific reading an item supports is the one reported; a multi-segment run
+reaching the type name is `fullName`, while a single segment equal to the type name is just `type`
+spelled exactly.
+
+### Searching API documentation text
+
+"Which API mentions this behavior?" is the question an agent asks when it knows what it needs and not
+what it is called, and it is the one shape `lookup_api` structurally cannot serve, because it takes
+the name as input. `search_api_text` answers it.
+
+Text-searching `cacheDir` also answers it, and that remains a reason `list_sources` returns the path.
+It is not a substitute: the escape hatch assumes the caller can run a process on the machine holding
+the cache, which is true of a local coding agent and false of a sandboxed one or of any client
+talking to a server hosted elsewhere.
+
+**Every documented element is searchable**, remarks included. Leaving the largest and least specific
+text out would keep responses smaller and would answer "no" to questions whose answer is in the
+corpus — a plausible absence, which this server treats as the dangerous failure. Noise is handled
+where it does no harm instead: each hit names the element it matched, so a caller can tell a summary
+hit from a remarks hit and narrow without a second round trip.
+
+**Matching runs on rendered text, not on the raw file.** A phrase like "value into a System.String"
+exists only once a `<see cref>` has been resolved; in the file, an element sits in the middle of it.
+Searching the raw XML would miss it, and would also match attribute noise no reader ever sees.
+
+That forces the scan to be a two-phase one, because parsing 460 MB of XML per query is not
+affordable and reading it is: a parallel raw-text prefilter rejects almost every file, and only
+survivors are parsed and rendered. The prefilter tests **the longest whitespace-delimited token of
+the query**, never the whole query, and that is a correctness requirement rather than a heuristic.
+Every word of the rendered text comes from somewhere in the raw file — a text node copied verbatim,
+or the attribute a rendered symbol name is built from — so a single token is a sound superset, while
+the whole phrase is not.
+
+**This is also why the tool takes a literal substring and not a regex**, unlike
+`search_language_docs`. No cheap prefilter is a sound superset of an arbitrary pattern, so regex
+would mean parsing the entire corpus per query or silently missing matches, and a search tool that
+silently misses is the failure mode this server exists to avoid.
+
+Measured on the pinned corpus: a full scan of 11,359 files costs about 0.5-0.7 s in parallel against
+2.1 s serially, and a query answers end to end through the MCP host in roughly 0.7-3.6 s depending on
+how many files survive to be parsed. No index is needed, and adding one would put a build step
+between a sync and a correct answer.
+
+Hits are deduplicated on symbol, element and text. Overloads each carry their own `Docs` under one
+`MemberName`, so identical prose on `Create(a)` and `Create(a, b)` would otherwise arrive as
+repeated hits a caller cannot tell apart; prose that genuinely differs between overloads survives,
+because the text is part of the key.
+
+### Structural references are a different question from prose
+
+`search_api_text` answers "which docs mention this type". `find_api_references` answers "which
+declarations use it" — a parameter, a return, a base class, an interface list. Measured on the
+pinned corpus, the two differ by an order of magnitude for a popular type: `System.String` has
+roughly 2,000 prose references and over 18,000 structural ones. Merging them would produce a result
+serving neither question.
+
+**Matching is on type-name boundaries, not equality and not substring.** A parameter is far more
+often `System.String[]`, `System.String&`, or `IEnumerable<System.String>` than a bare
+`System.String`, so equality would miss every `params string[]` and every `out string` — absences
+that read as facts. A plain substring test would instead match `System.StringComparer`. The
+occurrence therefore has to sit on boundaries: not preceded or followed by a character that
+continues an identifier, a dotted path, or a `+` nested-type separator.
+
+The prefilter can be the whole symbol here, unlike the prose search. A structural reference spells
+the type out in an attribute or element with no rendering step in between, so the raw file text is
+guaranteed to contain it.
+
+**`kind` says where a reference sits, not what the type is to it.** A class implementing
+`IComparer<string>` is an `interface` hit for `System.String`; `typeExpression` carries the
+interface as declared, and comparing it against the symbol is what distinguishes an exact base or
+interface from a parameterized one. That is why the field is in the payload rather than inferred.
+
+**Totals cover the whole result set, before `kind` narrows it.** A widely-used type has tens of
+thousands of references, and paginating them twenty at a time is a way of not saying so; a caller
+asking only about parameters can still see that five hundred types implement the interface.
+
+Query cost is 0.7-1.8 s against the whole corpus, so this needs no index either.
+
+### Text is normalized at the read, and budgeted at the payload
+
+`DocumentationText` is one seam with two stages, and which stage a rule belongs to is not a matter
+of taste.
+
+**Normalization runs where text is read from a source**, before anything matches against it:
+references resolved, the source's own line wrapping folded away, `"To be added."` recognized as the
+placeholder it is. It has to run there, because `search_api_text` matches the same string it later
+returns — that is the only reason it can find a phrase spanning a resolved reference. Normalizing on
+the way out instead would make the text searched and the text shown two different strings, which is
+the defect the reference renderer was written to fix, reintroduced one layer up.
+
+**Budgeting runs at the payload**, after matching and paging. It has to run there for the mirror
+reason: capping text before a match would drop every hit past the cap and report nothing, a
+plausible absence rather than a visible failure.
+
+Two consequences worth stating, because both were inconsistencies before the seam existed:
+
+- **A reference renders the same regardless of how upstream wrote it.** ECMA XML's
+  `<see cref="T:System.String"/>` and MSDocs markdown's `<xref:System.String>` both become
+  `System.String`, which is also what `lookup_api` accepts back. The xref form carries presentation
+  the symbol does not — a `?displayProperty=` query, a `*` naming an overload group, percent-encoded
+  punctuation — and all of it is stripped.
+- **Truncation is reported, never marked.** One budget, one contract: the text is cut and
+  `isTruncated` says so. An ellipsis in the text cannot be told from one the source itself wrote,
+  and forces a caller to parse prose to learn a fact the payload should carry.
+
+Whitespace folding is skipped for markdown-bodied documentation, where line structure is content:
+collapsing it would run a fenced code block onto one line. That is why the rule is a parameter of
+normalization rather than a property of it.
 
 ### Sections are the retrieval unit for language docs
 

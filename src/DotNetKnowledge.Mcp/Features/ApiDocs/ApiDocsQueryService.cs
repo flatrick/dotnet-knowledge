@@ -2,6 +2,7 @@ using System.Xml.Linq;
 using System.Text;
 using System.Text.Json;
 using DotNetKnowledge.Mcp.Sources;
+using DotNetKnowledge.Mcp.Text;
 
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
@@ -13,6 +14,12 @@ public sealed class ApiDocsQueryService
             ["dotnet-api-docs"] = ["xml"],
             ["roslyn-api-docs"] = ["dotnet", "xml"],
         };
+
+    /// <summary>
+    /// Characters of matched prose a search hit carries. Enough to judge relevance, not enough to
+    /// stand in for the entry; lookup_api is one call away with the symbol the hit names.
+    /// </summary>
+    private const int MatchTextBudget = 300;
 
     private readonly SourceCatalog _catalog;
     private readonly SourceSynchronizer _synchronizer;
@@ -190,6 +197,450 @@ public sealed class ApiDocsQueryService
             SearchedSources: searchedSources);
     }
 
+    /// <summary>
+    /// Searches the prose inside the API documentation — summaries, remarks, returns, and parameter
+    /// descriptions — rather than names.
+    /// </summary>
+    /// <remarks>
+    /// This is the question <see cref="LookupAsync"/> structurally cannot serve: it takes the name
+    /// as input, and the caller here has only a behavior in mind. Matching is a literal
+    /// case-insensitive substring against the rendered element text, so what was searched is what
+    /// comes back; regex is deliberately not offered, because the cheap prefilter that makes a
+    /// whole-corpus scan affordable cannot be a sound superset of an arbitrary pattern.
+    /// </remarks>
+    public async Task<ApiTextSearchResult> SearchTextAsync(
+        string query,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
+
+        var hits = new List<ApiTextHit>();
+        var searchedSources = new List<SourceProvenance>();
+        foreach (var sourceName in ResolveSourceNames(source))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceRead<ApiTextHit> read;
+            try
+            {
+                read = await _synchronizer.ReadCurrentSourceAsync(
+                    sourceName,
+                    (definition, state, directory) => ReadTextSource(
+                        sourceName, directory, query, definition, state, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new SourceNotSyncedException(sourceName, exception);
+            }
+
+            searchedSources.Add(read.Provenance);
+            hits.AddRange(read.Items);
+        }
+
+        var revisions = searchedSources
+            .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
+            .ToArray();
+        // Serialized rather than concatenated, so a query ending in the source name cannot
+        // forge the scope of a different request.
+        var scope = JsonSerializer.Serialize(new[] { query, source ?? string.Empty });
+        var offset = DecodeCursor(cursor, "search-text", scope, revisions);
+
+        // Overloads each carry their own Docs under one MemberName, so identical prose on
+        // Create(a) and Create(a, b) would otherwise arrive as two hits a caller cannot tell apart.
+        // Prose that genuinely differs between overloads survives, because the text is part of the
+        // key.
+        var ordered = hits
+            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo))
+            .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Element, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Text, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+        if (offset > ordered.Length)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = ordered.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < ordered.Length;
+        return new ApiTextSearchResult(
+            Hits: page,
+            IsPartial: isPartial,
+            NextPageToken: isPartial ? EncodeCursor("search-text", scope, nextOffset, revisions) : null,
+            SearchedSources: searchedSources);
+    }
+
+    private static SourceRead<ApiTextHit> ReadTextSource(
+        string sourceName,
+        string directory,
+        string query,
+        SourceDefinition definition,
+        SourceSyncState state,
+        CancellationToken cancellationToken)
+    {
+        var docsRoot = ResolveDocsRoot(sourceName, directory);
+        var provenance = ToProvenance(definition, state);
+        var prefilter = LongestToken(query);
+        var files = Directory.EnumerateFiles(docsRoot, "*.xml", SearchOption.AllDirectories);
+        var hits = new System.Collections.Concurrent.ConcurrentBag<ApiTextHit>();
+
+        // The whole corpus is roughly 460 MB. Read in parallel and reject on a raw-text prefilter
+        // first: parsing every file would cost orders of magnitude more than reading it, and almost
+        // every file is rejected.
+        Parallel.ForEach(
+            files,
+            new ParallelOptions { CancellationToken = cancellationToken },
+            file =>
+            {
+                string text;
+                try
+                {
+                    text = File.ReadAllText(file);
+                }
+                catch (IOException)
+                {
+                    return;
+                }
+
+                if (!text.Contains(prefilter, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                foreach (var hit in ReadTextHits(file, text, query, provenance))
+                    hits.Add(hit);
+            });
+
+        return new SourceRead<ApiTextHit>(provenance, hits.ToArray());
+    }
+
+    /// <summary>
+    /// The longest whitespace-delimited token of the query, which is what the raw-text prefilter
+    /// tests.
+    /// </summary>
+    /// <remarks>
+    /// The prefilter has to be a superset of the real match or the search reports plausible
+    /// absences, which is the failure this server treats as the dangerous one. It is sound because
+    /// every word of the rendered text comes from somewhere in the raw file: either a text node,
+    /// which is copied verbatim, or a reference element's attribute, which is where a rendered
+    /// symbol name comes from. The full query is not a sound prefilter — rendering closes the gap
+    /// an element leaves behind, so "value into a System.String" exists only after rendering.
+    /// </remarks>
+    private static string LongestToken(string query)
+    {
+        var tokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return tokens.Length == 0 ? query : tokens.MaxBy(token => token.Length)!;
+    }
+
+    private static IEnumerable<ApiTextHit> ReadTextHits(
+        string path,
+        string text,
+        string query,
+        SourceProvenance provenance)
+    {
+        XElement? root;
+        try
+        {
+            root = XDocument.Parse(text).Root;
+        }
+        catch (System.Xml.XmlException)
+        {
+            // One malformed file must not fail a whole-corpus search.
+            yield break;
+        }
+
+        if (root is null)
+            yield break;
+
+        var fullName = root.Attribute("FullName")?.Value
+            ?? root.Attribute("Name")?.Value
+            ?? Path.GetFileNameWithoutExtension(path);
+
+        foreach (var hit in MatchDocs(root.Element("Docs"), fullName, query, provenance))
+            yield return hit;
+
+        foreach (var member in root.Descendants("Member"))
+        {
+            var memberName = member.Attribute("MemberName")?.Value;
+            var symbol = memberName is null ? fullName : $"{fullName}.{memberName}";
+            foreach (var hit in MatchDocs(member.Element("Docs"), symbol, query, provenance))
+                yield return hit;
+        }
+    }
+
+    private static IEnumerable<ApiTextHit> MatchDocs(
+        XElement? docs,
+        string symbol,
+        string query,
+        SourceProvenance provenance)
+    {
+        if (docs is null)
+            yield break;
+
+        foreach (var element in docs.Elements())
+        {
+            var name = element.Name.LocalName;
+            // Anything documented is searchable. Leaving remarks out would keep responses smaller
+            // and would answer "no" to questions whose answer is in the corpus.
+            if (name is not ("summary" or "remarks" or "returns" or "param" or "typeparam" or "value" or "exception"))
+                continue;
+
+            var rendered = RenderDocumentation(element);
+            if (rendered is null || !rendered.Contains(query, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var label = element.Attribute("name")?.Value is { Length: > 0 } parameterName
+                ? $"{name}:{parameterName}"
+                : name;
+            var (text, isTruncated) = DocumentationText.Budget(rendered, MatchTextBudget);
+            yield return new ApiTextHit(
+                Symbol: symbol,
+                Element: label,
+                Text: text,
+                IsTruncated: isTruncated,
+                Source: provenance);
+        }
+    }
+
+    /// <summary>
+    /// Finds declarations that use a type structurally — as a parameter, as a return type, as a
+    /// base class, or in an interface list.
+    /// </summary>
+    /// <remarks>
+    /// The inverse of <see cref="LookupAsync"/>: not "what does this type offer" but "what uses it".
+    /// Prose mentions are <c>search_api_text</c>'s job and are deliberately not counted here, since
+    /// a sentence naming a type and a signature accepting one are different facts.
+    /// </remarks>
+    public async Task<ApiReferenceResult> FindReferencesAsync(
+        string symbol,
+        string? kind,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
+        ValidateSymbol(symbol);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
+        if (kind is not null && !ApiReferenceKind.All.Contains(kind, StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                $"kind must be omitted or one of \"{string.Join("\", \"", ApiReferenceKind.All)}\".",
+                nameof(kind));
+        }
+
+        var hits = new List<ApiReferenceHit>();
+        var searchedSources = new List<SourceProvenance>();
+        foreach (var sourceName in ResolveSourceNames(source))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceRead<ApiReferenceHit> read;
+            try
+            {
+                read = await _synchronizer.ReadCurrentSourceAsync(
+                    sourceName,
+                    (definition, state, directory) => ReadReferenceSource(
+                        sourceName, directory, symbol, definition, state, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new SourceNotSyncedException(sourceName, exception);
+            }
+
+            searchedSources.Add(read.Provenance);
+            hits.AddRange(read.Items);
+        }
+
+        // Totals describe the whole matched set before the kind filter narrows it, so a caller
+        // asking only for parameters can still see that a thousand types derive from this one.
+        var totals = new ApiReferenceTotals(
+            Parameter: hits.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
+            Return: hits.Count(hit => hit.Kind == ApiReferenceKind.Return),
+            Base: hits.Count(hit => hit.Kind == ApiReferenceKind.Base),
+            Interface: hits.Count(hit => hit.Kind == ApiReferenceKind.Interface));
+
+        var revisions = searchedSources
+            .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
+            .ToArray();
+        var scope = JsonSerializer.Serialize(new[] { symbol, kind ?? string.Empty, source ?? string.Empty });
+        var offset = DecodeCursor(cursor, "references", scope, revisions);
+
+        var ordered = hits
+            .Where(hit => kind is null || hit.Kind == kind)
+            .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Kind, StringComparer.Ordinal)
+            .ThenBy(hit => hit.ParameterName ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(hit => hit.TypeExpression ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+        if (offset > ordered.Length)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = ordered.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < ordered.Length;
+        return new ApiReferenceResult(
+            Hits: page,
+            Totals: totals,
+            IsPartial: isPartial,
+            NextPageToken: isPartial ? EncodeCursor("references", scope, nextOffset, revisions) : null,
+            SearchedSources: searchedSources);
+    }
+
+    private static SourceRead<ApiReferenceHit> ReadReferenceSource(
+        string sourceName,
+        string directory,
+        string symbol,
+        SourceDefinition definition,
+        SourceSyncState state,
+        CancellationToken cancellationToken)
+    {
+        var docsRoot = ResolveDocsRoot(sourceName, directory);
+        var provenance = ToProvenance(definition, state);
+        var files = Directory.EnumerateFiles(docsRoot, "*.xml", SearchOption.AllDirectories);
+        var hits = new System.Collections.Concurrent.ConcurrentBag<ApiReferenceHit>();
+
+        // The whole symbol is a sound prefilter here, unlike prose: a structural reference always
+        // spells the type out in an attribute or element, with no rendering step in between.
+        Parallel.ForEach(
+            files,
+            new ParallelOptions { CancellationToken = cancellationToken },
+            file =>
+            {
+                string text;
+                try
+                {
+                    text = File.ReadAllText(file);
+                }
+                catch (IOException)
+                {
+                    return;
+                }
+
+                if (!text.Contains(symbol, StringComparison.Ordinal))
+                    return;
+
+                foreach (var hit in ReadReferenceHits(file, text, symbol, provenance))
+                    hits.Add(hit);
+            });
+
+        return new SourceRead<ApiReferenceHit>(provenance, hits.ToArray());
+    }
+
+    private static IEnumerable<ApiReferenceHit> ReadReferenceHits(
+        string path,
+        string text,
+        string symbol,
+        SourceProvenance provenance)
+    {
+        XElement? root;
+        try
+        {
+            root = XDocument.Parse(text).Root;
+        }
+        catch (System.Xml.XmlException)
+        {
+            yield break;
+        }
+
+        if (root is null)
+            yield break;
+
+        var fullName = root.Attribute("FullName")?.Value
+            ?? root.Attribute("Name")?.Value
+            ?? Path.GetFileNameWithoutExtension(path);
+
+        // A type never counts as a reference to itself.
+        if (string.Equals(fullName, symbol, StringComparison.Ordinal))
+            yield break;
+
+        var baseTypeName = root.Element("Base")?.Element("BaseTypeName")?.Value;
+        if (baseTypeName is not null && ReferencesType(baseTypeName, symbol))
+            yield return new ApiReferenceHit(fullName, ApiReferenceKind.Base, null, baseTypeName, null, provenance);
+
+        foreach (var interfaceName in root.Element("Interfaces")?.Elements("Interface")
+                     .Select(item => item.Element("InterfaceName")?.Value) ?? [])
+        {
+            if (interfaceName is not null && ReferencesType(interfaceName, symbol))
+            {
+                yield return new ApiReferenceHit(
+                    fullName, ApiReferenceKind.Interface, null, interfaceName, null, provenance);
+            }
+        }
+
+        foreach (var member in root.Descendants("Member"))
+        {
+            var memberName = member.Attribute("MemberName")?.Value;
+            var memberSymbol = memberName is null ? fullName : $"{fullName}.{memberName}";
+            var signature = member.Elements("MemberSignature")
+                .LastOrDefault(element => string.Equals(element.Attribute("Language")?.Value, "C#", StringComparison.Ordinal))
+                ?.Attribute("Value")?.Value;
+
+            var returnType = member.Element("ReturnValue")?.Element("ReturnType")?.Value;
+            if (returnType is not null && ReferencesType(returnType, symbol))
+            {
+                yield return new ApiReferenceHit(
+                    memberSymbol, ApiReferenceKind.Return, null, returnType, signature, provenance);
+            }
+
+            foreach (var parameter in member.Element("Parameters")?.Elements("Parameter") ?? [])
+            {
+                var parameterType = parameter.Attribute("Type")?.Value;
+                if (parameterType is not null && ReferencesType(parameterType, symbol))
+                {
+                    yield return new ApiReferenceHit(
+                        memberSymbol,
+                        ApiReferenceKind.Parameter,
+                        parameter.Attribute("Name")?.Value,
+                        parameterType,
+                        signature,
+                        provenance);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a type expression uses <paramref name="symbol"/> as a whole type.
+    /// </summary>
+    /// <remarks>
+    /// Equality is not enough and substring is too much. A parameter is far more often
+    /// <c>System.String[]</c> or <c>System.String&amp;</c> or
+    /// <c>IEnumerable&lt;System.String&gt;</c> than a bare <c>System.String</c>, so equality would
+    /// miss every <c>params string[]</c> and every <c>out string</c> — absences that read as facts.
+    /// A plain substring test would instead match <c>System.StringComparer</c>, so the occurrence
+    /// has to sit on type-name boundaries.
+    /// </remarks>
+    private static bool ReferencesType(string typeExpression, string symbol)
+    {
+        var start = 0;
+        while (true)
+        {
+            var index = typeExpression.IndexOf(symbol, start, StringComparison.Ordinal);
+            if (index < 0)
+                return false;
+
+            var before = index == 0 ? '\0' : typeExpression[index - 1];
+            var afterIndex = index + symbol.Length;
+            var after = afterIndex >= typeExpression.Length ? '\0' : typeExpression[afterIndex];
+
+            if (!ContinuesName(before) && !ContinuesName(after))
+                return true;
+
+            start = index + 1;
+        }
+
+        // A letter, digit or underscore on either side means a longer identifier; a dot means a
+        // longer path, so "System.String" must not match inside "Foo.System.String" or
+        // "System.String.Enumerator". '+' separates a nested type, which is a different type again.
+        static bool ContinuesName(char character) =>
+            char.IsLetterOrDigit(character) || character is '_' or '.' or '+';
+    }
+
     private string[] ResolveSourceNames(string? source)
     {
         if (source is not null)
@@ -254,15 +705,94 @@ public sealed class ApiDocsQueryService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var namespaceName = Path.GetFileName(namespaceDirectory);
+            var namespaceSegments = namespaceName.Split('.');
+            var patternSegments = pattern.Split('.');
             foreach (var file in Directory.EnumerateFiles(namespaceDirectory, "*.xml"))
             {
                 var typeName = Path.GetFileNameWithoutExtension(file);
-                if (typeName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                    items.Add(new ApiSearchItem($"{namespaceName}.{typeName}", provenance));
+                var matchedOn = ClassifyMatch(namespaceSegments, typeName, pattern, patternSegments);
+                if (matchedOn is not null)
+                    items.Add(new ApiSearchItem($"{namespaceName}.{typeName}", matchedOn, provenance));
             }
         }
 
         return new SourceRead<ApiSearchItem>(provenance, items);
+    }
+
+    /// <summary>
+    /// Decides which part of a fully-qualified name a pattern matched, or null for no match.
+    /// </summary>
+    /// <remarks>
+    /// A caller cannot know which kind of string it is holding — a whole name copied out of a
+    /// compiler error, a namespace, a fragment from the middle of one, or a bare type name — so all
+    /// four have to work. The namespace side matches whole dot-separated segments rather than raw
+    /// substrings: "Json" naming the <c>System.Text.Json</c> namespace is a question worth
+    /// answering, while "Jso" naming it is far more likely to be a type-name fragment, and treating
+    /// it as a namespace would bury the type the caller wanted under everything that namespace
+    /// holds.
+    /// </remarks>
+    private static string? ClassifyMatch(
+        string[] namespaceSegments,
+        string typeName,
+        string pattern,
+        string[] patternSegments)
+    {
+        // The type name is the last segment of the fully-qualified name, so a dotted pattern can
+        // legitimately end on it.
+        var fullNameSegments = new string[namespaceSegments.Length + 1];
+        namespaceSegments.CopyTo(fullNameSegments, 0);
+        fullNameSegments[^1] = typeName;
+
+        var runStart = IndexOfSegmentRun(fullNameSegments, patternSegments);
+        if (runStart >= 0)
+        {
+            var runEnd = runStart + patternSegments.Length - 1;
+            // Only a multi-segment run reaching the type name is a whole-name match. A single
+            // segment equal to the type name is just a type match spelled exactly.
+            if (runEnd == fullNameSegments.Length - 1 && patternSegments.Length > 1)
+                return ApiNameMatch.FullName;
+        }
+
+        // Substring, not segment: "Concurrent" has to keep finding ConcurrentDictionary.
+        if (typeName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+            return ApiNameMatch.Type;
+
+        return runStart >= 0 ? ApiNameMatch.Namespace : null;
+    }
+
+    /// <summary>
+    /// Finds where <paramref name="run"/> occurs as consecutive whole segments of
+    /// <paramref name="segments"/>, or -1.
+    /// </summary>
+    private static int IndexOfSegmentRun(string[] segments, string[] run)
+    {
+        if (run.Length == 0 || run.Length > segments.Length)
+            return -1;
+
+        // A pattern with an empty segment ("System..Text", or a trailing dot) names nothing.
+        foreach (var segment in run)
+        {
+            if (segment.Length == 0)
+                return -1;
+        }
+
+        for (var start = 0; start <= segments.Length - run.Length; start++)
+        {
+            var matched = true;
+            for (var offset = 0; offset < run.Length; offset++)
+            {
+                if (!string.Equals(segments[start + offset], run[offset], StringComparison.OrdinalIgnoreCase))
+                {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched)
+                return start;
+        }
+
+        return -1;
     }
 
     private static string ResolveDocsRoot(string sourceName, string directory)
@@ -391,9 +921,8 @@ public sealed class ApiDocsQueryService
                     .FirstOrDefault(element => string.Equals(
                         element.Attribute("name")?.Value,
                         name,
-                        StringComparison.Ordinal))
-                    ?.Value;
-                return new ApiParameterDocumentation(name, CleanDocumentation(description));
+                        StringComparison.Ordinal));
+                return new ApiParameterDocumentation(name, RenderDocumentation(description));
             })
             .ToArray()
             ?? [];
@@ -401,22 +930,96 @@ public sealed class ApiDocsQueryService
         return new ApiMemberDocumentation(
             Name: member.Attribute("MemberName")?.Value ?? string.Empty,
             Signature: signature,
-            Summary: CleanDocumentation(docs?.Element("summary")?.Value),
+            Summary: RenderDocumentation(docs?.Element("summary")),
             Parameters: parameters,
-            Returns: CleanDocumentation(docs?.Element("returns")?.Value),
-            Remarks: CleanDocumentation(docs?.Element("remarks")?.Value));
+            Returns: RenderDocumentation(docs?.Element("returns")),
+            Remarks: RenderDocumentation(docs?.Element("remarks")));
     }
 
-    private static string? CleanDocumentation(string? text)
+    /// <summary>
+    /// Flattens a documentation element to text, resolving the reference elements to the names they
+    /// name. <see cref="XElement.Value"/> alone concatenates text nodes and discards child elements,
+    /// and ECMA XML carries every type and parameter reference as an empty element — so it turns
+    /// "converts the value into a &lt;see cref="T:System.String" /&gt;." into "converts the value
+    /// into a .", a sentence that still reads as complete while missing the thing it names.
+    /// The result is normalized before it is returned, so no caller can match against text that
+    /// differs from the text it will later hand back.
+    /// </summary>
+    private static string? RenderDocumentation(XElement? element)
     {
-        if (string.IsNullOrWhiteSpace(text)
-            || string.Equals(text.Trim(), "To be added.", StringComparison.Ordinal))
-        {
+        if (element is null)
             return null;
+
+        var builder = new StringBuilder();
+        AppendNodes(element, builder);
+
+        // A <format> child means the body is markdown, where the line structure is content: folding
+        // it would run fenced code blocks and lists into one line.
+        var isMarkdown = element.Descendants("format").Any();
+        return DocumentationText.Normalize(builder.ToString(), collapseWhitespace: !isMarkdown);
+
+        static void AppendNodes(XElement parent, StringBuilder builder)
+        {
+            foreach (var node in parent.Nodes())
+            {
+                switch (node)
+                {
+                    // XCData derives from XText, which is what carries the markdown <format> blocks.
+                    case XText text:
+                        builder.Append(text.Value);
+                        break;
+                    case XElement child:
+                        AppendElement(child, builder);
+                        break;
+                }
+            }
         }
 
-        return text.Trim();
+        static void AppendElement(XElement element, StringBuilder builder)
+        {
+            switch (element.Name.LocalName)
+            {
+                case "see":
+                case "seealso":
+                    // A cref is kept whole, prefix stripped: "T:System.String" reads as
+                    // "System.String", which is also exactly what lookup_api accepts back.
+                    var reference = StripDocumentationIdPrefix(element.Attribute("cref")?.Value)
+                        ?? element.Attribute("langword")?.Value
+                        ?? element.Attribute("href")?.Value;
+                    if (reference is not null && element.IsEmpty)
+                    {
+                        builder.Append(reference);
+                        return;
+                    }
+
+                    if (element.IsEmpty)
+                        return;
+                    break;
+
+                case "paramref":
+                case "typeparamref":
+                    var name = element.Attribute("name")?.Value;
+                    if (name is not null)
+                    {
+                        builder.Append(name);
+                        return;
+                    }
+
+                    break;
+            }
+
+            AppendNodes(element, builder);
+        }
     }
+
+    /// <summary>
+    /// Strips the single-letter documentation-ID prefix ECMA XML puts on every cref — "T:" for a
+    /// type, "M:" for a method, and so on.
+    /// </summary>
+    private static string? StripDocumentationIdPrefix(string? cref) =>
+        cref is { Length: > 2 } && cref[1] == ':' && char.IsAsciiLetter(cref[0])
+            ? cref[2..]
+            : cref;
 
     private static void ValidateSymbol(string symbol)
     {

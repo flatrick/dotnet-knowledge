@@ -22,7 +22,9 @@ public sealed class LanguageDocsTool
         "Search synchronized C# and VB.NET language-design documents (proposals, spec, LDM " +
         "meeting notes) by literal substring or, with regex: true, a .NET regex evaluated with " +
         "the non-backtracking engine. Returns path:line hits with the matched line and a " +
-        "server-issued section heading path, never file bodies; call get_language_doc for content.")]
+        "server-issued section heading path, never file bodies; call get_language_doc for content. " +
+        "A long matched line is shortened to a preview and ends in an ellipsis; fetch the document " +
+        "for the full text.")]
     public static async Task<string> SearchLanguageDocs(
         string query,
         LanguageDocsQueryService service,
@@ -74,6 +76,9 @@ public sealed class LanguageDocsTool
         "Fetch a synchronized C# or VB.NET language-design document by its repo-relative path. " +
         "Pass section as a heading path exactly as returned by search_language_docs or " +
         "get_language_doc_outline to fetch just that section; omit it for the whole document. " +
+        "Heading paths are normalized - inline markdown such as backticks is stripped, and levels " +
+        "are joined with \" > \" - so build them from those tools rather than from raw markdown, " +
+        "where \"## `Span<char>` support\" reads as \"Span<char> support\". " +
         "Pages by an approximate character budget (limit) that never splits a fenced code block " +
         "or a table.")]
     public static async Task<string> GetLanguageDoc(

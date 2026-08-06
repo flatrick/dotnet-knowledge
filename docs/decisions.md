@@ -24,6 +24,15 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · Whole-corpus scans stay uncached
+
+`search_api_text` and `find_api_references` re-read every XML file in every selected source on every
+call, measured at 0.5-0.7 s for the parallel prefilter and 0.7-3.6 s end to end through the host —
+inside what a caller waits for, with no observed need for anything faster. Rejected: an index, which
+puts a build step between a sync and a correct answer and answers from a stale one with plausible
+absences; and memoizing the surviving file list per commit, which is cheap but buys nothing yet.
+Revisit only on a measured complaint, not on a suspicion.
+
 ### 2026-08-05 · Cached clones get `feature.manyFiles`, never `core.fsmonitor`
 
 Every staging repository is configured with `feature.manyFiles` and `core.untrackedCache` before its

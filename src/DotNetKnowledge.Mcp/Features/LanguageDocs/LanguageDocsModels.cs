@@ -6,6 +6,7 @@ public sealed record LanguageDocLineHit(
     string Path,
     int Line,
     string Text,
+    bool IsTruncated,
     string SectionPath,
     SourceProvenance Source);
 
