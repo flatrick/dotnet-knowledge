@@ -177,6 +177,57 @@ public sealed class ApiDocsToolTests
     }
 
     [TestMethod]
+    public async Task FindApiReferencesCarriesTheResolvedAttributeTypeAndNamesAnExcludedSibling()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateAttributeSiblingServiceAsync(root);
+
+            var found = await ApiDocsTool.FindApiReferences(
+                "System.WidgetSealAttribute",
+                service,
+                CancellationToken.None,
+                kind: ApiReferenceKind.Attribute,
+                source: "dotnet-api-docs",
+                limit: 100);
+
+            using var foundDocument = JsonDocument.Parse(found);
+            var hit = foundDocument.RootElement.GetProperty("hits").EnumerateArray().Single();
+            Assert.AreEqual("[System.WidgetSeal]", hit.GetProperty("typeExpression").GetString());
+            Assert.AreEqual("System.WidgetSealAttribute", hit.GetProperty("attributeType").GetString());
+
+            // The note exists so an exclusion is never silent, so it has to survive serialization.
+            var excluded = await ApiDocsTool.FindApiReferences(
+                "System.WidgetTrait",
+                service,
+                CancellationToken.None,
+                source: "dotnet-api-docs",
+                limit: 100);
+
+            using var excludedDocument = JsonDocument.Parse(excluded);
+            var note = excludedDocument.RootElement.GetProperty("note");
+            Assert.AreEqual("System.WidgetTraitAttribute", note.GetProperty("siblingType").GetString());
+            Assert.AreEqual(1, note.GetProperty("attributeApplications").GetInt32());
+            StringAssert.Contains(note.GetProperty("remedy").GetString(), "find_api_references");
+
+            // Absent rather than null on the kinds and the queries that have nothing to say, which
+            // is what keeps the field free on every other response.
+            var parameterHit = excludedDocument.RootElement.GetProperty("hits")
+                .EnumerateArray()
+                .Single(item => item.GetProperty("kind").GetString() == ApiReferenceKind.Parameter);
+            Assert.IsFalse(parameterHit.TryGetProperty("attributeType", out _));
+            Assert.IsFalse(foundDocument.RootElement.TryGetProperty("note", out _));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task SearchApiSaysHowFarBelowTheNamedNamespaceEachMatchSits()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

@@ -429,10 +429,12 @@ public sealed class ApiDocsQueryService
 
         var hits = new List<ApiReferenceHit>();
         var searchedSources = new List<SourceProvenance>();
+        string? siblingType = null;
+        var siblingApplications = 0;
         foreach (var sourceName in ResolveSourceNames(source))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SourceRead<ApiReferenceHit> read;
+            ReferenceRead read;
             try
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
@@ -448,6 +450,11 @@ public sealed class ApiDocsQueryService
 
             searchedSources.Add(read.Provenance);
             hits.AddRange(read.Items);
+
+            // One source resolving the sibling is enough to name it; the counts add up across the
+            // sources that were actually searched.
+            siblingType ??= read.SiblingType;
+            siblingApplications += read.SiblingApplications;
         }
 
         // Totals describe the whole matched set before the filters narrow it, so a caller
@@ -485,12 +492,19 @@ public sealed class ApiDocsQueryService
         return new ApiReferenceResult(
             Hits: page,
             Totals: totals,
+            Note: siblingType is null
+                ? null
+                : new ApiReferenceNote(
+                    siblingType,
+                    siblingApplications,
+                    $"Call find_api_references with symbol \"{siblingType}\" to reach its attribute "
+                        + "applications, which are excluded here."),
             IsPartial: isPartial,
             NextPageToken: isPartial ? EncodeCursor("references", scope, nextOffset, revisions) : null,
             SearchedSources: searchedSources);
     }
 
-    private static SourceRead<ApiReferenceHit> ReadReferenceSource(
+    private static ReferenceRead ReadReferenceSource(
         string sourceName,
         string directory,
         string symbol,
@@ -500,11 +514,16 @@ public sealed class ApiDocsQueryService
     {
         var docsRoot = ResolveDocsRoot(sourceName, directory);
         var provenance = ToProvenance(definition, state);
+        var attributes = new AttributeResolution(docsRoot, symbol);
+        var shortForm = AttributeResolution.ShortForm(symbol);
         var files = Directory.EnumerateFiles(docsRoot, "*.xml", SearchOption.AllDirectories);
         var hits = new System.Collections.Concurrent.ConcurrentBag<ApiReferenceHit>();
 
         // The whole symbol is a sound prefilter here, unlike prose: a structural reference always
-        // spells the type out in an attribute or element, with no rendering step in between.
+        // spells the type out in an attribute or element, with no rendering step in between. The one
+        // exception is an attribute application, which ECMA XML records in C# short form — a
+        // document applying ObsoleteAttribute never contains that string — so the short form has to
+        // open a file too, or the resolution below is never reached.
         Parallel.ForEach(
             files,
             new ParallelOptions { CancellationToken = cancellationToken },
@@ -520,22 +539,30 @@ public sealed class ApiDocsQueryService
                     return;
                 }
 
-                if (!text.Contains(symbol, StringComparison.Ordinal))
+                if (!text.Contains(symbol, StringComparison.Ordinal)
+                    && (shortForm is null || !text.Contains(shortForm, StringComparison.Ordinal)))
+                {
                     return;
+                }
 
-                foreach (var hit in ReadReferenceHits(file, text, symbol, provenance))
+                foreach (var hit in ReadReferenceHits(file, text, attributes, provenance))
                     hits.Add(hit);
             });
 
-        return new SourceRead<ApiReferenceHit>(provenance, hits.ToArray());
+        return new ReferenceRead(
+            provenance,
+            hits.ToArray(),
+            attributes.SiblingType,
+            attributes.SiblingApplications);
     }
 
     private static IEnumerable<ApiReferenceHit> ReadReferenceHits(
         string path,
         string text,
-        string symbol,
+        AttributeResolution attributes,
         SourceProvenance provenance)
     {
+        var symbol = attributes.Symbol;
         XElement? root;
         try
         {
@@ -561,7 +588,7 @@ public sealed class ApiDocsQueryService
         if (baseTypeName is not null && ReferencesType(baseTypeName, symbol, out var baseIsExact))
         {
             yield return new ApiReferenceHit(
-                fullName, ApiReferenceKind.Base, null, baseTypeName, baseIsExact, null, provenance);
+                fullName, ApiReferenceKind.Base, null, baseTypeName, null, baseIsExact, null, provenance);
         }
 
         foreach (var interfaceName in root.Element("Interfaces")?.Elements("Interface")
@@ -570,14 +597,14 @@ public sealed class ApiDocsQueryService
             if (interfaceName is not null && ReferencesType(interfaceName, symbol, out var interfaceIsExact))
             {
                 yield return new ApiReferenceHit(
-                    fullName, ApiReferenceKind.Interface, null, interfaceName, interfaceIsExact, null, provenance);
+                    fullName, ApiReferenceKind.Interface, null, interfaceName, null, interfaceIsExact, null, provenance);
             }
         }
 
         foreach (var hit in ReadConstraintHits(root, symbol, fullName, null, provenance))
             yield return hit;
 
-        foreach (var hit in ReadAttributeHits(root, symbol, fullName, null, provenance))
+        foreach (var hit in ReadAttributeHits(root, attributes, fullName, null, provenance))
             yield return hit;
 
         foreach (var member in root.Descendants("Member"))
@@ -591,14 +618,14 @@ public sealed class ApiDocsQueryService
             foreach (var hit in ReadConstraintHits(member, symbol, memberSymbol, signature, provenance))
                 yield return hit;
 
-            foreach (var hit in ReadAttributeHits(member, symbol, memberSymbol, signature, provenance))
+            foreach (var hit in ReadAttributeHits(member, attributes, memberSymbol, signature, provenance))
                 yield return hit;
 
             var returnType = member.Element("ReturnValue")?.Element("ReturnType")?.Value;
             if (returnType is not null && ReferencesType(returnType, symbol, out var returnIsExact))
             {
                 yield return new ApiReferenceHit(
-                    memberSymbol, ApiReferenceKind.Return, null, returnType, returnIsExact, signature, provenance);
+                    memberSymbol, ApiReferenceKind.Return, null, returnType, null, returnIsExact, signature, provenance);
             }
 
             foreach (var parameter in member.Element("Parameters")?.Elements("Parameter") ?? [])
@@ -611,6 +638,7 @@ public sealed class ApiDocsQueryService
                         ApiReferenceKind.Parameter,
                         parameter.Attribute("Name")?.Value,
                         parameterType,
+                        null,
                         parameterIsExact,
                         signature,
                         provenance);
@@ -653,6 +681,7 @@ public sealed class ApiDocsQueryService
                         // of a declaration's constraints this hit came from.
                         typeParameter.Attribute("Name")?.Value,
                         constraint.Value,
+                        null,
                         isExact,
                         signature,
                         provenance);
@@ -672,11 +701,12 @@ public sealed class ApiDocsQueryService
     /// </remarks>
     private static IEnumerable<ApiReferenceHit> ReadAttributeHits(
         XElement declaration,
-        string symbol,
+        AttributeResolution attributes,
         string owningSymbol,
         string? signature,
         SourceProvenance provenance)
     {
+        var symbol = attributes.Symbol;
         var applications = (declaration.Element("Attributes")?.Elements("Attribute") ?? [])
             .Select(attribute => attribute.Elements("AttributeName")
                 .FirstOrDefault(name => name.Attribute("Language") is not { } language
@@ -687,23 +717,113 @@ public sealed class ApiDocsQueryService
 
         foreach (var application in applications)
         {
-            if (!ReferencesType(application!, symbol, out _))
-                continue;
+            var appliedName = AttributeTypeName(application!);
+            var attributeType = attributes.Resolve(appliedName);
 
             // The application text carries the attribute's arguments, where a type is named as
             // readily as in the attribute's own name — [JsonConverter(typeof(X))] names two. So
-            // exactness is decided against the attribute being applied, which is what separates
-            // "decorated with this attribute" from "named inside its arguments".
-            var isExact = ReferencesType(AttributeTypeName(application!), symbol, out var namesTheAttribute)
-                && namesTheAttribute;
+            // exactness is decided against the attribute the declaration is decorated with, which
+            // is what separates that from "named inside its arguments".
+            var namesTheAttribute = string.Equals(attributeType, symbol, StringComparison.Ordinal);
+
+            // The applied name is spelled like the symbol but resolves to the symbol's sibling, so
+            // this application decorates the declaration with a different type. Counted rather than
+            // dropped: the response says what it excluded and names the call that reaches it.
+            if (!namesTheAttribute && string.Equals(appliedName, symbol, StringComparison.Ordinal))
+            {
+                attributes.CountSiblingApplication();
+                continue;
+            }
+
+            // Past the attribute's own name the suffix rule does not apply — inside an argument
+            // list a name means the class it spells, exactly as everywhere outside an application.
+            if (!namesTheAttribute && !ReferencesType(application!, symbol, out _))
+                continue;
+
             yield return new ApiReferenceHit(
                 owningSymbol,
                 ApiReferenceKind.Attribute,
                 null,
                 application,
-                isExact,
+                attributeType,
+                namesTheAttribute,
                 signature,
                 provenance);
+        }
+    }
+
+    /// <summary>
+    /// What an attribute application's name refers to, and whether the requested symbol is the
+    /// de-suffixed half of a colliding pair.
+    /// </summary>
+    /// <remarks>
+    /// C# elides the <c>Attribute</c> suffix and ECMA XML records the source spelling, so
+    /// <c>[System.Obsolete("…")]</c> is an application of <c>System.ObsoleteAttribute</c>. The
+    /// suffix is decidable here and nowhere else: a name in an application can only be an attribute
+    /// type, while the same name in a parameter, a return, a base list or a constraint means the
+    /// class it spells. Existence is the test, because that is how C# resolves it and how symbols
+    /// resolve everywhere else in this service — a type document beside the one asked about.
+    /// </remarks>
+    private sealed class AttributeResolution
+    {
+        private const string Suffix = "Attribute";
+
+        private readonly string _docsRoot;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _resolved =
+            new(StringComparer.Ordinal);
+        private int _siblingApplications;
+
+        public AttributeResolution(string docsRoot, string symbol)
+        {
+            _docsRoot = docsRoot;
+            Symbol = symbol;
+            var candidate = symbol + Suffix;
+            SiblingType = TypeExists(candidate) ? candidate : null;
+        }
+
+        public string Symbol { get; }
+
+        /// <summary>
+        /// The attribute type whose applications are spelled with the symbol's name, or null when
+        /// the symbol has no such sibling and its short form therefore has one reading.
+        /// </summary>
+        public string? SiblingType { get; }
+
+        public int SiblingApplications => Volatile.Read(ref _siblingApplications);
+
+        /// <summary>
+        /// The de-suffixed spelling the corpus records for a symbol, or null when the symbol is not
+        /// an attribute type's CLR name.
+        /// </summary>
+        public static string? ShortForm(string symbol)
+        {
+            if (!symbol.EndsWith(Suffix, StringComparison.Ordinal))
+                return null;
+
+            // The simple name has to survive the strip: System.Attribute would otherwise de-suffix
+            // to "System.", which names a namespace rather than a type and prefilters nothing away.
+            var simpleName = symbol.LastIndexOf('.') + 1;
+            return symbol.Length - simpleName > Suffix.Length ? symbol[..^Suffix.Length] : null;
+        }
+
+        public string Resolve(string appliedName) => _resolved.GetOrAdd(
+            appliedName,
+            name => TypeExists(name + Suffix) ? name + Suffix : name);
+
+        public void CountSiblingApplication() => Interlocked.Increment(ref _siblingApplications);
+
+        private bool TypeExists(string typeName)
+        {
+            try
+            {
+                return FindTypeFiles(_docsRoot, typeName).Length > 0;
+            }
+            catch (ArgumentException)
+            {
+                // An applied name is corpus text and is not obliged to be a resolvable one. An
+                // unresolvable name is simply not a sibling; it must not fail the request.
+                return false;
+            }
         }
     }
 
@@ -1246,4 +1366,10 @@ public sealed class ApiDocsQueryService
         IReadOnlyList<string> Revisions);
 
     private sealed record SourceRead<T>(SourceProvenance Provenance, IReadOnlyList<T> Items);
+
+    private sealed record ReferenceRead(
+        SourceProvenance Provenance,
+        IReadOnlyList<ApiReferenceHit> Items,
+        string? SiblingType,
+        int SiblingApplications);
 }

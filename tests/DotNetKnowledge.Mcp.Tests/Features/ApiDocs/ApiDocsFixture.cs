@@ -127,6 +127,65 @@ internal static class ApiDocsFixture
         """;
 
     /// <summary>
+    /// The de-suffixed sibling of <see cref="WidgetTraitAttributeXml"/>: a class that shares the
+    /// name C# spells the attribute with, which is what makes an application of the attribute
+    /// ambiguous to read.
+    /// </summary>
+    private const string WidgetTraitXml = """
+        <Type Name="WidgetTrait" FullName="System.WidgetTrait" />
+        """;
+
+    /// <summary>
+    /// The colliding half: applied as <c>[System.WidgetTrait]</c>, while a class of exactly that
+    /// name also exists.
+    /// </summary>
+    private const string WidgetTraitAttributeXml = """
+        <Type Name="WidgetTraitAttribute" FullName="System.WidgetTraitAttribute">
+          <Base>
+            <BaseTypeName>System.Attribute</BaseTypeName>
+          </Base>
+        </Type>
+        """;
+
+    /// <summary>
+    /// The non-colliding half: applied as <c>[System.WidgetSeal]</c>, and nothing else is named
+    /// <c>System.WidgetSeal</c>, so the short form has one reading.
+    /// </summary>
+    private const string WidgetSealAttributeXml = """
+        <Type Name="WidgetSealAttribute" FullName="System.WidgetSealAttribute">
+          <Base>
+            <BaseTypeName>System.Attribute</BaseTypeName>
+          </Base>
+        </Type>
+        """;
+
+    /// <summary>
+    /// A type decorated with both attributes, and taking the colliding class as a parameter, so a
+    /// query for that class has structural hits of its own alongside the applications that are not
+    /// its.
+    /// </summary>
+    private const string TraitedWidgetXml = """
+        <Type Name="TraitedWidget" FullName="System.TraitedWidget">
+          <Attributes>
+            <Attribute>
+              <AttributeName Language="C#">[System.WidgetTrait]</AttributeName>
+              <AttributeName Language="F#">[&lt;System.WidgetTrait&gt;]</AttributeName>
+            </Attribute>
+            <Attribute>
+              <AttributeName Language="C#">[System.WidgetSeal]</AttributeName>
+              <AttributeName Language="F#">[&lt;System.WidgetSeal&gt;]</AttributeName>
+            </Attribute>
+          </Attributes>
+          <Members>
+            <Member MemberName="Apply">
+              <MemberSignature Language="C#" Value="public void Apply(System.WidgetTrait trait);" />
+              <Parameters><Parameter Name="trait" Type="System.WidgetTrait" /></Parameters>
+            </Member>
+          </Members>
+        </Type>
+        """;
+
+    /// <summary>
     /// A type one namespace below <c>System</c>, so a pattern naming <c>System</c> has both a
     /// direct member and a descendant to tell apart. Its name shares no substring with the types
     /// in <c>System</c>, and <c>System.Widgets</c> is a whole segment that <c>Widget</c> must not
@@ -169,6 +228,28 @@ internal static class ApiDocsFixture
                 ("xml/System/WidgetKit.xml", WidgetKitXml),
                 ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
                 ("xml/System.Widgets/Gadget.xml", GadgetXml),
+            ]);
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(catalogPath, repository, pin);
+        return await CreateServiceAsync(root, catalogPath, ["dotnet-api-docs"]);
+    }
+
+    /// <summary>
+    /// A source holding both an attribute type whose C# short form names nothing else and one whose
+    /// short form is also a class, which are the two readings an application has to be resolved
+    /// against. Kept apart from <see cref="CreateWidgetServiceAsync"/> so the name-search fixtures
+    /// stay what they are.
+    /// </summary>
+    public static async Task<ApiDocsQueryService> CreateAttributeSiblingServiceAsync(string root)
+    {
+        var repository = Path.Combine(root, "origin");
+        var pin = await CreateRepositoryAsync(
+            repository,
+            [
+                ("xml/System/WidgetTrait.xml", WidgetTraitXml),
+                ("xml/System/WidgetTraitAttribute.xml", WidgetTraitAttributeXml),
+                ("xml/System/WidgetSealAttribute.xml", WidgetSealAttributeXml),
+                ("xml/System/TraitedWidget.xml", TraitedWidgetXml),
             ]);
         var catalogPath = Path.Combine(root, "sources.json");
         await WriteCatalogAsync(catalogPath, repository, pin);

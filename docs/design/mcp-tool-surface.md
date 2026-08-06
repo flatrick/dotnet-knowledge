@@ -94,9 +94,15 @@ find_api_references(symbol, kind?, exact?, source?, limit?, cursor?)
       compound expressions: string[], out string, IEnumerable<string>
     → hits: owning symbol, kind, parameterName, the type expression as
       declared, isExact, and the C# signature
-    → an "attribute" hit's typeExpression is the whole application text;
-      a "constraint" hit's parameterName is the constrained type
-      parameter
+    → an "attribute" hit's typeExpression is the whole application text
+      and attributeType the CLR name it resolves to; a "constraint"
+      hit's parameterName is the constrained type parameter
+    → symbol takes an attribute's CLR name: the suffix is resolved
+      inside the application, so System.ObsoleteAttribute is what finds
+      [System.Obsolete("…")]
+    → note, when the namespace also holds the de-suffixed type: the
+      siblingType whose applications were excluded, how many, and the
+      call that reaches them
     → totals: per-kind counts over the WHOLE result set, not the page
     → limit: 1-100, default 20
 
@@ -275,6 +281,32 @@ ECMA XML records an application in its C# short form — `[System.Obsolete("…"
 and `isExact` is decided against the attribute being applied. That separates "decorated with this
 attribute" from "this type named inside its arguments", which is the common case for a
 `typeof(…)` argument.
+
+**The elided suffix is resolved inside an application, and only there.** `symbol` takes the CLR
+name, because that is the name an agent holds: it wrote `[Obsolete]` in source and looks up
+`ObsoleteAttribute`. Left unresolved the question has no good answer in either direction —
+`System.ObsoleteAttribute` returned nothing against 1,349 applications, a plausible absence, while
+`System.Text.Json.Serialization.JsonConverter` returned the nine applications of
+`JsonConverterAttribute`, a wrong answer about an unrelated abstract class. `attributeType` carries
+the resolved identity beside the spelling, so a caller never has to know which of the two it is
+holding.
+
+A name in an application can only be an attribute type, which is what makes the reading decidable
+there; the same name in a parameter, a return, a base list, or a constraint means the class it
+spells, so the rule stops at the application's boundary. Existence decides it, exactly as C# does
+and exactly as every other symbol in this service resolves — a `<Namespace>/<Type>Attribute.xml`
+beside the document asked about. The file prefilter has to accept the short form too, or a document
+that applies the attribute is never opened and the resolution is never reached.
+
+**A colliding pair is excluded and named, never silently merged.** 617 `*Attribute.xml` documents
+sit in the pinned corpus and 78 of them have a de-suffixed namesake, so this is not a corner case.
+A query for `Foo` returns references to `Foo`; applications of `FooAttribute` belong to a different
+type, and counting them would give a wrong `attribute` total to any caller filtering on `kind`
+alone. Excluding them without a word would rebuild the plausible absence, so the response carries
+`note` — the sibling's name, how many applications it holds, and the call that reaches them.
+`lookup_api`'s `member_not_found` envelope is the precedent: name the next call rather than guess
+which reading was meant. For the 539 attribute types with no namesake there is no ambiguity and the
+caller simply gets the hits.
 
 **Matching is on type-name boundaries, not equality and not substring.** A parameter is far more
 often `System.String[]`, `System.String&`, or `IEnumerable<System.String>` than a bare
