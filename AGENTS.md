@@ -144,7 +144,14 @@ call; semantic and attribute-driven ones did not, so `/langversion:6` on a curre
 the C# 6 compiler. Two C# rows are known to compile far below their own version —
 `GeneralizedAsyncReturnTypes` (C# 7.0) and `Variance` (C# 2.0) — and VB's post-14 rows are ungated
 far more often than they are gated, because VB's later releases add recognition rather than syntax.
-`MANIFEST.md`'s **Measured floor** column records what each VB row actually needs.
+
+**`MANIFEST.md`'s two version columns are two different quantities and must never be merged.** VB's
+**Measured floor** is placement-derived: the lowest pin whose project compiles the row, derivable
+there because every VB row is placed at every pin that compiles it. C#'s **Lowest accepted
+`/langversion`** is probe-derived: the lowest rung the installed compiler still accepts the row's
+source at, found by walking the ladder down. They answer different questions, and on the rows this
+script exists to find they disagree — `GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling
+because a real C# 6 compiler rejects it, while today's compiler takes it down to `/langversion:5`.
 
 ```bash
 dotnet scripts/verify-feature-floors.cs                          # classify every group folder

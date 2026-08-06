@@ -185,6 +185,15 @@ net48 projects stay Windows-only regardless, because they need Visual Studio's `
   `sdk-pin`, `exempt`, `none` — because a floor settled by the installed SDK under `/langversion` is
   a fact about today's toolchain and drifts, while one settled at a native ceiling does not, and a
   row no compiler version could ever speak to is a third thing again.
+- **The C# half measures a second, separate quantity, and `MANIFEST.md`'s two version columns must
+  never be merged.** After classifying a row the probe walks the ladder *down* until a rung rejects
+  it, and reports the lowest rung the installed compiler still accepts — `MANIFEST.md`'s C#
+  **Lowest accepted `/langversion`** column, `LowestAcceptedLangVersion` in `--json`. VB's
+  **Measured floor** is placement-derived (the lowest pin whose project compiles the row) and VB does
+  not descend at all. The two disagree on exactly the rows the probe exists to find:
+  `GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling, so a real C# 6 compiler rejects it,
+  while today's compiler accepts it at `/langversion:5`. The descent is `sdk-pin` evidence and can be
+  nothing else — a period compiler has one fixed ceiling and cannot be walked down a ladder.
 - **`UNDER-PLACED` is the converse of `MISPLACED`.** A project holds *every* row that compiles at
   its pin, so a row it could build and does not claim is as much a defect as one it claims and
   cannot build. The check compiles each unclaimed `src/` row at the pin; VB only, because C#

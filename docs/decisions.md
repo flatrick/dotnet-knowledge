@@ -24,6 +24,18 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · C# gets a probe-derived column, not a per-pin restructure
+
+A sweep of the whole C# ladder (90 distinct rows, 1,022 compiles) found 7 rows compiling below the
+pin that houses them, and the placement and probe readings disagreeing on exactly one —
+`EmbeddedInteropTypes`, over a `ProjectReference` rather than a language rule.
+Rejected: restructuring the C# tree into per-pin placement, which relocates those 7 rows, two of them
+into positions a period compiler actively contradicts (`CS0410` for `Variance`, `CS1983` for
+`GeneralizedAsyncReturnTypes`), to obtain numbers one extra descent in `verify-feature-floors.cs`
+already produces.
+The column is named **Lowest accepted `/langversion`** and never "floor", because VB's is
+placement-derived and a shared name would make one column false for both.
+
 ### 2026-08-06 · A query for `Foo` excludes `FooAttribute`'s applications and names the sibling
 
 ECMA XML spells an attribute application in C# short form, so 78 of 617 attribute types collide with

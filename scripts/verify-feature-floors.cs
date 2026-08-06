@@ -106,12 +106,25 @@
 // Exit code is 1 when any group is MISPLACED, UNDER-PLACED or NOT-VERSION-SPECIFIC -- the three
 // outcomes that mean the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the
 // toolchain's reach, not corpus defects, and do not fail the run.
+//
+// The C# half also measures a second, separate quantity: the lowest /langversion the installed
+// compiler still accepts a row at, found by walking the ladder down one spellable rung at a time
+// until a rung rejects the row or the ladder bottoms out. It is not the outcome restated and must
+// never be read as one. The outcome answers "does anything in here require the version this row is
+// filed under", and a period compiler can settle it. This answers "how far can a /langversion pin be
+// lowered before today's compiler complains", which is an sdk-pin fact by construction: a period
+// compiler has one fixed ceiling and cannot be walked down a ladder, so none is consulted. The two
+// disagree on exactly the rows the script exists to find -- GeneralizedAsyncReturnTypes is UNGATED
+// at a native ceiling, meaning a real C# 6 compiler rejects it, while today's compiler accepts it
+// as low as /langversion:5. MANIFEST.md carries it as "Lowest accepted /langversion", never as a
+// floor, so it cannot be merged with VB's placement-derived "Measured floor" column.
 
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -187,7 +200,10 @@ var csharpProfile = new LanguageProfile(
     LegacyLangVersionArg: LegacyLangVersionArg,
     CeilingVersion: CSharpCeilingVersion,
     IsEnvironmentError: IsEnvironmentError,
-    ControlSource: "internal class ReferenceSetControl { }\n");
+    ControlSource: "internal class ReferenceSetControl { }\n",
+    // MANIFEST.md's C# tables carry the result; see the descent's own comment for why it is a
+    // separate quantity from the outcome.
+    DescendToLowestAcceptedLangVersion: true);
 
 var vbProfile = new LanguageProfile(
     Name: "VB",
@@ -208,7 +224,12 @@ var vbProfile = new LanguageProfile(
     LegacyLangVersionArg: _ => null,
     CeilingVersion: VbCeilingVersion,
     IsEnvironmentError: IsVbEnvironmentError,
-    ControlSource: "Friend Class ReferenceSetControl\nEnd Class\n");
+    ControlSource: "Friend Class ReferenceSetControl\nEnd Class\n",
+    // VB does not descend. MANIFEST.md's VB tables already carry a Measured floor column, and that
+    // column is placement-derived -- the lowest pin whose project compiles the row. A probe-derived
+    // number printed beside it would be a second, differently-defined floor with nothing consuming
+    // it, and the two would be merged by the first reader who assumed one column had been duplicated.
+    DescendToLowestAcceptedLangVersion: false);
 
 var profile = language == "vb" ? vbProfile : csharpProfile;
 
@@ -414,7 +435,8 @@ foreach (var project in discovery.Projects)
             // at-the-pin compile such a row may have just received speaks to its placement, which
             // the detail already records, not to its floor.
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.Exempt));
+                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.Exempt,
+                null, ExemptLangVersionEvidence(profile)));
             continue;
         }
 
@@ -439,7 +461,8 @@ foreach (var project in discovery.Projects)
 
         results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
             verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote),
-            WithAbovePinEvidence(verdict.Evidence, abovePinNote)));
+            WithAbovePinEvidence(verdict.Evidence, abovePinNote),
+            verdict.LowestAcceptedLangVersion, verdict.LowestAcceptedLangVersionEvidence));
     }
 
     // Second pass, and it has to be one: the loop above only ever visits rows the project claims,
@@ -495,6 +518,57 @@ static string WithAbovePinNote(string detail, string? abovePinNote) =>
 static string WithAbovePinEvidence(string evidence, string? abovePinNote) =>
     abovePinNote is not null && evidence == Evidence.None ? Evidence.SdkPin : evidence;
 
+// The lowest /langversion the installed compiler still accepts this row at. Walk the ladder down one
+// spellable rung at a time from `next`, carrying `accepted` as the lowest rung known good so far,
+// and stop at the first rejection or at the bottom of the ladder. Callers seed both from compiles
+// ProbeFloor has already paid for, so a row the pin one rung down already rejected costs nothing
+// here and only a row that goes lower pays for the descent.
+//
+// The result is sdk-pin evidence and can be nothing else. A period compiler has one fixed ceiling,
+// so it cannot be walked down a ladder at all; the tier exists on this quantity to say out loud that
+// the number drifts with the SDK, not to leave room for a stronger one. The row's own Evidence field
+// is the separate, sometimes stronger claim, and it is about the row's own version rather than about
+// this rung.
+//
+// Monotone acceptance is assumed -- a rejection ends the walk rather than being stepped over. That
+// holds for every row in this corpus, and stepping over a rejection would report a rung the row does
+// not actually compile at everything above.
+static (string? Version, string? Evidence) Descend(
+    LanguageProfile profile,
+    string? accepted,
+    string? next,
+    string[] files,
+    ProjectInputs inputs,
+    string workRoot,
+    ProbeCompiler modernCompiler)
+{
+    if (!profile.DescendToLowestAcceptedLangVersion)
+    {
+        return (null, null);
+    }
+
+    while (next is not null)
+    {
+        // Below only ever returns a rung that has a /langversion spelling, so this cannot be null.
+        var arg = profile.LangVersionArg(next)!;
+        if (!Compile(profile, modernCompiler, arg, files, inputs, workRoot).Succeeded)
+        {
+            break;
+        }
+
+        accepted = next;
+        next = Below(next, profile);
+    }
+
+    return accepted is null ? (null, null) : (accepted, Evidence.SdkPin);
+}
+
+// An exempt row has no measured rung, and that is a different statement from having measured
+// nothing: the probe cannot see the feature, so no descent was attempted rather than attempted and
+// inconclusive. A language that does not descend says nothing at all.
+static string? ExemptLangVersionEvidence(LanguageProfile profile) =>
+    profile.DescendToLowestAcceptedLangVersion ? Evidence.Exempt : null;
+
 // Step 1 on its own, for buckets whose exemption is about the ladder rather than about the sources.
 // The row still has to compile at the version it claims; what it cannot be asked is what happens
 // one rung down, because the bucket spans many rungs.
@@ -516,7 +590,8 @@ static Verdict ProbeOwnVersion(
 
     var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
     return own.Succeeded
-        ? new Verdict("EXEMPT", exemption, Evidence.None)
+        ? new Verdict("EXEMPT", exemption, Evidence.None,
+            null, ExemptLangVersionEvidence(profile))
         : new Verdict("INCONCLUSIVE",
             $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None);
 }
@@ -535,8 +610,13 @@ static Verdict ProbeFloor(
     var ownArg = profile.LangVersionArg(featureVersion);
     if (ownArg is null)
     {
+        // Nothing can be compiled at the row's own version, so the outcome is unprovable -- but the
+        // ladder below it is still walkable, and an acceptance down there bounds the row from below
+        // just as well. C# 1.2 is the only rung in either ladder this reaches.
+        var (unspellable, unspellableEvidence) = Descend(profile, accepted: null,
+            next: Below(featureVersion, profile), files, inputs, workRoot, modernCompiler);
         return new Verdict("UNPROVEN", $"{profile.Name} {featureVersion} has no /langversion spelling",
-            Evidence.None);
+            Evidence.None, unspellable, unspellableEvidence);
     }
 
     var own = Compile(profile, modernCompiler, ownArg, files, inputs, workRoot);
@@ -546,27 +626,40 @@ static Verdict ProbeFloor(
             $"does not compile standalone at /langversion:{ownArg} ({own.FirstError})", Evidence.None);
     }
 
+    // From here on the row is known to compile at its own version, so that rung is the highest the
+    // descent could ever report and the seed every path below starts from.
+    var ownAccepted = profile.DescendToLowestAcceptedLangVersion ? featureVersion : null;
+    var ownEvidence = ownAccepted is null ? null : Evidence.SdkPin;
+
     var floor = Below(featureVersion, profile);
     if (floor is null)
     {
         return new Verdict("BASELINE",
             $"{profile.Name} {featureVersion} is the oldest rung; there is no lower version to test against",
-            Evidence.None);
+            Evidence.None, ownAccepted, ownEvidence);
     }
 
     var floorArg = profile.LangVersionArg(floor);
     if (floorArg is null)
     {
-        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling", Evidence.None);
+        return new Verdict("UNPROVEN", $"{profile.Name} {floor} has no /langversion spelling",
+            Evidence.None, ownAccepted, ownEvidence);
     }
 
     // Step 2 -- the modern compiler, held down to the rung below.
     var gated = Compile(profile, modernCompiler, floorArg, files, inputs, workRoot);
     if (!gated.Succeeded)
     {
+        // The descent ends here too, and at no extra cost: this rejection is the one that bounds it.
         return new Verdict("GATED", $"rejected at /langversion:{floorArg} ({gated.FirstError})",
-            Evidence.SdkPin);
+            Evidence.SdkPin, ownAccepted, ownEvidence);
     }
+
+    // The rung below was accepted, so the descent has somewhere to go. Walk it once here and let
+    // every escalation outcome below report the same number: how low a /langversion pin goes is a
+    // fact about this compiler, and none of steps 3 and 4 changes it.
+    var (lowest, lowestEvidence) = Descend(profile, accepted: floor, next: Below(floor, profile),
+        files, inputs, workRoot, modernCompiler);
 
     // Step 3 -- a compiler whose native ceiling is the rung below. Only this tier can settle the
     // question in both directions: a compiler that predates the feature and still accepts the code
@@ -581,7 +674,7 @@ static Verdict ProbeFloor(
         {
             return new Verdict("INCONCLUSIVE",
                 $"the {profile.Name} {floor} compiler cannot read this project's reference set ({control.FirstError})",
-                Evidence.None);
+                Evidence.None, lowest, lowestEvidence);
         }
 
         var period = Compile(profile, periodCsc, langVersion: null, files, inputs, workRoot);
@@ -589,16 +682,16 @@ static Verdict ProbeFloor(
         {
             return new Verdict("NOT-VERSION-SPECIFIC",
                 $"the {profile.Name} {floor} compiler accepts it, so nothing here requires {profile.Name} {featureVersion}",
-                Evidence.NativeCeiling);
+                Evidence.NativeCeiling, lowest, lowestEvidence);
         }
 
         return profile.IsEnvironmentError(period.FirstError)
             ? new Verdict("INCONCLUSIVE",
                 $"the {profile.Name} {floor} compiler could not process the group for a non-language reason ({period.FirstError})",
-                Evidence.None)
+                Evidence.None, lowest, lowestEvidence)
             : new Verdict("UNGATED",
                 $"accepted at /langversion:{floorArg} but rejected by the {profile.Name} {floor} compiler ({period.FirstError})",
-                Evidence.NativeCeiling);
+                Evidence.NativeCeiling, lowest, lowestEvidence);
     }
 
     // Step 4 -- no compiler tops out at this rung, so fall back to the nearest higher-ceiling
@@ -626,7 +719,7 @@ static Verdict ProbeFloor(
         {
             return new Verdict("INCONCLUSIVE",
                 $"the {profile.Name} {gate.Ceiling} compiler cannot process the group even at its own ceiling ({control.FirstError})",
-                Evidence.None);
+                Evidence.None, lowest, lowestEvidence);
         }
 
         var legacy = Compile(profile, gate.Compiler, legacyArg, files, inputs, workRoot);
@@ -634,17 +727,17 @@ static Verdict ProbeFloor(
         {
             return new Verdict("UNGATED",
                 $"accepted at /langversion:{floorArg} by the modern compiler but rejected by the {profile.Name} {gate.Ceiling} compiler held to the same setting ({legacy.FirstError})",
-                Evidence.LegacyPin);
+                Evidence.LegacyPin, lowest, lowestEvidence);
         }
 
         return new Verdict("UNPROVEN",
             $"accepted at {profile.Name} {floor} by the modern compiler and by the {profile.Name} {gate.Ceiling} compiler held there, and no compiler topping out at {profile.Name} {floor} exists to settle it",
-            Evidence.LegacyPin);
+            Evidence.LegacyPin, lowest, lowestEvidence);
     }
 
     return new Verdict("UNPROVEN",
         $"accepted at /langversion:{floorArg}, and no compiler for {profile.Name} {floor} is available",
-        Evidence.SdkPin);
+        Evidence.SdkPin, lowest, lowestEvidence);
 }
 
 // A compile that exercises only the reference set, used to tell a metadata problem apart from a
@@ -1378,6 +1471,11 @@ static void Report(
         }
     }
 
+    if (profile.DescendToLowestAcceptedLangVersion)
+    {
+        ReportLowestAcceptedLangVersion(profile, results);
+    }
+
     if (skippedProjects.Count > 0)
     {
         Console.WriteLine();
@@ -1400,6 +1498,58 @@ static void Report(
             .Select(o => (Outcome: o, Count: results.Count(r => r.Outcome == o)))
             .Where(x => x.Count > 0)
             .Select(x => $"{x.Count} {x.Outcome}")));
+}
+
+// The descent's findings, reported in a section of their own so the number cannot be read as one of
+// the outcomes above. Only rows that go below their own version are listed: every other row's number
+// is its own version, which the outcome sections already say. A row appears once per distinct rung,
+// because two projects resolve different reference sets and are not obliged to agree.
+static void ReportLowestAcceptedLangVersion(LanguageProfile profile, List<Result> results)
+{
+    var measured = results.Where(r => r.LowestAcceptedLangVersion is not null).ToArray();
+
+    var below = measured
+        .Select(r => (
+            r.FeatureVersion,
+            r.Group,
+            Rung: r.LowestAcceptedLangVersion!,
+            Evidence: r.LowestAcceptedLangVersionEvidence!))
+        .Distinct()
+        .Where(x => LadderIndex(profile.Ladder, x.Rung) < LadderIndex(profile.Ladder, x.FeatureVersion))
+        .OrderBy(x => x.Group, StringComparer.Ordinal)
+        .ThenBy(x => LadderIndex(profile.Ladder, x.Rung))
+        .ToArray();
+
+    var distinctRows = results.Select(r => (r.FeatureVersion, r.Group)).Distinct().Count();
+    var distinctMeasured = measured.Select(r => (r.FeatureVersion, r.Group)).Distinct().Count();
+    var distinctExempt = results
+        .Where(r => r.LowestAcceptedLangVersionEvidence == Evidence.Exempt)
+        .Select(r => (r.FeatureVersion, r.Group))
+        .Distinct()
+        .Count();
+
+    Console.WriteLine();
+    Console.WriteLine($"LOWEST ACCEPTED /langversion ({below.Length} distinct rows below their own version)");
+
+    foreach (var row in below)
+    {
+        var copies = measured.Count(r =>
+            r.Group == row.Group
+            && r.FeatureVersion == row.FeatureVersion
+            && r.LowestAcceptedLangVersion == row.Rung);
+        Console.WriteLine(
+            $"  {profile.Name} {row.FeatureVersion}/{row.Group} -> {row.Rung} ({row.Evidence}), "
+            + $"{copies} project copies");
+    }
+
+    Console.WriteLine(
+        $"  {distinctMeasured} of {distinctRows} distinct rows measured; {distinctRows - distinctMeasured} "
+        + $"have no rung at all ({distinctExempt} exempt from the probe, the rest listed under "
+        + "INCONCLUSIVE above).");
+    Console.WriteLine(
+        "  This is how far a /langversion pin can be lowered on the installed compiler, not the "
+        + "version the row requires. The Evidence field on each outcome above is the separate, "
+        + "sometimes stronger claim.");
 }
 
 // Walk down to the nearest rung the compiler can actually be held to. C# 1.2 is a corpus row
@@ -1760,7 +1910,8 @@ record LanguageProfile(
     Func<string, string?> LegacyLangVersionArg,
     Func<string, string?> CeilingVersion,
     Func<string, bool> IsEnvironmentError,
-    string ControlSource);
+    string ControlSource,
+    bool DescendToLowestAcceptedLangVersion);
 
 // One feature group folder as a project compiles it. VersionFolder is kept alongside the version it
 // resolves to because a bucket exemption is keyed on the folder name, not on the group.
@@ -1794,6 +1945,10 @@ record ProjectInputs(
     string? RootNamespace,
     IReadOnlyList<string> Options);
 
+// LowestAcceptedLangVersion is the C#-only second quantity, omitted from --json when absent so that
+// a language which does not descend, or a row no descent could measure, says nothing rather than
+// saying null. Its name deliberately avoids the word "floor": MANIFEST.md's VB Measured floor column
+// is a placement-derived number and merging the two would produce one column that is false for both.
 record Result(
     string Project,
     string Ceiling,
@@ -1801,8 +1956,17 @@ record Result(
     string Group,
     string Outcome,
     string Detail,
-    string Evidence);
+    string Evidence,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? LowestAcceptedLangVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? LowestAcceptedLangVersionEvidence = null);
 
-record Verdict(string Outcome, string Detail, string Evidence);
+record Verdict(
+    string Outcome,
+    string Detail,
+    string Evidence,
+    string? LowestAcceptedLangVersion = null,
+    string? LowestAcceptedLangVersionEvidence = null);
 
 record CompileResult(bool Succeeded, string FirstError);

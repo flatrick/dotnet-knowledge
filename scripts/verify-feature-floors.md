@@ -190,6 +190,41 @@ claim, and reporting a floor without saying which produced it overstates the wea
 `MANIFEST.md`'s VB **Measured floor (evidence)** column is derived from this field, so a reader is
 never left to assume the stronger claim.
 
+## Lowest accepted `/langversion` — C# only
+
+A second quantity, measured alongside the outcome and reported apart from it. After the probe above
+has run, the ladder is walked **down** one spellable rung at a time until a rung rejects the row or
+the ladder bottoms out, and the lowest rung still accepted is reported. `--json` carries it as
+`LowestAcceptedLangVersion` and `LowestAcceptedLangVersionEvidence`; the console report lists the
+rows that go below their own version in a section of the same name.
+
+**It is not the outcome restated, and the two answer different questions.** The outcome asks whether
+anything in the row requires the version it is filed under, and a period compiler can settle that.
+This asks how far a `/langversion` pin can be lowered before *the installed compiler* complains —
+`sdk-pin` evidence by construction, because a period compiler has one fixed ceiling and cannot be
+walked down a ladder at all. The tier is carried anyway, to say out loud that the number drifts as
+SDKs ship. The two disagree on exactly the rows this script exists to find:
+`GeneralizedAsyncReturnTypes` is `UNGATED` at a native ceiling — a real C# 6 compiler rejects it —
+while today's compiler accepts it as low as `/langversion:5`.
+
+| Reported | Meaning |
+|---|---|
+| a rung, `sdk-pin` | The installed compiler accepts the row there and rejects it one rung lower, or the ladder ran out. |
+| nothing, `exempt` | The row is exempt from the floor probe, so no descent was attempted. |
+| nothing at all | No rung could be measured: the row does not compile standalone, or it is a row above its project's pin that never reached the probe. |
+
+Cost is one compile per rung below the first, and only rows that *have* a rung below the first pay
+it — a row `GATED` one rung down ends the descent on the compile the probe already made. A row whose
+own version has no `/langversion` spelling still gets a descent from the rung below, which is what
+gives C# 1.2's `ForeachEnhancements` a rung despite its `UNPROVEN` outcome.
+
+**VB does not descend.** `MANIFEST.md`'s VB tables already carry a **Measured floor** column, and
+that column is *placement-derived* — the lowest pin whose project compiles the row. A second,
+differently-defined number printed beside it would be merged by the first reader who assumed one
+column had been duplicated, and there is nothing in the VB corpus consuming it. `--json` omits both
+fields entirely for VB rather than emitting nulls, so a VB run is byte-identical to one from before
+this measurement existed.
+
 ## Compilers
 
 All period compilers are used at their **native ceiling**, never behind a `/langversion` flag. Both
@@ -230,9 +265,17 @@ same reason as C# 4. Above 14 there is no native VB ceiling at all, because 14 i
 that ever shipped as a standalone binary. Floors at any of those rungs report `UNPROVEN`.
 
 **Features that live outside the source are invisible.** The probe compiles source files with
-`/reference:`. Anything expressed in the *build* rather than in the code cannot be seen: NoPIA
-embedding (`/link` with `EmbedInteropTypes`), `AllowUnsafeBlocks`, `OutputType` for top-level
-statements. `EmbeddedInteropTypes` is exempted for this reason.
+`/reference:`, always `/target:library` and never `/unsafe`. Anything expressed in the *build* rather
+than in the code cannot be seen: NoPIA embedding (`/link` with `EmbedInteropTypes`),
+`AllowUnsafeBlocks`, `OutputType` for top-level statements. `EmbeddedInteropTypes` is exempted for
+this reason; the unsafe rows report `INCONCLUSIVE` with `CS0227` and get no rung.
+
+The descent inherits that limit, and one of its numbers is a harness artifact because of it.
+`AsyncMain` reports a lowest accepted `/langversion` of 5.0: the C# 7.1 feature is an *entry point*
+signature, so under `/target:library` the gate never fires and what the descent actually measures is
+the async method body. The number is real about the compilation performed and says nothing about the
+row's feature — which is exactly why it is reported as a rung the compiler accepted rather than as a
+floor the row requires.
 
 **Compilation is not execution.** A row can compile identically on two compilers and still behave
 differently at runtime. This tool says nothing about behavior, and does not replace verifying by
@@ -246,8 +289,9 @@ verdict is "something in here requires version N", not "everything in here does"
 group, or on a compilation-wide switch, will not compile alone and lands in `INCONCLUSIVE` rather
 than being silently skipped.
 
-**Verdicts are cached by content.** The same row is held by several projects, and its floor is a
-property of the files rather than of the project holding them. Each distinct
+**Verdicts are cached by content**, and the lowest accepted `/langversion` is cached with them. The
+same row is held by several projects, and its floor is a property of the files rather than of the
+project holding them. Each distinct
 `(scope, version, file content)` triple is probed once and the verdict reused, so per-project rows in
 the report can be identical by construction. `scope` keeps rows that share a reference set together,
 because a net10 reference set and a net48 one can disagree about whether a row compiles at all, and

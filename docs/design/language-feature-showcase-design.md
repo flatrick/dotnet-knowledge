@@ -316,7 +316,7 @@ That sketch is the minimum. The three tables as authored extend it differently:
 
 | Table | Columns beyond the sketch |
 |---|---|
-| C# | `Note` |
+| C# | `Lowest accepted /langversion (evidence)`, `Note` |
 | VB baseline bucket | `Measured floor (evidence)` |
 | VB itemized per-version | `Measured floor (evidence)`, `Note` |
 
@@ -324,9 +324,22 @@ That sketch is the minimum. The three tables as authored extend it differently:
 is the lowest pin at which the row compiles, together with the `verify-feature-floors.cs` evidence
 tier that floor rests on (`native-ceiling`, `sdk-pin`, `none`). Keeping the two strengths of evidence
 distinguishable is that column's point — collapsing them into a bare number would present a fact
-about the installed SDK as a fact about the language. The C# table has no floor column: its
-`Target project(s)` column names ceiling projects and has not been extended to the
-per-`<LangVersion>` probe projects.
+about the installed SDK as a fact about the language.
+
+**The C# table's column is a different quantity and the two must never be merged.** VB's is
+placement-derived, which VB can state because every VB row is placed at every pin that compiles it;
+a C# project is a cumulative ceiling that places a row at and above its own version, so the same
+question answers "its own version" for nearly every row — the claim being checked rather than
+evidence for it. **Lowest accepted `/langversion` (evidence)** is probe-derived instead: the lowest
+rung at which the installed compiler still accepts the row's source, found by walking the ladder
+down, and always `sdk-pin` because a period compiler has one fixed ceiling and cannot be walked. It
+is populated only where the probe reaches — `CSharp/dotNetFramework/v4.8/CSharp_v*`, which tops out
+at C# 8.0.
+
+Restructuring the C# tree into per-pin placement to make a placement column derivable was considered
+and rejected. It would relocate 7 of 90 rows, two of them into positions a period compiler actively
+contradicts — a real C# 2.0 compiler rejects `Variance` with `CS0410`, a real C# 6.0 compiler rejects
+`GeneralizedAsyncReturnTypes` with `CS1983` — to obtain numbers the descent already produces.
 
 Every language-feature row is sourced from `Language-Version-History.md` (C#) or the Learn page +
 local spec (VB.NET). Every feature that ships must end up with a folder in at least one project, or
