@@ -24,6 +24,15 @@ needs more.
 
 ---
 
+### 2026-08-06 · `dotnet test` sets `DOTNET_HOST_PATH` itself · environment
+
+The variable cannot be used to detect that a caller chose the repository-private host: `dotnet test`
+exports it pointing at whichever host it is already running under, so under the machine host it
+reads `C:\Program Files\dotnet\dotnet.exe` rather than being unset. A `RequiredToolchainsTests`
+message keyed on its presence therefore announced the machine host as "the repository-private host".
+Report the resolved path and let the reader recognize it; there is no reliable private/machine test,
+because `--install-dir` relocates the private root anyway.
+
 ### 2026-08-05 · `git status` headroom is a property of the host, not of the command · environment
 
 The same `git status --porcelain --untracked-files=all` over a synced `dotnet-api-docs` measured

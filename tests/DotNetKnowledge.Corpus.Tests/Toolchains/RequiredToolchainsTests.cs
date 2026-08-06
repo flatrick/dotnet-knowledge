@@ -29,9 +29,42 @@ public sealed class RequiredToolchainsTests
 
         if (missing.Count > 0)
         {
-            Assert.Fail($"Missing required toolchains:{Environment.NewLine}{string.Join(Environment.NewLine, missing.Select(toolchain => $"- {toolchain}"))}");
+            Assert.Fail(
+                $"Missing required toolchains:{Environment.NewLine}"
+                + string.Join(Environment.NewLine, missing.Select(toolchain => $"- {toolchain}"))
+                + Environment.NewLine + Environment.NewLine
+                + Remedy());
         }
     }
+
+    /// <summary>
+    /// Names the host that was inspected, then gives the remedy. Without the host path the failure
+    /// reads as "those SDKs are not installed on this machine", while the far likelier cause is
+    /// invoking the suite through the machine host, which never carries the older bands.
+    /// <para>
+    /// The message deliberately does not classify the host as private or machine-wide: there is no
+    /// reliable test for that. DOTNET_HOST_PATH is set by <c>dotnet test</c> itself, so its presence
+    /// says nothing, and the private root is relocatable via <c>--install-dir</c>. Reporting the
+    /// path and letting the reader recognize it is the honest version.
+    /// </para>
+    /// </summary>
+    private static string Remedy() =>
+        $"""
+         Inspected host: {ToolchainInventory.CurrentHostPath}
+
+         If that is the machine-wide installation, it is the whole problem: it does not carry the
+         older SDK bands this matrix compiles against, and it never will — that is why the corpus
+         suite runs through a repository-private host. Install it and re-run through it:
+
+             dotnet scripts/install-corpus-test-sdks.cs
+             $env:DOTNET_HOST_PATH = (Resolve-Path .artifacts\dotnet\dotnet.exe)
+             & $env:DOTNET_HOST_PATH test tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj
+
+         If it is already the private host, then these SDKs really are absent from it and the first
+         command above installs them.
+
+         `dotnet test Corpus.slnx` hits this too: a solution file does not select a host.
+         """;
 
     private static CorpusCase[] LoadCases()
     {

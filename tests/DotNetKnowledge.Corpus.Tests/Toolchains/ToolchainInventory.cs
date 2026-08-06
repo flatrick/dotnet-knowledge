@@ -33,11 +33,28 @@ internal sealed partial class ToolchainInventory
         return FromListings(sdkResult.StandardOutput, runtimeResult.StandardOutput);
     }
 
-    public static Task<ToolchainInventory> DiscoverCurrent(ProcessRunner runner)
+    public static Task<ToolchainInventory> DiscoverCurrent(ProcessRunner runner) =>
+        Discover(CurrentHostPath, runner);
+
+    /// <summary>
+    /// The host whose SDKs and runtimes <see cref="Current"/> reports. A test that fails on a
+    /// missing toolchain must name this: the machine host genuinely lacks the older bands, so
+    /// "not installed" is indistinguishable from "you ran this through the wrong host".
+    /// <para>
+    /// This says which host was inspected, never whether it is the repository-private one.
+    /// <c>dotnet test</c> sets DOTNET_HOST_PATH itself, to whichever host it is running under, so
+    /// the variable being present proves nothing about who set it.
+    /// </para>
+    /// </summary>
+    public static string CurrentHostPath
     {
-        var hostPath = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
-        return Discover(string.IsNullOrWhiteSpace(hostPath) ? "dotnet" : hostPath, runner);
+        get
+        {
+            var hostPath = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+            return string.IsNullOrWhiteSpace(hostPath) ? "dotnet" : hostPath;
+        }
     }
+
 
     public static Task<ToolchainInventory> Current => CurrentDiscovery.Value;
 
