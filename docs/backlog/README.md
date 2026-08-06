@@ -9,7 +9,6 @@ file when the item is resolved; `git log` is the record.
 | Item | Area | Why it is deferred |
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
-| [`find_api_references` omits generic constraints and attribute usages](find-api-references-omits-constraints-and-attributes.md) | server | Adding them wants new `kind` values, which is a payload decision |
 | [`search_api` cannot ask for one namespace without its descendants](search-api-has-no-exact-namespace-query.md) | server | The descendant reading is the right default and no answer is wrong today |
 | [`sync_source`'s progress notifications have never been observed](sync-source-progress-is-unverified.md) | server | The sync itself works; the notification is advisory |
 | [Under-placement is unguarded](under-placement-is-unguarded.md) | corpus, tooling | Needs a new probe outcome; the tree is correct today |

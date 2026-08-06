@@ -400,7 +400,7 @@ public sealed class ApiDocsQueryService
 
     /// <summary>
     /// Finds declarations that use a type structurally — as a parameter, as a return type, as a
-    /// base class, or in an interface list.
+    /// base class, in an interface list, as a generic constraint, or in an attribute application.
     /// </summary>
     /// <remarks>
     /// The inverse of <see cref="LookupAsync"/>: not "what does this type offer" but "what uses it".
@@ -456,7 +456,9 @@ public sealed class ApiDocsQueryService
             Parameter: hits.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
             Return: hits.Count(hit => hit.Kind == ApiReferenceKind.Return),
             Base: hits.Count(hit => hit.Kind == ApiReferenceKind.Base),
-            Interface: hits.Count(hit => hit.Kind == ApiReferenceKind.Interface));
+            Interface: hits.Count(hit => hit.Kind == ApiReferenceKind.Interface),
+            Constraint: hits.Count(hit => hit.Kind == ApiReferenceKind.Constraint),
+            Attribute: hits.Count(hit => hit.Kind == ApiReferenceKind.Attribute));
 
         var revisions = searchedSources
             .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
@@ -572,6 +574,12 @@ public sealed class ApiDocsQueryService
             }
         }
 
+        foreach (var hit in ReadConstraintHits(root, symbol, fullName, null, provenance))
+            yield return hit;
+
+        foreach (var hit in ReadAttributeHits(root, symbol, fullName, null, provenance))
+            yield return hit;
+
         foreach (var member in root.Descendants("Member"))
         {
             var memberName = member.Attribute("MemberName")?.Value;
@@ -579,6 +587,12 @@ public sealed class ApiDocsQueryService
             var signature = member.Elements("MemberSignature")
                 .LastOrDefault(element => string.Equals(element.Attribute("Language")?.Value, "C#", StringComparison.Ordinal))
                 ?.Attribute("Value")?.Value;
+
+            foreach (var hit in ReadConstraintHits(member, symbol, memberSymbol, signature, provenance))
+                yield return hit;
+
+            foreach (var hit in ReadAttributeHits(member, symbol, memberSymbol, signature, provenance))
+                yield return hit;
 
             var returnType = member.Element("ReturnValue")?.Element("ReturnType")?.Value;
             if (returnType is not null && ReferencesType(returnType, symbol, out var returnIsExact))
@@ -603,6 +617,114 @@ public sealed class ApiDocsQueryService
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Constraint references on one declaration's own type parameters — <c>where T : Stream</c> —
+    /// which live in a <c>TypeParameter</c> and never in <c>Base</c>.
+    /// </summary>
+    /// <remarks>
+    /// Interface constraints count alongside base-type ones: <c>where T : IDisposable</c> is the
+    /// same relationship, and the corpus carries four times as many of them, so reading only
+    /// <c>BaseTypeName</c> would report the plausible absence this tool exists to avoid. Members
+    /// carry type parameters too, so generic methods are read the same way generic types are.
+    /// </remarks>
+    private static IEnumerable<ApiReferenceHit> ReadConstraintHits(
+        XElement declaration,
+        string symbol,
+        string owningSymbol,
+        string? signature,
+        SourceProvenance provenance)
+    {
+        foreach (var typeParameter in declaration.Element("TypeParameters")?.Elements("TypeParameter") ?? [])
+        {
+            foreach (var constraint in typeParameter.Element("Constraints")?.Elements() ?? [])
+            {
+                if (constraint.Name.LocalName is not ("BaseTypeName" or "InterfaceName"))
+                    continue;
+
+                if (ReferencesType(constraint.Value, symbol, out var isExact))
+                {
+                    yield return new ApiReferenceHit(
+                        owningSymbol,
+                        ApiReferenceKind.Constraint,
+
+                        // The constrained type parameter, which is the only thing that says which
+                        // of a declaration's constraints this hit came from.
+                        typeParameter.Attribute("Name")?.Value,
+                        constraint.Value,
+                        isExact,
+                        signature,
+                        provenance);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attribute applications on one declaration — <c>[JsonConverter(typeof(SomeConverter))]</c>.
+    /// </summary>
+    /// <remarks>
+    /// The C# rendering is the one read, since the F# sibling spells the same application
+    /// differently and would double every hit. A repeated <c>FrameworkAlternate</c> variant that
+    /// renders to identical text is one application recorded twice, so it is reported once; text
+    /// that genuinely differs between variants survives.
+    /// </remarks>
+    private static IEnumerable<ApiReferenceHit> ReadAttributeHits(
+        XElement declaration,
+        string symbol,
+        string owningSymbol,
+        string? signature,
+        SourceProvenance provenance)
+    {
+        var applications = (declaration.Element("Attributes")?.Elements("Attribute") ?? [])
+            .Select(attribute => attribute.Elements("AttributeName")
+                .FirstOrDefault(name => name.Attribute("Language") is not { } language
+                    || string.Equals(language.Value, "C#", StringComparison.Ordinal))
+                ?.Value)
+            .Where(application => application is not null)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (var application in applications)
+        {
+            if (!ReferencesType(application!, symbol, out _))
+                continue;
+
+            // The application text carries the attribute's arguments, where a type is named as
+            // readily as in the attribute's own name — [JsonConverter(typeof(X))] names two. So
+            // exactness is decided against the attribute being applied, which is what separates
+            // "decorated with this attribute" from "named inside its arguments".
+            var isExact = ReferencesType(AttributeTypeName(application!), symbol, out var namesTheAttribute)
+                && namesTheAttribute;
+            yield return new ApiReferenceHit(
+                owningSymbol,
+                ApiReferenceKind.Attribute,
+                null,
+                application,
+                isExact,
+                signature,
+                provenance);
+        }
+    }
+
+    /// <summary>
+    /// The attribute type an application names, out of the text ECMA XML records for it:
+    /// <c>[get: System.Obsolete("…")]</c> names <c>System.Obsolete</c>.
+    /// </summary>
+    private static string AttributeTypeName(string application)
+    {
+        var text = application.AsSpan().Trim();
+        if (text is ['[', .., ']'])
+            text = text[1..^1];
+
+        // Before the argument list, because a string argument can hold anything — including the
+        // colon a target specifier is found by.
+        var arguments = text.IndexOf('(');
+        if (arguments >= 0)
+            text = text[..arguments];
+
+        var target = text.IndexOf(':');
+        return text[(target + 1)..].Trim().ToString();
     }
 
     /// <summary>

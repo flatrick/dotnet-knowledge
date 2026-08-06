@@ -81,6 +81,52 @@ internal static class ApiDocsFixture
         """;
 
     /// <summary>
+    /// A generic type carrying the two structural uses that live outside <c>Base</c>,
+    /// <c>Interfaces</c>, <c>Parameters</c> and <c>ReturnValue</c>: generic constraints and
+    /// attribute applications, each at both type and member level. The member's attribute names a
+    /// type in its arguments rather than as the attribute itself, which is the distinction
+    /// <c>isExact</c> reports for an attribute hit.
+    /// </summary>
+    public const string WidgetPolicyXml = """
+        <Type Name="WidgetPolicy&lt;TWidget&gt;" FullName="System.WidgetPolicy&lt;TWidget&gt;">
+          <TypeParameters>
+            <TypeParameter Name="TWidget">
+              <Constraints>
+                <ParameterAttribute>DefaultConstructorConstraint</ParameterAttribute>
+                <BaseTypeName>System.WidgetPolicyBase</BaseTypeName>
+                <InterfaceName>System.IWidgetPolicy</InterfaceName>
+              </Constraints>
+            </TypeParameter>
+          </TypeParameters>
+          <Attributes>
+            <Attribute>
+              <AttributeName Language="C#">[System.WidgetMarker]</AttributeName>
+              <AttributeName Language="F#">[&lt;System.WidgetMarker&gt;]</AttributeName>
+            </Attribute>
+          </Attributes>
+          <Members>
+            <Member MemberName="Adapt&lt;TState&gt;">
+              <MemberSignature Language="C#" Value="public static void Adapt&lt;TState&gt;(TState state);" />
+              <TypeParameters>
+                <TypeParameter Name="TState">
+                  <Constraints>
+                    <BaseTypeName>System.WidgetState</BaseTypeName>
+                  </Constraints>
+                </TypeParameter>
+              </TypeParameters>
+              <Attributes>
+                <Attribute>
+                  <AttributeName Language="C#">[System.WidgetMarker(typeof(System.String))]</AttributeName>
+                  <AttributeName Language="F#">[&lt;System.WidgetMarker(typeof(System.String))&gt;]</AttributeName>
+                </Attribute>
+              </Attributes>
+              <Parameters><Parameter Name="state" Type="TState" /></Parameters>
+            </Member>
+          </Members>
+        </Type>
+        """;
+
+    /// <summary>
     /// A type whose fully-qualified name is <c>System.Widget.Create</c>, so that one symbol string
     /// resolves as a type in the source holding this file and as <c>System.Widget</c>'s member
     /// <c>Create</c> in the source holding <see cref="WidgetXml"/>.
@@ -108,7 +154,11 @@ internal static class ApiDocsFixture
         // parameters whose types are compound rather than bare.
         var pin = await CreateRepositoryAsync(
             repository,
-            [("xml/System/Widget.xml", WidgetXml), ("xml/System/WidgetKit.xml", WidgetKitXml)]);
+            [
+                ("xml/System/Widget.xml", WidgetXml),
+                ("xml/System/WidgetKit.xml", WidgetKitXml),
+                ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
+            ]);
         var catalogPath = Path.Combine(root, "sources.json");
         await WriteCatalogAsync(catalogPath, repository, pin);
         return await CreateServiceAsync(root, catalogPath, ["dotnet-api-docs"]);
@@ -128,7 +178,11 @@ internal static class ApiDocsFixture
         var dotnetRepository = Path.Combine(root, "origin");
         var dotnetPin = await CreateRepositoryAsync(
             dotnetRepository,
-            [("xml/System/Widget.xml", WidgetXml), ("xml/System/WidgetKit.xml", WidgetKitXml)]);
+            [
+                ("xml/System/Widget.xml", WidgetXml),
+                ("xml/System/WidgetKit.xml", WidgetKitXml),
+                ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
+            ]);
         var roslynRepository = Path.Combine(root, "roslyn-origin");
         var roslynPin = await CreateRepositoryAsync(
             roslynRepository,

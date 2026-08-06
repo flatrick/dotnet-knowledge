@@ -103,8 +103,10 @@ public static class ApiReferenceKind
     public const string Return = "return";
     public const string Base = "base";
     public const string Interface = "interface";
+    public const string Constraint = "constraint";
+    public const string Attribute = "attribute";
 
-    public static readonly string[] All = [Parameter, Return, Base, Interface];
+    public static readonly string[] All = [Parameter, Return, Base, Interface, Constraint, Attribute];
 }
 
 /// <param name="IsExact">
@@ -126,7 +128,13 @@ public sealed record ApiReferenceHit(
 /// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
 /// of references, and paginating them twenty at a time is a way of not saying so.
 /// </summary>
-public sealed record ApiReferenceTotals(int Parameter, int Return, int Base, int Interface);
+public sealed record ApiReferenceTotals(
+    int Parameter,
+    int Return,
+    int Base,
+    int Interface,
+    int Constraint,
+    int Attribute);
 
 public sealed record ApiReferenceResult(
     IReadOnlyList<ApiReferenceHit> Hits,

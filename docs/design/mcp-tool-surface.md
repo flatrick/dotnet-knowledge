@@ -82,13 +82,17 @@ search_api_text(query, source?, limit?, cursor?)
 
 find_api_references(symbol, kind?, exact?, source?, limit?, cursor?)
     symbol: a fully-qualified TYPE name — the thing being used
-    kind: "parameter" | "return" | "base" | "interface"; omit for all
+    kind: "parameter" | "return" | "base" | "interface" | "constraint" |
+      "attribute"; omit for all
     exact: true for declarations naming the type itself, false for ones
       naming an expression parameterized by it; omit for both
     → declarations that use the type structurally, matched inside
       compound expressions: string[], out string, IEnumerable<string>
     → hits: owning symbol, kind, parameterName, the type expression as
       declared, isExact, and the C# signature
+    → an "attribute" hit's typeExpression is the whole application text;
+      a "constraint" hit's parameterName is the constrained type
+      parameter
     → totals: per-kind counts over the WHOLE result set, not the page
     → limit: 1-100, default 20
 
@@ -231,10 +235,32 @@ because the text is part of the key.
 ### Structural references are a different question from prose
 
 `search_api_text` answers "which docs mention this type". `find_api_references` answers "which
-declarations use it" — a parameter, a return, a base class, an interface list. Measured on the
-pinned corpus, the two differ by an order of magnitude for a popular type: `System.String` has
-roughly 2,000 prose references and over 18,000 structural ones. Merging them would produce a result
-serving neither question.
+declarations use it" — a parameter, a return, a base class, an interface list, a generic
+constraint, an attribute application. Measured on the pinned corpus, the two differ by an order of
+magnitude for a popular type: `System.String` has roughly 2,000 prose references and over 18,000
+structural ones. Merging them would produce a result serving neither question.
+
+**A constraint and an attribute are structural uses that live outside the signature.**
+`where TContext : JsonSerializerContext` says a type is a required capability, which is exactly the
+relationship someone asking "what uses this" wants, and it sits in a `TypeParameter` rather than in
+`Base`; members carry type parameters too, so generic methods are read the same way generic types
+are. Interface constraints count alongside base-type ones — `dotnet-api-docs` carries four times as
+many of them, and reading only `BaseTypeName` would report a plausible absence.
+
+Attributes are the one place where the volume is worth watching, and it lands where it should.
+Measured on the pinned `dotnet-api-docs`, `System.String` gains 11 attribute hits against 18,277
+structural ones, `System.Type` 1, and `System.IO.Stream` and `System.IDisposable` none; the large
+numbers belong to types that really are applied everywhere — 6,507 for
+`System.Runtime.CompilerServices.Nullable`, 1,349 for `System.Obsolete` — where totals and the
+cursor say so. Two things keep it there: only a declaration's own `<Attributes>` is read, never a
+parameter's, and a `FrameworkAlternate` variant rendering to identical text is one application
+recorded twice, so it is reported once.
+
+ECMA XML records an application in its C# short form — `[System.Obsolete("…")]`, not
+`ObsoleteAttribute` — so `typeExpression` carries the whole application text, arguments included,
+and `isExact` is decided against the attribute being applied. That separates "decorated with this
+attribute" from "this type named inside its arguments", which is the common case for a
+`typeof(…)` argument.
 
 **Matching is on type-name boundaries, not equality and not substring.** A parameter is far more
 often `System.String[]`, `System.String&`, or `IEnumerable<System.String>` than a bare

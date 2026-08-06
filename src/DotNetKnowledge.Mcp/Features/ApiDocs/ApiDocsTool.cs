@@ -272,17 +272,22 @@ public sealed class ApiDocsTool
     [McpServerTool(Name = "find_api_references", ReadOnly = true, Idempotent = true)]
     [Description(
         "Find declarations that USE a type: methods taking it as a parameter, methods returning it, " +
-        "types deriving from it, and types implementing it. The inverse of lookup_api, which says " +
+        "types deriving from it, types implementing it, type parameters constrained to it, and " +
+        "declarations decorated with it. The inverse of lookup_api, which says " +
         "what a type offers rather than what uses it. Pass a fully-qualified type name. " +
         "Matches the type inside a compound signature too, so System.String finds string[], " +
         "out string and IEnumerable<string>. Each hit reports kind - \"parameter\", \"return\", " +
-        "\"base\" or \"interface\" - plus the owning symbol, the type expression and the C# " +
+        "\"base\", \"interface\", \"constraint\" or \"attribute\" - plus the owning symbol, the " +
+        "type expression and the C# " +
         "signature; kind also filters. kind says WHERE the reference sits, not that the type is " +
         "itself the base or interface: a class implementing IComparer<string> is an \"interface\" " +
         "hit for System.String. isExact says which - true when the declaration names the type " +
         "itself, false when it names an expression parameterized by it - and exact filters on it, " +
         "so \"what derives from Stream\" and \"what has a base parameterized by Stream\" are " +
-        "separate queries. " +
+        "separate queries. For an \"attribute\" hit typeExpression is the whole application text " +
+        "and isExact separates \"decorated with this attribute\" from \"this type named inside " +
+        "its arguments\"; for a \"constraint\" hit parameterName is the constrained type " +
+        "parameter. " +
         "Every response carries per-kind totals for the WHOLE result set, so a widely-used type is " +
         "visibly widely used rather than silently paginated. " +
         "Prose mentions are search_api_text's job, not this tool's.")]

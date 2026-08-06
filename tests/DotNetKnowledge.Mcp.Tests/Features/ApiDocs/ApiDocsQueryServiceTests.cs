@@ -11,7 +11,8 @@ public sealed class ApiDocsQueryServiceTests
     private static readonly string[] ExpectedSecondPageNames = ["System.GammaWidget"];
     private static readonly string[] ExpectedResolvedTypeNames = ["System.Widget"];
     private static readonly string[] ExpectedHolderTypes = ["System.Holder", "System.Holder<T>"];
-    private static readonly string[] ExpectedWidgetTypes = ["System.Widget", "System.WidgetKit"];
+    private static readonly string[] ExpectedWidgetTypes =
+        ["System.Widget", "System.WidgetKit", "System.WidgetPolicy`1"];
     private static readonly string[] ExpectedStringParameterTypes =
     [
         "System.String",
@@ -353,6 +354,55 @@ public sealed class ApiDocsQueryServiceTests
             Assert.AreEqual(
                 all.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
                 filtered.Totals.Parameter);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FindReferencesAsyncReadsGenericConstraintsAndAttributeApplications()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            // A constraint is how an API says a type is a required capability, and it sits in a
+            // TypeParameter rather than in Base. Both the base-type and the interface form count.
+            var constrainingBase = await FindReferences(service, "System.WidgetPolicyBase", kind: null);
+            Assert.AreEqual(ApiReferenceKind.Constraint, constrainingBase.Single().Kind);
+            Assert.AreEqual("TWidget", constrainingBase.Single().ParameterName);
+
+            var constrainingInterface = await FindReferences(service, "System.IWidgetPolicy", kind: null);
+            Assert.AreEqual(ApiReferenceKind.Constraint, constrainingInterface.Single().Kind);
+
+            // Members carry their own type parameters, so a generic method is reached too.
+            var constrainingMember = await FindReferences(service, "System.WidgetState", kind: null);
+            Assert.AreEqual("System.WidgetPolicy<TWidget>.Adapt<TState>", constrainingMember.Single().Symbol);
+
+            // Both applications name the attribute itself, whether or not they carry arguments.
+            var decorating = await FindReferences(service, "System.WidgetMarker", kind: null);
+            Assert.HasCount(2, decorating);
+            Assert.IsTrue(decorating.All(hit => hit.Kind == ApiReferenceKind.Attribute && hit.IsExact));
+
+            // A type named inside an attribute's arguments is a reference, and is not the
+            // attribute the declaration is decorated with.
+            var inArguments = await FindReferences(service, "System.String", ApiReferenceKind.Attribute);
+            Assert.AreEqual(
+                "[System.WidgetMarker(typeof(System.String))]",
+                inArguments.Single().TypeExpression);
+            Assert.IsFalse(inArguments.Single().IsExact);
+
+            // Totals name every kind, so a caller filtering to one still sees the others exist.
+            var totals = (await service.FindReferencesAsync(
+                "System.WidgetMarker", null, null, "dotnet-api-docs", 100, null, CancellationToken.None))
+                .Totals;
+            Assert.AreEqual(2, totals.Attribute);
+            Assert.AreEqual(0, totals.Constraint);
         }
         finally
         {
