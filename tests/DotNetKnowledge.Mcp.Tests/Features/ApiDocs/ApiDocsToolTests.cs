@@ -101,6 +101,45 @@ public sealed class ApiDocsToolTests
     }
 
     [TestMethod]
+    public async Task LookupApiReturnsAnEmptyPageWhenACursorLandsExactlyAtTheEnd()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+            var whole = await service.LookupAsync(
+                "Widget", "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
+
+            // Paging runs over one flat member sequence, with a placeholder slot for a type
+            // carrying no members, so this is the offset one past the last page's last item.
+            var end = whole.Matches.Sum(match => Math.Max(1, match.Members.Count));
+            var pin = (await RunGitAsync(Path.Combine(root, "origin"), "rev-parse", "HEAD")).Trim();
+            var atTheEnd = ApiDocsQueryService.EncodeCursor(
+                "lookup", "Widget", end, [$"test/dotnet-api-docs@pinned@{pin}"]);
+
+            var json = await ApiDocsTool.LookupApi(
+                "Widget",
+                service,
+                CancellationToken.None,
+                "dotnet-api-docs",
+                cursor: atTheEnd);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.IsFalse(
+                document.RootElement.TryGetProperty("error", out var error),
+                $"a valid cursor at the end of the result set is an empty page, not {error}.");
+            Assert.IsEmpty(document.RootElement.GetProperty("matches").EnumerateArray().ToArray());
+            Assert.IsFalse(document.RootElement.GetProperty("isPartial").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupApiReturnsInvalidCursorForAMalformedCursor()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

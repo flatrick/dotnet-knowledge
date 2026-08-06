@@ -38,7 +38,10 @@ public sealed class ApiDocsTool
                 limit ?? 20,
                 cursor,
                 cancellationToken).ConfigureAwait(false);
-            if (result.Matches.Count == 0)
+            // Outcome, not the page. A cursor landing exactly at the end of the result set yields
+            // an empty page for a symbol that plainly exists, and reporting that as not_found sends
+            // the caller to search_api, which will confirm the type and contradict the error.
+            if (result.Outcome != ApiLookupOutcome.Found)
             {
                 // Directing a caller to search_api is right when the type was not found and wrong
                 // when the type resolved: search_api enumerates file names and never opens a

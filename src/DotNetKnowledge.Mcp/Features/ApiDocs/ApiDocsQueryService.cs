@@ -1048,7 +1048,7 @@ public sealed class ApiDocsQueryService
     private static SourceProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
         new(definition.Repository, state.Ref, state.Commit, state.FetchedAt);
 
-    private static string EncodeCursor(string kind, string scope, int offset, IReadOnlyList<string> revisions)
+    internal static string EncodeCursor(string kind, string scope, int offset, IReadOnlyList<string> revisions)
     {
         var json = JsonSerializer.Serialize(
             new PageCursor(Version: 1, Kind: kind, Scope: scope, Offset: offset, Revisions: revisions));
