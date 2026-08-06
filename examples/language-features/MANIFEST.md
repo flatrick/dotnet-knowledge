@@ -1,8 +1,9 @@
 # Language-feature showcase — coverage manifest
 
-Every language-feature row is sourced from `external/csharplang/Language-Version-History.md` (C#) or
-`https://learn.microsoft.com/dotnet/visual-basic/whats-new/` + `external/vblang/spec/` (VB.NET —
-see the design doc's sourcing-strategy section for why VB.NET needs two sources). In those tables,
+Every language-feature row is sourced from `Language-Version-History.md` in the `csharplang` source
+(C#) or `https://learn.microsoft.com/dotnet/visual-basic/whats-new/` + `spec/` in the `vblang` source
+(VB.NET — see the design doc's sourcing-strategy section for why VB.NET needs two sources). Both
+sources are fetched by `sync_source`, never tracked here. In those tables,
 the **Target project(s)** column names the project(s) each feature is destined for — it is a plan,
 not a record of what exists on disk today. The **Authoring status** section near the end of this file
 is the record of what has actually been authored so far: a row counts as authored for a project once
@@ -256,7 +257,7 @@ The two families keep separate `src/` trees because four rows genuinely diverge:
 | C# 9.0 | Module initializers | `ModuleInitializers` | Latest | | § C# 9.0 | |
 | C# 9.0 | Extension `GetEnumerator` | `ExtensionGetEnumerator` | Latest | | § C# 9.0 | |
 | C# 9.0 | Partial methods with returned values | `PartialMethodsWithReturnedValues` | Latest | | § C# 9.0 | |
-| C# 9.0 | Source generators | — | | Latest (requires a separate analyzer/generator project, not a single-file example; out of scope for this corpus — see `testData/CSharpInMemoryGen` for the existing generator fixture) | § C# 9.0 | |
+| C# 9.0 | Source generators | — | | Latest (requires a separate analyzer/generator project, not a single-file example; out of scope for this corpus) | § C# 9.0 | |
 | C# 10.0 | Record structs, `with` on structs/anonymous types | `RecordStructsAndWithExpressions` | Latest | | § C# 10.0 | |
 | C# 10.0 | Global using directives | `GlobalUsingDirectives` | Latest | | § C# 10.0 | |
 | C# 10.0 | Improved definite assignment | `ImprovedDefiniteAssignment` | Latest | | § C# 10.0 | |
@@ -326,8 +327,8 @@ ceiling is 7.3, which covers 7.2/7.3). Those rows build there: `Fw73` declares `
 
 ### Baseline (VB.NET 1.0 through VB 11 / Visual Studio .NET 2002 – 2013)
 
-Sourced from the Microsoft Learn bucket summaries (coarse, non-itemized) plus the local
-`external/vblang/spec/` topic index (topic-complete, not version-attributed) — per the design doc's
+Sourced from the Microsoft Learn bucket summaries (coarse, non-itemized) plus the `spec/` topic
+index in the `vblang` source (topic-complete, not version-attributed) — per the design doc's
 verified sourcing strategy. All rows live under one `Baseline/` folder (no per-version attribution;
 the "Version" column below is informational provenance only, not a folder split).
 

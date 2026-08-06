@@ -2,11 +2,11 @@
 
 ## The gap this fills
 
-`testData/` fixtures are purpose-built per tool scenario (see
-[`testdata-fixtures`](/.claude/skills/testdata-fixtures/SKILL.md)) — each one exists because some
-specific MCP tool needed a specific code shape. Nothing in the repo is a systematic, checklist-backed
-corpus of *every shipped C#/VB.NET language feature*. Without one, "does this tool handle construct
-X" is answered ad hoc, per bug report, rather than against a known-complete example set.
+The upstream sources this server fetches describe language features as design prose — proposals,
+specification text, and LDM notes. None of them is a systematic, checklist-backed corpus of
+*compilable* examples covering every shipped C#/VB.NET language feature. Without one, "does this tool
+handle construct X" is answered ad hoc, per bug report, rather than against a known-complete example
+set.
 
 This design specifies that corpus: a standalone set of minimal, compilable examples — one per shipped
 language feature, per language, per era — plus a manifest that makes "100% coverage" a falsifiable,
@@ -25,9 +25,10 @@ checkable claim rather than an assertion.
 **Explicitly out of scope for this change:**
 - Feature *interactions* / combinations (e.g. nullable reference types combined with pattern
   matching combined with generics). Deferred to a later pass, once single-feature coverage exists.
-- Wiring this corpus into `testData/`, `DotNetMcpServer.slnx`, or any dotnet-mcp tool/E2E test. This
-  corpus is deliberately independent of what the MCP server currently supports — that's a separate,
-  future integration step.
+- Wiring this corpus into the server's bundled-example tools (`list_examples`, `get_example`, still
+  future work — see [`docs/design/mcp-tool-surface.md`](mcp-tool-surface.md)). This corpus is
+  deliberately independent of what the MCP server currently supports — that's a separate, future
+  integration step.
 - Preview or unshipped language features (proposals not yet released in a stable compiler).
 - A legacy-XML (non-SDK) VB.NET/net48 project. C# gets one because C# has a real feature (nullable
   reference types) that's gated behind the SDK-style project system on net48; VB.NET has no
@@ -171,11 +172,10 @@ unsafe code does.
 
 The net48 C# 8.0 project exists specifically because C# 8.0 shipped nullable reference types — a purely
 compile-time feature with no runtime dependency, so it behaves identically on net48 and net10. That
-makes it valuable to prove out on the older TFM (this repo already treats nullable-across-TFM
-behavior as a real area of interest — see e.g. the `CSharpNullabilityMultiTfm*` fixtures in
-`testData/`). Default interface members are excluded from that project and appear in the net10
-corpus: they require `RuntimeFeature.DefaultImplementationsOfInterfaces`, which net48 doesn't
-advertise — a hard compiler error, CS8701/CS8703, not a runtime risk.
+makes it valuable to prove out on the older TFM. Default interface members are excluded from that
+project and appear in the net10 corpus: they require
+`RuntimeFeature.DefaultImplementationsOfInterfaces`, which net48 doesn't advertise — a hard compiler
+error, CS8701/CS8703, not a runtime risk.
 
 > **Correction (verified empirically during plan authoring, Plan 0):** the original text here also
 > excluded async streams and Span-dependent C#7.2/C#8 features (stackalloc initializers, Span/ref-like
@@ -200,15 +200,18 @@ oversight.
 
 ## Source-of-truth strategy
 
-**C#:** `external/csharplang/Language-Version-History.md` is complete and version-complete back to
-C# 1.0. It is the sole primary source, cross-referenced with individual proposal docs under
-`external/csharplang/proposals/` when a one-line summary isn't enough to write a correct example.
+The upstream design repositories are fetched by `sync_source`, never tracked here; paths below are
+relative to each source's root.
 
-**VB.NET — verified gap, verified fallback.** `external/vblang/Language-Version-History.md` is
+**C#:** `Language-Version-History.md` in the `csharplang` source is complete and version-complete
+back to C# 1.0. It is the sole primary source, cross-referenced with individual proposal docs under
+that source's `proposals/` when a one-line summary isn't enough to write a correct example.
+
+**VB.NET — verified gap, verified fallback.** `Language-Version-History.md` in the `vblang` source is
 *not* a complete version history: it only documents deltas starting at VB 15.0 (Visual Studio 2017),
 plus a few later point-release entries, with nothing for VB 1.0 through VB 11 (generics, LINQ, XML
 literals, auto-properties, statement lambdas, async/await, string interpolation, `NameOf`, etc. are
-all real shipped features with no entry here). `external/vblang/spec/` is topic-organized, not
+all real shipped features with no entry here). That source's `spec/` is topic-organized, not
 version-gated, so it can't fill the gap either.
 
 This was verified during design, not assumed: `https://learn.microsoft.com/dotnet/visual-basic/whats-new/`
@@ -225,7 +228,7 @@ The sourcing strategy follows that split exactly:
 
 - **VB.NET baseline (pre-VB14):** one non-versioned bucket covering everything VB.NET had
   accumulated through VB 11/2013 — sourced from the Learn page's bucket summaries, with
-  implementation detail filled in from the local `external/vblang/spec/` topic list. Not attributed
+  implementation detail filled in from the `vblang` source's `spec/` topic list. Not attributed
   to individual point versions, because the source material doesn't support that attribution.
 - **VB 14/15 onward:** normal per-version deltas, same discipline as C#, sourced from the Learn page
   and cross-checked against `Language-Version-History.md`'s 15.0+ entries where they overlap.
@@ -435,9 +438,9 @@ Two distinct toolchain gaps sit behind that, and only the first is about the hos
 
 - **No net48 reference assemblies off Windows.** `dotnet build` against a net48 project on a Linux
   host fails with `MSB3644: reference assemblies for .NETFramework,Version=v4.8 were not found` —
-  already precedented by `CSharpFwLegacy` in `testData/`, and not a defect in this corpus. Two
-  places in the tree close it for themselves: the VB net48 family's `Directory.Build.props` and
-  `CSharp_v8.0` carry `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
+  a property of the host, not a defect in this corpus. Two places in the tree close it for
+  themselves: the VB net48 family's `Directory.Build.props` and `CSharp_v8.0` carry
+  `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
   assemblies from a package. That is the whole set — `CSharp_v1.0-Unsafe` and `CSharp_v8.0-Unsafe`
   are SDK-style net48 as well and carry nothing, and a legacy non-SDK project cannot consume the
   package at all, because it consumes no package assets under `dotnet build` — which is the second

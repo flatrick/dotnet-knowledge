@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Read root `AGENTS.md`, `CLAUDE.md`, `docs/HANDOFF.md`, and `examples/language-features/MANIFEST.md` before implementation.
+- Read root `AGENTS.md`, `CLAUDE.md`, and `examples/language-features/MANIFEST.md` before implementation.
 - Preserve the corpus completion gate: every project must build with 0 errors and 0 warnings, with inherited `TreatWarningsAsErrors=true`.
 - Keep SDK/compiler version, `TargetFramework`, `LangVersion`, and runtime execution as four independent test inputs.
 - Compile feature rows in isolation with `EnableDefaultCompileItems=false`; whole-project builds do not replace per-row probes.
@@ -694,7 +694,6 @@ git commit -m "test: enforce the SDK-style corpus build matrix"
 - Modify: the five propagated `NumericIntPtr.cs` copies under `examples/language-features/CSharp/dotnet/10/{10.0,11.0,12.0,13.0,14.0}/library/`
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
-- Modify: `docs/HANDOFF.md`
 - Modify: `docs/design/language-feature-showcase-design.md`
 
 **Interfaces:**
@@ -769,7 +768,7 @@ reports no whitespace errors.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add AGENTS.md CLAUDE.md docs/HANDOFF.md docs/design/language-feature-showcase-design.md tests/DotNetKnowledge.Corpus.Tests/RuntimeClaimCoverageTests.cs
+git add AGENTS.md CLAUDE.md docs/design/language-feature-showcase-design.md tests/DotNetKnowledge.Corpus.Tests/RuntimeClaimCoverageTests.cs
 git add examples/language-features/CSharp/dotnet/10/10.0/library/CSharp11/NumericIntPtr/NumericIntPtr.cs
 git add examples/language-features/CSharp/dotnet/10/11.0/library/CSharp11/NumericIntPtr/NumericIntPtr.cs
 git add examples/language-features/CSharp/dotnet/10/12.0/library/CSharp11/NumericIntPtr/NumericIntPtr.cs

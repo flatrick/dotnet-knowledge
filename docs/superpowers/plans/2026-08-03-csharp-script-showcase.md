@@ -58,7 +58,7 @@ Modify:
 
 - `tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj` — host project reference, exact toolset package, and copied `csi` runtime assets.
 - `examples/language-features/MANIFEST.md` — eight-row script inventory.
-- `AGENTS.md`, `docs/HANDOFF.md`, `docs/design/language-feature-showcase-design.md`, `docs/design/mcp-tool-surface.md`, and `docs/design/ci.md` — current scripting, query-shape, and pinning truth.
+- `AGENTS.md`, `docs/design/language-feature-showcase-design.md`, `docs/design/mcp-tool-surface.md`, and `docs/design/ci.md` — current scripting, query-shape, and pinning truth.
 
 ---
 
@@ -672,7 +672,6 @@ git commit -m "test: verify C# scripts through pinned csi"
 - Create: `tests/DotNetKnowledge.Corpus.Tests/CSharpScripts/CSharpScriptCorpusCoverageTests.cs`
 - Modify: `examples/language-features/MANIFEST.md`
 - Modify: `AGENTS.md`
-- Modify: `docs/HANDOFF.md`
 - Modify: `docs/design/language-feature-showcase-design.md`
 - Modify: `docs/design/mcp-tool-surface.md`
 - Modify: `docs/design/ci.md`
@@ -711,7 +710,6 @@ Parse the host and test csproj files with `XDocument` and assert both Roslyn pac
 - [ ] **Step 5: Update current-truth documentation**
 
 - `AGENTS.md`: add the `CSharp/csx/roslyn-5.6.0` layout, BCL-only rule, API/csi verification, trust warning, and explicit distinction from .NET 10 file-based programs.
-- `docs/HANDOFF.md`: record the new bundled showcase and verification layer; keep `list_examples`/`get_example` as future work and require an example-kind field.
 - `docs/design/language-feature-showcase-design.md`: add script-host coordinates beside project coordinates and extend the verification contract without rewriting its historical compiler analysis.
 - `docs/design/mcp-tool-surface.md`: define `list_examples(kind?, language?, version?, feature?)` and make `get_example` return `kind: "script"`, Roslyn host/version, entry/support files, applicable hosts, and descriptor-backed behavior.
 - `docs/design/ci.md`: explain the exact Roslyn 5.6.0 API/toolset pair and that the restored net472 `csi` assets are Windows-only build output, never vendored content.
@@ -732,7 +730,7 @@ Expected: all selected tests pass, no vendored findings, and no whitespace error
 - [ ] **Step 7: Commit**
 
 ```powershell
-git add examples/language-features/MANIFEST.md AGENTS.md docs/HANDOFF.md
+git add examples/language-features/MANIFEST.md AGENTS.md
 git add docs/design/language-feature-showcase-design.md docs/design/mcp-tool-surface.md docs/design/ci.md
 git add tests/DotNetKnowledge.Corpus.Tests/CSharpScripts
 git commit -m "docs: index the verified C# script showcase"

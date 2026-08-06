@@ -46,7 +46,7 @@
 - `scripts/verify-feature-floors.cs` — language profile, VB ladder, VB escalation, locale-proof diagnostics.
 - `scripts/verify-project-namespaces.cs` — inverse VB rule.
 - `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v8.0/CSharp80.csproj` — reference assemblies.
-- `examples/language-features/MANIFEST.md`, `AGENTS.md`, `CLAUDE.md`, `docs/HANDOFF.md`, `docs/design/language-feature-showcase-design.md`.
+- `examples/language-features/MANIFEST.md`, `AGENTS.md`, `CLAUDE.md`, `docs/design/language-feature-showcase-design.md`.
 
 **Deleted:** the two old family-root project files and the row folders at the family roots (moved into `src/`).
 
@@ -174,7 +174,7 @@ Expected: PASS, `0 Warning(s)` and `0 Error(s)`.
 
 - [ ] **Step 6: Repeat the probe against the repaired net48 tree**
 
-`docs/HANDOFF.md` records that a whole-project VB build can stop early and under-report, so verify the second family rather than assuming it matches. Copy `examples/language-features/VB.NET/dotNetFramework/v4.8/Baseline` into the scratch directory, change the project's `TargetFramework` to `net48` and `RootNamespace` to `Net48_Vb11_Library`, add
+`CLAUDE.md` records that a whole-project VB build can stop early and under-report, so verify the second family rather than assuming it matches. Copy `examples/language-features/VB.NET/dotNetFramework/v4.8/Baseline` into the scratch directory, change the project's `TargetFramework` to `net48` and `RootNamespace` to `Net48_Vb11_Library`, add
 `<PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />`,
 and temporarily exclude `Baseline/MyNamespaceHelpers` — that row needs `MyType=Windows`, which Task 7 gives it.
 
@@ -1103,7 +1103,7 @@ dotnet scripts/verify-feature-floors.cs -- --language vb --json > "$TEMP/vb-floo
 
 For each row, read its measured floor. Add the row's `Compile` glob to every pin at or above that floor.
 
-**Use the probe's output, not the table in the spec.** That table was derived from whole-project builds, which VB truncates — `docs/HANDOFF.md` records "2 errors where per-folder builds reported 5" — and it already produced one wrong entry.
+**Use the probe's output, not the table in the spec.** That table was derived from whole-project builds, which VB truncates — `CLAUDE.md` records "2 errors where per-folder builds reported 5" — and it already produced one wrong entry.
 
 - [ ] **Step 2: Add the per-row globs**
 
@@ -1226,7 +1226,6 @@ every pin at once."
 - Modify: `examples/language-features/MANIFEST.md`
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
-- Modify: `docs/HANDOFF.md`
 - Modify: `docs/design/language-feature-showcase-design.md`
 
 **Interfaces:**
@@ -1249,7 +1248,6 @@ A count is stale the moment a row or project is added. Remove them rather than c
 
 - `MANIFEST.md`'s VB and C# section headings, which state row and version totals. The VB heading also miscounts its point versions.
 - `AGENTS.md`, which states how many rows the corpus holds and how many projects the build matrix discovers.
-- `docs/HANDOFF.md`, which repeats the project count.
 
 Describe what the thing is instead of how many there are — "the SDK-style C# and VB library projects" rather than a number.
 
@@ -1281,7 +1279,7 @@ Expected: all clean, suite green.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add examples/language-features/MANIFEST.md AGENTS.md CLAUDE.md docs/HANDOFF.md docs/design/language-feature-showcase-design.md
+git add examples/language-features/MANIFEST.md AGENTS.md CLAUDE.md docs/design/language-feature-showcase-design.md
 git commit -m "docs: record the VB pin ladder and how its floors were measured
 
 The manifest's floor column distinguishes a floor confirmed against a

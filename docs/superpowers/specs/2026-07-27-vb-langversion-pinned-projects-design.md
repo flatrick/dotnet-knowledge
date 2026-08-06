@@ -123,7 +123,7 @@ records that instead of implying otherwise.
 
 ### The table above is provisional, and the method matters
 
-The rows above were derived from whole-project builds. `docs/HANDOFF.md` records that a VB
+The rows above were derived from whole-project builds. `CLAUDE.md` records that a VB
 whole-project build stops early and under-reports — "2 errors where per-folder builds reported 5" —
 and that is exactly what happened: `PrivateProtectedAccessModifier` first appeared to compile at
 `/langversion:14` and does not. Probed in isolation it fails with
@@ -259,7 +259,7 @@ assert coverage the source does not support. Nothing the manifest claims is lost
 auto-properties were never a row.
 
 With both repairs applied, `Baseline` builds clean at pin 11 in both families. This is verified
-rather than assumed: `docs/HANDOFF.md` records that a whole-project VB build can stop early and
+rather than assumed: `CLAUDE.md` records that a whole-project VB build can stop early and
 under-report, so the repaired tree was re-probed rather than reasoned about.
 
 ## Tooling
@@ -310,7 +310,7 @@ byte-identical is replaced by a description of the shared tree and the four genu
 current sentence names two of them. The VB section heading miscounts its point versions.
 
 Fixed counts are removed from the documents rather than corrected — in `MANIFEST.md`'s VB and C#
-section headings, and in `AGENTS.md` and `docs/HANDOFF.md` where they describe how many projects the
+section headings, and in `AGENTS.md` where it describes how many projects the
 build matrix discovers. A count is stale the moment a project or row is added, and the surrounding
 convention is already to state current truth without narration that dates itself.
 
