@@ -220,12 +220,22 @@ than being silently skipped.
 **Verdicts are cached by content.** The same row is held by several projects, and its floor is a
 property of the files rather than of the project holding them. Each distinct
 `(scope, version, file content)` triple is probed once and the verdict reused, so per-project rows in
-the report can be identical by construction. `scope` is meant to keep rows that share a reference set
-together: C# declares one scope for every project, and VB declares one per family and project kind,
+the report can be identical by construction. `scope` keeps rows that share a reference set together,
 because a net10 reference set and a net48 one can disagree about whether a row compiles at all, and
-the `my/` projects compile with `_MyType` defined. C#'s single scope is a declared value rather than
-a derived one — see the `Scope` limitation below. The above-pin check is deliberately *outside* the
-cache — whether a row compiles at a given pin is a property of the placement, not of the row.
+the `my/` projects compile with `_MyType` defined. It is **derived, not declared**: a SHA-256 of the
+project's sorted resolved reference paths, its conditional-compilation constants, and its compiler
+options — the inputs that decide whether a row compiles. `RootNamespace` is excluded on purpose even
+though the probe passes it, because it renames a row's declarations without bearing on whether they
+compile and differs at every pin by design; hashing it would give each pin its own scope and empty
+the cache. The above-pin check is deliberately *outside* the cache — whether a row compiles at a
+given pin is a property of the placement, not of the row.
+
+The price is that a project's reference resolution can no longer be deferred past its first cache
+read: the key names the reference set the verdict was measured against, so it has to be resolved
+before the lookup. Resolution still happens at most once per project, and not at all for a project
+with no row to classify, but a project whose every row is already cached now pays one MSBuild
+evaluation it used to skip. Discovering VB's projects in ascending pin order still pays — it saves
+the compiles, which dominate — it just no longer saves the resolution too.
 
 **Scope is the C# net48 tree and the whole VB corpus.** With `--language cs` only
 `examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v*` is walked; the C# net10 projects
@@ -246,20 +256,6 @@ are stable; only `Detail` varies, and today it reaches exactly one row. The cons
 stating: **diffing two `--json` runs is not a valid regression technique.** Passing `/parallel-` on
 the probe's response file would settle this, at the cost of changing every compile in both
 languages.
-
-**The `floorCache`'s `Scope` key is a declared claim, not a derived one.** It exists so a row probed
-under one project's reference set is never reused for a project with a different one. For VB it
-holds: `familyName|kind`, and reference sets are props-driven and identical within each family and
-kind. For C# every `CSharp_v*` project declares `Scope: ""`, even though they do not share a
-reference set — `CSharp_v8.0` is SDK-style with different packages, `CSharp_v1.0-Unsafe` and
-`CSharp_v8.0-Unsafe` declare no explicit references at all, and four of the eleven non-SDK projects
-carry no `<ProjectReference>` to `CSharpComTypeLib` while the rest do. The cache key is
-`Scope|Version|HashFiles(files)`, and every corpus project's copy of a row declares that project's
-own namespace as the row's first namespace segment, so no two C# projects ever hold byte-identical
-sources for the same row — no C# row ever lands on a shared cache entry, and `Scope: ""` is
-currently inert. That holds because of the per-project namespace rule, not because the projects
-above share anything; deriving `Scope` from the resolved reference set instead of declaring it
-would close the gap without depending on it.
 
 ## Exemptions
 

@@ -270,9 +270,10 @@ Directory.CreateDirectory(workRoot);
 
 // The same group folder is duplicated across the cumulative projects, and its floor is a property
 // of the files rather than of the project holding them. Probe each distinct (scope, version,
-// content) once and reuse the verdict. The scope keeps rows that share a reference set together:
-// C# has one, and VB has one per family and project kind, since a net10 reference set and a net48
-// one can disagree about whether a row compiles at all.
+// content) once and reuse the verdict. The scope is derived from the project's resolved compile
+// inputs rather than declared, so a project whose reference set, constants or compiler options
+// differ from another's cannot silently reuse its verdict -- a net10 reference set and a net48 one
+// can disagree about whether a row compiles at all.
 var floorCache = new Dictionary<string, Verdict>(StringComparer.Ordinal);
 var results = new List<Result>();
 
@@ -281,9 +282,13 @@ foreach (var project in discovery.Projects)
     Console.Error.WriteLine($"verify-feature-floors: {project.Name} (ceiling {project.Ceiling})");
 
     ProjectInputs? inputs = null;
+    var scope = "";
 
-    // Resolving references costs a full MSBuild evaluation, so defer it until a project actually
-    // has work that needs it. False means the project resolved nothing usable and has been skipped.
+    // Resolving references costs a full MSBuild evaluation, so it still happens at most once per
+    // project and not at all for a project with nothing to classify. It can no longer be deferred
+    // past a cache read, though: the cache key names the reference set a verdict was measured
+    // against, and that is only knowable once the references are resolved. False means the project
+    // resolved nothing usable and has been skipped.
     bool EnsureInputs()
     {
         if (inputs is not null)
@@ -301,6 +306,7 @@ foreach (var project in discovery.Projects)
             return false;
         }
 
+        scope = ScopeOf(inputs);
         return true;
     }
 
@@ -391,14 +397,15 @@ foreach (var project in discovery.Projects)
 
         var bucketExemption = ExemptionReason(row.VersionFolder);
 
-        var key = project.Scope + "|" + row.Version + "|" + HashFiles(row.Files);
+        // Before the key, not after: the scope half of it is this project's resolved reference set.
+        if (!EnsureInputs())
+        {
+            break;
+        }
+
+        var key = scope + "|" + row.Version + "|" + HashFiles(row.Files);
         if (!floorCache.TryGetValue(key, out var verdict))
         {
-            if (!EnsureInputs())
-            {
-                break;
-            }
-
             verdict = bucketExemption is not null
                 ? ProbeOwnVersion(profile, row.Version, row.Files, inputs!, workRoot, modernCompiler,
                     bucketExemption)
@@ -911,8 +918,7 @@ static Discovery DiscoverCSharpProjects(
             }
         }
 
-        // One cache scope: every CSharp_v* project resolves against the same net48 reference set.
-        projects.Add(new ProbeProject(projectName, csproj, ceiling, Scope: "", rows));
+        projects.Add(new ProbeProject(projectName, csproj, ceiling, rows));
     }
 
     return new Discovery(projects, null);
@@ -947,7 +953,6 @@ static Discovery DiscoverVbProjects(
     foreach (var family in families)
     {
         var sourceRoot = Path.Combine(family, "src");
-        var familyName = Path.GetRelativePath(vbRoot, family).Replace('\\', '/');
         var familyProjects = new List<ProbeProject>();
 
         foreach (var projectPath in Directory
@@ -976,14 +981,11 @@ static Discovery DiscoverVbProjects(
                 continue;
             }
 
-            // A net10 reference set and a net48 one disagree about what is available, and the my/
-            // projects compile with _MyType defined, so each of those is its own cache scope.
-            var scope = familyName + "|" + Path.GetFileName(projectDirectory);
-            familyProjects.Add(new ProbeProject(projectName, projectPath, ceiling, scope, rows));
+            familyProjects.Add(new ProbeProject(projectName, projectPath, ceiling, rows));
         }
 
         // Ascending pin order, so the lowest project probes each row first and the pins above it
-        // read the verdict out of the cache instead of paying for a second reference resolution.
+        // read the verdict out of the cache instead of paying to compile the row again.
         projects.AddRange(familyProjects
             .OrderBy(p => LadderIndex(profile.Ladder, p.Ceiling))
             .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
@@ -1458,6 +1460,33 @@ static string? ReadLangVersion(string projectPath, LanguageProfile profile)
     return null;
 }
 
+// The floor cache's scope, derived from what a probe compile actually depends on rather than
+// declared alongside the project. Two projects share a cached verdict only when they resolve the
+// same reference set, the same conditional-compilation constants and the same compiler options --
+// the inputs that decide whether a row compiles at all. References are sorted first, so a set that
+// MSBuild happens to emit in a different order is still recognized as the same set.
+//
+// RootNamespace is deliberately excluded even though the probe passes it. It renames the
+// declarations a row emits without bearing on whether they compile, and it differs at every pin by
+// design, so hashing it would give each pin its own scope and empty the cache without making a
+// single verdict more accurate.
+static string ScopeOf(ProjectInputs inputs)
+{
+    var buffer = new StringBuilder();
+    foreach (var reference in inputs.References.OrderBy(r => r, StringComparer.OrdinalIgnoreCase))
+    {
+        buffer.Append(reference).Append('\0');
+    }
+
+    buffer.Append('\n').Append(inputs.Defines).Append('\0');
+    foreach (var option in inputs.Options)
+    {
+        buffer.Append(option).Append('\0');
+    }
+
+    return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(buffer.ToString())));
+}
+
 static string HashFiles(string[] files)
 {
     using var sha = SHA256.Create();
@@ -1577,13 +1606,13 @@ record LanguageProfile(
 // resolves to because a bucket exemption is keyed on the folder name, not on the group.
 record RowGroup(string VersionFolder, string Version, string Group, string[] Files);
 
-// One project to probe, with the rows it compiles already resolved. Scope names the reference set
-// its rows are probed against, so the floor cache never reuses a verdict across incompatible ones.
+// One project to probe, with the rows it compiles already resolved. The floor cache's scope is not
+// here: it is derived from the project's resolved compile inputs by ScopeOf, which needs an MSBuild
+// evaluation and so cannot be settled at discovery time.
 record ProbeProject(
     string Name,
     string ProjectPath,
     string Ceiling,
-    string Scope,
     IReadOnlyList<RowGroup> Rows);
 
 record Discovery(List<ProbeProject> Projects, string? Fatal);
