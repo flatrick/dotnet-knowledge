@@ -12,6 +12,7 @@ file when the item is resolved; `git log` is the record.
 | [`lookup_api`'s detail level is decided across sources](lookup-api-detail-level-is-decided-across-sources.md) | server | Unreachable with the two configured sources, whose namespace trees are disjoint |
 | [`lookup_api` reports `not_found` at the last page boundary](lookup-api-reports-not-found-at-the-last-page-boundary.md) | server | Unreachable without a hand-constructed cursor; `search_api` is already correct here |
 | [`find_api_references` omits generic constraints and attribute usages](find-api-references-omits-constraints-and-attributes.md) | server | Adding them wants new `kind` values, which is a payload decision |
+| [`find_api_references` reads attribute applications in C# short form](attribute-references-use-csharp-short-form.md) | server | Resolving the suffix is decidable only inside an attribute application; the payload question is open |
 | [`find_api_references` reports a parameterized base or interface as if it were the type](api-reference-kind-does-not-separate-exact-from-parameterized.md) | server | The payload already carries the answer in `typeExpression`; the fix is a convenience field |
 | [`search_api` cannot ask for one namespace without its descendants](search-api-has-no-exact-namespace-query.md) | server | The descendant reading is the right default and no answer is wrong today |
 | [`sync_source`'s progress notifications have never been observed](sync-source-progress-is-unverified.md) | server | The sync itself works; the notification is advisory |
