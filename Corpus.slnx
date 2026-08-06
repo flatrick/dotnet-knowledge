@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="tests/DotNetKnowledge.Corpus.Tests/DotNetKnowledge.Corpus.Tests.csproj" />
+  <Project Path="examples/language-features/CSharp/csx/roslyn-5.6.0/host/host.csproj" />
+</Solution>

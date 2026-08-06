@@ -31,6 +31,8 @@ parsing — structured payloads, no ASCII tables, no decorative formatting.
 # MCP server
 dotnet build src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj
 dotnet run --project src/DotNetKnowledge.Mcp        # stdio; expects a client on stdin
+dotnet build DotNetKnowledge.slnx                   # src/ and its tests; never the corpus
+dotnet test DotNetKnowledge.slnx                    # ditto
 
 # The installed server — what .mcp.json and .codex/config.toml launch
 dotnet scripts/install-mcp-tool.cs                  # which build would launch next
@@ -59,11 +61,21 @@ C# takes a project directory name (`CSharp_v7.0`). VB takes the project director
 `examples/language-features/VB.NET`, forward slashes, `<family>/<pin>/<kind>` —
 `dotnet/Net10/15.5/library`, `dotNetFramework/v4.8/latest/my`.
 
+**Testing `examples/` is a separate concern from testing `src/`, and the two solutions say so.**
+`DotNetKnowledge.slnx` holds `src/` and its tests; `Corpus.slnx` holds the corpus suite and the
+`csx` script host. Never put the corpus projects back into `DotNetKnowledge.slnx`: the two need
+*different .NET hosts*, and a solution file cannot express that.
+
 The corpus test suite is `tests/DotNetKnowledge.Corpus.Tests/`. Its exact SDK versions live in a
 repository-private host. Install or verify them with
 `dotnet scripts/install-corpus-test-sdks.cs`, then use the private-host command documented in
 [`scripts/install-corpus-test-sdks.md`](scripts/install-corpus-test-sdks.md); do not repeat the SDK
 setup manually.
+
+**A plain `dotnet test` against the corpus suite is wrong, `Corpus.slnx` included** — the machine
+host does not carry SDK 5.0.408 or 7.0.410 and never will, so the compiler-boundary cases skip and
+the toolchain preflight fails. That failure reads as "those SDKs are not installed" while the real
+cause is the host, which is why `RequiredToolchainsTests` now names the host it inspected.
 
 Smoke-testing the server over stdio needs a redirected-process driver, not a shell pipe — a Git Bash
 `>` redirect swallows the server's stdout entirely and looks like a server fault.

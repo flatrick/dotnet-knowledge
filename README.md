@@ -73,6 +73,11 @@ cache cleaner runs. Set `DOTNET_KNOWLEDGE_CACHE` to put the cache somewhere else
 
 ## Verifying the corpus
 
+The corpus suite and the server suite are separate concerns and have separate solutions:
+`Corpus.slnx` covers `examples/`, `DotNetKnowledge.slnx` covers `src/`. They require different .NET
+hosts, so neither solution is the right way to run the corpus — invoke that suite by project path
+through the private host, as below.
+
 The unit-only test subset needs Windows and SDK 10 only; its process tests invoke `cmd`:
 
 ```powershell
