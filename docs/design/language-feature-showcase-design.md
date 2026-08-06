@@ -89,11 +89,11 @@ it gets the same treatment: the mainline `library` projects set no `MyType` at a
 `Compile Remove` the row, and the `my` projects set it and glob only that row.
 
 `Microsoft.NETFramework.ReferenceAssemblies` is carried by the net48 VB family's
-`Directory.Build.props` and by `CSharp_v8.0`, which that family references. Without it no `net48`
-SDK-style project in this repository builds on a machine with no .NET Framework targeting pack; it
-is the known prerequisite for building that half of the corpus off Windows. `MyType` is not
-obviously a second obstacle, since the `My` accessors resolve against `Microsoft.VisualBasic.dll`,
-which the same package supplies.
+`Directory.Build.props`, by `CSharpRefReturnLib`, which that family references, and by
+`CSharp_v8.0`. Without it no `net48` SDK-style project in this repository builds on a machine with
+no .NET Framework targeting pack; it is the known prerequisite for building that half of the corpus
+off Windows. `MyType` is not obviously a second obstacle, since the `My` accessors resolve against
+`Microsoft.VisualBasic.dll`, which the same package supplies.
 
 A pinned project is not an era emulation. The family props are unconditional, so the pin-11 net48
 project carries package and project references its `Baseline` rows never use. The pin constrains the
@@ -169,6 +169,24 @@ It multi-targets `net48;net10.0` because `ImportedFromTypeLibAttribute` does not
 `AllowUnsafeBlocks`, `EmbedInteropTypes` is a per-*reference* switch, so it does not change how the
 rest of the consuming project compiles — which is why this feature needs no separate project the way
 unsafe code does.
+
+### The ref-return support project
+
+`CSharpRefReturnLib` is the second support assembly, on the same terms: no feature examples, no
+target column. The VB 15 row *Consuming C# reference return values* needs a ref-returning method to
+call, and VB can call one but cannot declare one, so the subject has to come from C#. The net10
+family gets it from the BCL — `CollectionsMarshal.GetValueRefOrNullRef` — which has no net48
+backport, so the net48 family needs a C#-authored subject of its own.
+
+It is a dedicated assembly rather than a reference into the C# corpus because no corpus project
+fits. The obvious candidate is `CSharp_v7.0`, which owns the C# 7.0 *Ref returns and locals* row —
+but it is legacy non-SDK, so `dotnet build` cannot traverse to it and it cannot consume
+`Microsoft.NETFramework.ReferenceAssemblies` at all. The only reachable alternative is a cumulative
+SDK-style project that happens to contain the row, which couples a C# 7.0 subject to a C# 8.0
+coordinate and makes a corpus project double as a build dependency of the VB half.
+
+It targets `net48` alone, unlike `CSharpComTypeLib`: the net10 VB family references nothing here, so
+there is no second framework to serve.
 
 The net48 C# 8.0 project exists specifically because C# 8.0 shipped nullable reference types — a purely
 compile-time feature with no runtime dependency, so it behaves identically on net48 and net10. That
@@ -454,9 +472,9 @@ Two distinct toolchain gaps sit behind that, and only the first is about the hos
 
 - **No net48 reference assemblies off Windows.** `dotnet build` against a net48 project on a Linux
   host fails with `MSB3644: reference assemblies for .NETFramework,Version=v4.8 were not found` —
-  a property of the host, not a defect in this corpus. Two places in the tree close it for
-  themselves: the VB net48 family's `Directory.Build.props` and `CSharp_v8.0` carry
-  `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
+  a property of the host, not a defect in this corpus. Three places in the tree close it for
+  themselves: the VB net48 family's `Directory.Build.props`, `CSharpRefReturnLib` and `CSharp_v8.0`
+  carry `Microsoft.NETFramework.ReferenceAssemblies`, which supplies the reference
   assemblies from a package. That is the whole set — `CSharp_v1.0-Unsafe` and `CSharp_v8.0-Unsafe`
   are SDK-style net48 as well and carry nothing, and a legacy non-SDK project cannot consume the
   package at all, because it consumes no package assets under `dotnet build` — which is the second

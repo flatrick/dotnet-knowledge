@@ -13,8 +13,8 @@ examples/language-features/CSharp/dotnet/10/latest/unsafe/unsafe.csproj
 ```
 
 No test builds them, and nothing else reaches them either: no project in the corpus carries a
-`ProjectReference` to any of the six, so they are not built as a dependency the way `CSharp_v8.0`
-and `CSharpComTypeLib` are.
+`ProjectReference` to any of the six, so they are not built as a dependency the way
+`CSharpComTypeLib` and `CSharpRefReturnLib` are.
 
 ## Why it matters
 

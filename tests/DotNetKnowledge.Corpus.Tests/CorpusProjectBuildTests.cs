@@ -35,14 +35,14 @@ public sealed class CorpusProjectBuildTests
         };
 
     /// <summary>
-    /// The project references every discovered project reaches. All eleven SDK-style C# libraries
-    /// reference <c>CSharpComTypeLib</c> directly; the eleven net48 VB projects reach it through
-    /// <c>CSharp_v8.0</c>, which their family's <c>Directory.Build.props</c> references for the
-    /// ref-return row's subject. <c>-t:Rebuild</c> cleans and rebuilds a project's references too,
-    /// so leaving these to the matrix would rebuild <c>CSharpComTypeLib</c>'s seven target
-    /// frameworks once per matrix project and make two shared output directories the thing every
-    /// concurrent build contends on. They are rebuilt once here instead, at the same
-    /// zero-warning bar, and the matrix then builds with <c>--no-dependencies</c>.
+    /// The project references every discovered project reaches. Both are support assemblies rather
+    /// than matrix entries: nineteen C# projects reference <c>CSharpComTypeLib</c> for the NoPIA
+    /// row, and the eleven net48 VB projects reference <c>CSharpRefReturnLib</c> for the ref-return
+    /// row's subject. <c>-t:Rebuild</c> cleans and rebuilds a project's references too, so leaving
+    /// these to the matrix would rebuild <c>CSharpComTypeLib</c>'s seven target frameworks once per
+    /// matrix project and make two shared output directories the thing every concurrent build
+    /// contends on. They are rebuilt once here instead, at the same zero-warning bar, and the
+    /// matrix then builds with <c>--no-dependencies</c>.
     /// <para>
     /// The list is explicit because it cannot be read off the project files: the net48 VB reference
     /// is contributed by a props file through <c>$(MSBuildThisFileDirectory)</c>, which only an
@@ -53,7 +53,7 @@ public sealed class CorpusProjectBuildTests
     private static readonly string[] SharedProjectReferences =
     [
         "examples/language-features/CSharp/CSharpComTypeLib/CSharpComTypeLib.csproj",
-        "examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v8.0/CSharp80.csproj"
+        "examples/language-features/CSharp/CSharpRefReturnLib/CSharpRefReturnLib.csproj"
     ];
 
     private static readonly SemaphoreSlim BuildSlots = new(Environment.ProcessorCount);
@@ -89,13 +89,6 @@ public sealed class CorpusProjectBuildTests
                 RepositoryRoot());
             var result = await BuildAsync(projectPath, buildProjectReferences: true);
             AssertZeroWarningsAndErrors(result, relativePath);
-
-            // CSharp_v8.0 is both a shared reference and a matrix entry. Publishing the prebuild's
-            // result under its path is what keeps it from being rebuilt a second time — a rebuild
-            // that would delete and rewrite the assembly the nine net48 VB projects are reading
-            // concurrently. The result is a full -t:Rebuild held to the same bar, so the matrix
-            // loses no evidence by reusing it.
-            _ = MatrixBuilds.TryAdd(projectPath, Task.FromResult(result));
         }
 
         foreach (var projectPath in MatrixProjectPaths.Value)

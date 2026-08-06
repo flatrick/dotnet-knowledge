@@ -2,7 +2,7 @@ Option Strict On
 
 Imports System
 Imports System.Runtime.InteropServices
-Imports Net48_CSharp8_Library.CSharp7.RefReturnsAndLocals
+Imports CSharpRefReturnLib
 
 Namespace Vb15.ConsumingCSharpRefReturnValues
     Public Module RefReturns
@@ -11,12 +11,13 @@ Namespace Vb15.ConsumingCSharpRefReturnValues
         ' reads the value through it. VB copies the value out at the call site,
         ' because it has nowhere to store the reference itself.
         '
-        ' The subject here is RefSamples.Find, the C# ref-returning method this
-        ' corpus authors for its own C# 7.0 row. net10's version of this sample
-        ' uses CollectionsMarshal.GetValueRefOrNullRef instead, which net48 has
-        ' no backport for; consuming the corpus's own C# assembly is the closer
-        ' fit to what the row is named for in any case. Neither form involves a
-        ' ref struct, so neither needs the suppression the module below does.
+        ' The subject here is RefSamples.Find from CSharpRefReturnLib, a support
+        ' assembly this corpus authors for exactly this row — VB can call a
+        ' ref-returning method but cannot declare one, so the subject has to
+        ' come from C#. net10's version of this sample uses
+        ' CollectionsMarshal.GetValueRefOrNullRef instead, which net48 has no
+        ' backport for. Neither form involves a ref struct, so neither needs the
+        ' suppression the module below does.
         Public Function ReadThroughRefReturn() As Integer
             Dim values() As Integer = {10, 41, 30}
 

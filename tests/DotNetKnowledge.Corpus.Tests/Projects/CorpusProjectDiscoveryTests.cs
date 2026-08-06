@@ -33,7 +33,11 @@ public sealed class CorpusProjectDiscoveryTests
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/unsafe/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/exe/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/dotNetFramework/", StringComparison.Ordinal)));
+        // The two support assemblies are not corpus projects and hold no feature rows. They sit
+        // beside the corpus roots rather than inside one, and CorpusProjectBuildTests builds them
+        // as shared references instead — so a discovery that reached them would build each twice.
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/CSharpComTypeLib/", StringComparison.Ordinal)));
+        Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/CSharpRefReturnLib/", StringComparison.Ordinal)));
     }
 
     [TestMethod]

@@ -115,6 +115,7 @@ examples/language-features/
   CSharp/dotnet/10/latest/{exe,library,unsafe}/        # SDK-style net10.0
   CSharp/dotNetFramework/v4.8/CSharp_v1.0 … CSharp_v8.0   # non-SDK net48, one pinned <LangVersion> each
   CSharp/CSharpComTypeLib/                            # support assembly for the NoPIA row, not a corpus project
+  CSharp/CSharpRefReturnLib/                          # support assembly for the net48 VB ref-return row, not a corpus project
   VB.NET/dotnet/Net10/                                # src/ + a project per pin
   VB.NET/dotNetFramework/v4.8/                        # src/ + a project per pin, plus the my/ kind
   MANIFEST.md                                         # the index and completion oracle
@@ -157,12 +158,13 @@ needs removing.
 `docs/design/language-feature-showcase-design.md` has the applicability rule and the rest of the
 reasoning.
 
-**`CSharp_v8.0` and the eleven net48 VB projects carry `Microsoft.NETFramework.ReferenceAssemblies`**
-— the VB ones through their family's `Directory.Build.props`. Those projects, and only those, build
-with no machine-installed .NET Framework targeting pack. The net48 VB family project-references
-`CSharp_v8.0` for its ref-return subject, which is why both halves need it. `CSharp_v1.0-Unsafe` and
-`CSharp_v8.0-Unsafe` are SDK-style net48 too and carry nothing of the kind; the legacy non-SDK C#
-net48 projects stay Windows-only regardless, because they need Visual Studio's `MSBuild.exe`.
+**`CSharp_v8.0`, `CSharpRefReturnLib` and the eleven net48 VB projects carry
+`Microsoft.NETFramework.ReferenceAssemblies`** — the VB ones through their family's
+`Directory.Build.props`. Those projects, and only those, build with no machine-installed .NET
+Framework targeting pack. The net48 VB family project-references `CSharpRefReturnLib` for its
+ref-return subject, which is why both halves need it. `CSharp_v1.0-Unsafe` and `CSharp_v8.0-Unsafe`
+are SDK-style net48 too and carry nothing of the kind; the legacy non-SDK C# net48 projects stay
+Windows-only regardless, because they need Visual Studio's `MSBuild.exe`.
 
 ### Rules that are load-bearing
 
