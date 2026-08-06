@@ -24,6 +24,23 @@ needs more.
 
 ---
 
+### 2026-08-06 · `/parallel-` is fatal to the in-box `csc` and merely a warning to the in-box `vbc` · environment
+
+The pre-Roslyn compilers do not treat an unknown switch alike: `%WINDIR%\Microsoft.NET\Framework64`'s
+`csc.exe` (v2.0.50727, v3.5, v4.0.30319) answers `fatal error CS2007` and exits 1, while the same
+directories' `vbc.exe` answers `Command line warning BC2007 … is unknown and ignored` and exits 0.
+An unconditional `/parallel-` on `verify-feature-floors.cs` would therefore have turned every C#
+period-compiler probe into a false `UNGATED` — CS2007 is not on the environment-error list — and
+left VB working. Gate a compiler switch on the compiler, not on the language.
+
+### 2026-08-06 · The floor probe's `Detail` rotation fires about 7% of the time · environment
+
+`ConsumingCSharpRefReturnValues` reports `BC30643` 28 times in 30 and `BC36954` twice, measured by
+driving `Microsoft.Net.Compilers` 1.3.2's `vbc` on the row directly. Diffing two `--json` runs is
+therefore a poor *reproducer* even though it is the symptom: three consecutive runs agreed while the
+underlying rotation was live. `/parallel-` makes it 30 of 30 and costs about 5% on a whole VB run.
+Reproduce with a response file rather than repeated sweeps — 30 compiles take 47 s, a sweep 85 s.
+
 ### 2026-08-06 · A guard that walks up to `.git` passes silently from a worktree · codebase
 
 `verify-project-namespaces.cs` tested `Directory.Exists(".git")` only. In a linked worktree `.git`

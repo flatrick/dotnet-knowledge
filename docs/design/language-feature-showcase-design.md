@@ -585,7 +585,7 @@ only gaps are VB 10 and VB 12; above it there is no native ceiling at all, becau
 highest one that exists. In practice the escalation settles exactly **one** distinct row of this
 corpus,
 `ConsumingCSharpRefReturnValues` — reported `UNGATED` at `native-ceiling`, because the VB 14 compiler
-rejects it with `BC30657`/`BC30643` while the modern compiler accepts it at `/langversion:14`. The
+rejects it with `BC30657`/`BC36954` while the modern compiler accepts it at `/langversion:14`. The
 reason the reach is that small is arithmetic, not a defect: a floor is probed against the rung
 *below* the row's own version, the corpus has no VB 10 or VB 12 rows, and VB 14 is the only native
 ceiling that lands one rung below a version this corpus files rows at. Every other VB floor rests on
@@ -595,7 +595,16 @@ number instead of publishing the number alone.
 
 Known probe-exempt rows, each verified to compile below its own version. The VB entries' floors are
 the measured ones — `dotnet scripts/verify-feature-floors.cs -- --language vb`, one row at a time,
-identical in both families:
+identical in both families.
+
+**This table is not the script's `EXEMPT` outcome, and the two must not be conflated.** This table
+lists every row whose `<LangVersion>` pin cannot gate it — the great majority of which the script
+*does* probe, and reports as `UNGATED` or `UNPROVEN` with a measured floor below the row's own
+version. The script's `EXEMPT` covers the narrower case where a floor probe cannot judge the row at
+all, so nothing is compiled: `LockStatement`, `EmbeddedInteropTypes` and the three VB 17.13
+consumption rows, which are listed with their reasons in `ExemptionReason` and in
+[`scripts/verify-feature-floors.md`](../../scripts/verify-feature-floors.md). Every row in *that*
+set appears here; most rows here are not in it.
 
 | Row | Version | Why the pin cannot gate it |
 |---|---|---|
@@ -612,8 +621,8 @@ identical in both families:
 | `ConsumingCSharpRefReturnValues` | VB 15 | Compiler behavior — compiles at 11 in both families, but the native VB 14 compiler rejects it, so the row is genuinely version-dependent and merely not `LangVersion`-gated |
 | `CommentsInMorePlaces` | VB 16.0 | Parser relaxation — compiles at 14 |
 | `OptimizedFloatToIntConversion` | VB 16.0 | An emit change; the results are identical, so nothing is observable — compiles at 11 |
-| `CallerArgumentExpressionConsumption` | VB 17.13 | Compiler behavior, not a language gate — compiles at 14 |
-| `OverloadResolutionPriorityConsumption` | VB 17.13 | Compiler behavior — compiles at 11 |
-| `UnmanagedConstraintRecognition` | VB 17.13 | Compiler behavior — the constraint is metadata VB 17.13 learned to honor, and no `LangVersion` value can gate a change with no syntax; compiles at 11 |
+| `CallerArgumentExpressionConsumption` | VB 17.13 | `EXEMPT`: metadata recognition, absent from the compilation the probe performs. Its own sources still floor at 14, on null-conditional access |
+| `OverloadResolutionPriorityConsumption` | VB 17.13 | `EXEMPT`: metadata recognition, absent from the compilation the probe performs — compiles at 11 |
+| `UnmanagedConstraintRecognition` | VB 17.13 | `EXEMPT`: the constraint is metadata VB 17.13 learned to honor, and no `LangVersion` value can gate a change with no syntax; compiles at 11 |
 
 `PrivateProtectedAccessModifier` is deliberately **not** in that table. It is gated, at 15.5.

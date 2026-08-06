@@ -39,5 +39,7 @@ Studio's `MSBuild.exe`.
 
 ## Related
 
-- [Under-placement is unguarded](under-placement-is-unguarded.md) — the guard that would keep
-  such a column honest once it exists
+- `scripts/verify-feature-floors.cs`'s `UNDER-PLACED` outcome — the guard that keeps such a column
+  honest. It is VB-only today, because a C# project owns its version folders on disk rather than
+  selecting them out of a shared tree; adopting per-pin placement for C# is what would give it
+  something to check.

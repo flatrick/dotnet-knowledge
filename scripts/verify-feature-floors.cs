@@ -95,9 +95,17 @@
 //   dotnet scripts/verify-feature-floors.cs -- --json
 //   dotnet scripts/verify-feature-floors.cs -- --offline
 //
-// Exit code is 1 when any group is MISPLACED or NOT-VERSION-SPECIFIC -- the two outcomes that mean
-// the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the toolchain's reach,
-// not corpus defects, and do not fail the run.
+// The VB half also gets the converse of MISPLACED. A project holds every row that compiles at its
+// pin, so after a project's own rows are classified, every row under its family's src/ that it
+// neither compiles nor explicitly Compile Removes is compiled at the pin: one that succeeds is
+// UNDER-PLACED, a row the project should be claiming. Without it, deleting a Compile Include leaves
+// every guard green while MANIFEST.md's Measured floor cell for that row silently becomes false.
+// C# needs no such check -- a C# project owns its version folders on disk -- and neither does VB's
+// my/ kind, which exists to house the one row needing MyType=Windows and claims nothing else.
+//
+// Exit code is 1 when any group is MISPLACED, UNDER-PLACED or NOT-VERSION-SPECIFIC -- the three
+// outcomes that mean the corpus is wrong. UNGATED, UNPROVEN and INCONCLUSIVE are findings about the
+// toolchain's reach, not corpus defects, and do not fail the run.
 
 using System.Diagnostics;
 using System.IO.Compression;
@@ -204,15 +212,17 @@ var vbProfile = new LanguageProfile(
 
 var profile = language == "vb" ? vbProfile : csharpProfile;
 
-var modernCompiler = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
-if (!File.Exists(modernCompiler))
+var modernCompilerPath = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
+if (!File.Exists(modernCompilerPath))
 {
-    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompiler}'.");
+    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompilerPath}'.");
     return 2;
 }
 
+var modernCompiler = new ProbeCompiler(modernCompilerPath, IsRoslyn: true);
+
 // Period compilers, keyed by the language version each one natively tops out at.
-var periodCompilers = new Dictionary<string, string>();
+var periodCompilers = new Dictionary<string, ProbeCompiler>();
 
 // The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
 // fixed. The C# list deliberately has no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in
@@ -226,7 +236,9 @@ foreach (var (version, directory) in profile.InBoxCompilers)
     var candidate = Path.Combine(frameworkRoot, directory, profile.CompilerFileName);
     if (File.Exists(candidate))
     {
-        periodCompilers[version] = candidate;
+        // Pre-Roslyn, so no /parallel switch: the in-box csc rejects it outright with fatal error
+        // CS2007 and the in-box vbc answers with command line warning BC2007 and ignores it.
+        periodCompilers[version] = new ProbeCompiler(candidate, IsRoslyn: false);
     }
 }
 
@@ -235,14 +247,29 @@ foreach (var (version, directory) in profile.InBoxCompilers)
 var packagedCompiler = await AcquirePackagedCompilerAsync(repoRoot, offline, profile);
 if (packagedCompiler is not null)
 {
-    periodCompilers[profile.PackagedCompilerCeiling] = packagedCompiler;
+    periodCompilers[profile.PackagedCompilerCeiling] = new ProbeCompiler(packagedCompiler, IsRoslyn: true);
 }
 
 var skippedProjects = new List<string>();
 
-var discovery = profile.Name == "VB"
-    ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
-    : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+// Discovery throws InvalidOperationException on a layout it cannot read -- a Compile glob whose
+// shape is not "<directory>/**/*.vb", a source file at an unexpected depth under src/, a version
+// folder naming no ladder rung. Failing loudly on those is deliberate, because a silently skipped
+// row is far worse; only the shape of the failure would otherwise be wrong. A malformed layout is a
+// setup problem, so it takes the documented exit 2 and prints the message the exception already
+// carries rather than a stack trace.
+Discovery discovery;
+try
+{
+    discovery = profile.Name == "VB"
+        ? DiscoverVbProjects(repoRoot, profile, projectFilter, skippedProjects)
+        : DiscoverCSharpProjects(repoRoot, profile, projectFilter, skippedProjects);
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine($"verify-feature-floors: {ex.Message}");
+    return 2;
+}
 
 if (discovery.Fatal is not null)
 {
@@ -255,9 +282,10 @@ Directory.CreateDirectory(workRoot);
 
 // The same group folder is duplicated across the cumulative projects, and its floor is a property
 // of the files rather than of the project holding them. Probe each distinct (scope, version,
-// content) once and reuse the verdict. The scope keeps rows that share a reference set together:
-// C# has one, and VB has one per family and project kind, since a net10 reference set and a net48
-// one can disagree about whether a row compiles at all.
+// content) once and reuse the verdict. The scope is derived from the project's resolved compile
+// inputs rather than declared, so a project whose reference set, constants or compiler options
+// differ from another's cannot silently reuse its verdict -- a net10 reference set and a net48 one
+// can disagree about whether a row compiles at all.
 var floorCache = new Dictionary<string, Verdict>(StringComparer.Ordinal);
 var results = new List<Result>();
 
@@ -266,9 +294,16 @@ foreach (var project in discovery.Projects)
     Console.Error.WriteLine($"verify-feature-floors: {project.Name} (ceiling {project.Ceiling})");
 
     ProjectInputs? inputs = null;
+    var resolutionFailed = false;
+    var scope = "";
 
-    // Resolving references costs a full MSBuild evaluation, so defer it until a project actually
-    // has work that needs it. False means the project resolved nothing usable and has been skipped.
+    // Resolving references costs a full MSBuild evaluation, so it still happens at most once per
+    // project and not at all for a project with nothing to classify. It can no longer be deferred
+    // past a cache read, though: the cache key names the reference set a verdict was measured
+    // against, and that is only knowable once the references are resolved. False means the project
+    // resolved nothing usable and has been skipped. The failure is latched, because the two loops
+    // below call this independently and a project should be reported skipped once, not once per
+    // loop that asked.
     bool EnsureInputs()
     {
         if (inputs is not null)
@@ -276,16 +311,23 @@ foreach (var project in discovery.Projects)
             return true;
         }
 
+        if (resolutionFailed)
+        {
+            return false;
+        }
+
         inputs = ResolveProjectInputs(msbuild, project.ProjectPath, profile);
         if (inputs.References.Length == 0)
         {
-            // Clear it again, so a later call re-reads the same failure instead of short-circuiting
-            // on a non-null field that was just declared unusable.
+            // Clear it again, so nothing downstream short-circuits on a non-null field that was
+            // just declared unusable.
             inputs = null;
+            resolutionFailed = true;
             skippedProjects.Add($"{project.Name}: MSBuild resolved no references");
             return false;
         }
 
+        scope = ScopeOf(inputs);
         return true;
     }
 
@@ -368,22 +410,25 @@ foreach (var project in discovery.Projects)
         var exemption = ExemptionReason(row.Group);
         if (exemption is not null)
         {
+            // Evidence.Exempt rather than WithAbovePinEvidence: no floor was measured here, and the
+            // at-the-pin compile such a row may have just received speaks to its placement, which
+            // the detail already records, not to its floor.
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", WithAbovePinNote(exemption, abovePinNote),
-                WithAbovePinEvidence(Evidence.None, abovePinNote)));
+                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.Exempt));
             continue;
         }
 
         var bucketExemption = ExemptionReason(row.VersionFolder);
 
-        var key = project.Scope + "|" + row.Version + "|" + HashFiles(row.Files);
+        // Before the key, not after: the scope half of it is this project's resolved reference set.
+        if (!EnsureInputs())
+        {
+            break;
+        }
+
+        var key = scope + "|" + row.Version + "|" + HashFiles(row.Files);
         if (!floorCache.TryGetValue(key, out var verdict))
         {
-            if (!EnsureInputs())
-            {
-                break;
-            }
-
             verdict = bucketExemption is not null
                 ? ProbeOwnVersion(profile, row.Version, row.Files, inputs!, workRoot, modernCompiler,
                     bucketExemption)
@@ -396,11 +441,42 @@ foreach (var project in discovery.Projects)
             verdict.Outcome, WithAbovePinNote(verdict.Detail, abovePinNote),
             WithAbovePinEvidence(verdict.Evidence, abovePinNote)));
     }
+
+    // Second pass, and it has to be one: the loop above only ever visits rows the project claims,
+    // and this is the converse question. MISPLACED catches a project claiming a row it cannot build;
+    // nothing caught a row a project should claim and does not. Delete a Compile Include for a row
+    // placed below its own version and the project still builds, VbSourceCoverageTests still passes
+    // because some other project compiles the file, and the floor probe still passes because it only
+    // classifies claimed rows -- while that row's Measured floor cell in MANIFEST.md silently
+    // becomes false. UnclaimedRows is empty for every C# project and for VB's my/ kind.
+    if (project.UnclaimedRows.Count > 0)
+    {
+        var pinArg = profile.LangVersionArg(project.Ceiling);
+        if (pinArg is null)
+        {
+            skippedProjects.Add(
+                $"{project.Name}: {profile.Name} {project.Ceiling} has no /langversion spelling, so the rows it does not claim were not checked");
+        }
+        else if (EnsureInputs())
+        {
+            foreach (var row in project.UnclaimedRows)
+            {
+                var atPin = Compile(profile, modernCompiler, pinArg, row.Files, inputs!, workRoot);
+                if (atPin.Succeeded)
+                {
+                    results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
+                        "UNDER-PLACED",
+                        $"this project does not claim the row, but it compiles at the pin (/langversion:{pinArg}); a project holds every row that compiles at its pin, so either the Compile item is missing or the row's measured floor is wrong",
+                        Evidence.SdkPin));
+                }
+            }
+        }
+    }
 }
 
 Report(profile, results, skippedProjects, periodCompilers, emitJson);
 
-var failures = results.Count(r => r.Outcome is "MISPLACED" or "NOT-VERSION-SPECIFIC");
+var failures = results.Count(r => r.Outcome is "MISPLACED" or "UNDER-PLACED" or "NOT-VERSION-SPECIFIC");
 return failures > 0 ? 1 : 0;
 
 // ---------------------------------------------------------------------------------------------
@@ -428,7 +504,7 @@ static Verdict ProbeOwnVersion(
     string[] files,
     ProjectInputs inputs,
     string workRoot,
-    string modernCompiler,
+    ProbeCompiler modernCompiler,
     string exemption)
 {
     var ownArg = profile.LangVersionArg(featureVersion);
@@ -451,8 +527,8 @@ static Verdict ProbeFloor(
     string[] files,
     ProjectInputs inputs,
     string workRoot,
-    string modernCompiler,
-    Dictionary<string, string> periodCompilers)
+    ProbeCompiler modernCompiler,
+    Dictionary<string, ProbeCompiler> periodCompilers)
 {
     // Step 1 -- the group must stand on its own at its own language version, or nothing below
     // this can be interpreted.
@@ -538,14 +614,14 @@ static Verdict ProbeFloor(
     var gate = periodCompilers
         .Where(kv => LadderIndex(profile.Ladder, kv.Key) > LadderIndex(profile.Ladder, floor))
         .OrderBy(kv => LadderIndex(profile.Ladder, kv.Key))
-        .Select(kv => (Ceiling: kv.Key, Path: kv.Value))
+        .Select(kv => (Ceiling: kv.Key, Compiler: kv.Value))
         .FirstOrDefault();
 
-    if (legacyArg is not null && gate.Path is not null)
+    if (legacyArg is not null && gate.Compiler is not null)
     {
         // Control run first. Unless this compiler can handle the files at its own ceiling, a
         // failure at the floor says nothing about language versions.
-        var control = Compile(profile, gate.Path, langVersion: null, files, inputs, workRoot);
+        var control = Compile(profile, gate.Compiler, langVersion: null, files, inputs, workRoot);
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
@@ -553,7 +629,7 @@ static Verdict ProbeFloor(
                 Evidence.None);
         }
 
-        var legacy = Compile(profile, gate.Path, legacyArg, files, inputs, workRoot);
+        var legacy = Compile(profile, gate.Compiler, legacyArg, files, inputs, workRoot);
         if (!legacy.Succeeded)
         {
             return new Verdict("UNGATED",
@@ -583,7 +659,7 @@ static string TrivialSource(LanguageProfile profile, string workRoot)
 
 static CompileResult Compile(
     LanguageProfile profile,
-    string compiler,
+    ProbeCompiler compiler,
     string? langVersion,
     string[] files,
     ProjectInputs inputs,
@@ -613,6 +689,26 @@ static CompileResult Compile(
         }
 
         rsp.AppendLine($"/vbruntime:\"{vbRuntime}\"");
+
+        // A VB compilation prepends RootNamespace to every declaration, so a probe that omits it
+        // compiles the row in a different namespace than the project that ships it. csc has no
+        // /rootnamespace switch, which is why this is inside the VB branch.
+        if (!string.IsNullOrWhiteSpace(inputs.RootNamespace))
+        {
+            rsp.AppendLine($"/rootnamespace:{inputs.RootNamespace}");
+        }
+
+        // Roslyn's vbc binds method bodies concurrently, so which of several genuine errors a
+        // rejection reports first varies per process and makes the Detail string in --json
+        // irreproducible. Serializing binding fixes the reported diagnostic without changing the
+        // outcome. VB only, because that is where the rotation has been observed and C#'s --json is
+        // reproducible as it stands; Roslyn only, because /parallel does not exist before it -- the
+        // in-box csc rejects the switch with CS2007 and the in-box vbc warns with BC2007, which
+        // would then be the first diagnostic line the report picked up.
+        if (compiler.IsRoslyn)
+        {
+            rsp.AppendLine("/parallel-");
+        }
     }
     else
     {
@@ -645,7 +741,7 @@ static CompileResult Compile(
     var rspPath = Path.Combine(outDir, "probe.rsp");
     File.WriteAllText(rspPath, rsp.ToString());
 
-    var psi = new ProcessStartInfo(compiler, $"/noconfig @\"{rspPath}\"")
+    var psi = new ProcessStartInfo(compiler.Path, $"/noconfig @\"{rspPath}\"")
     {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
@@ -701,8 +797,8 @@ static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, La
     var query = profile.Name == "VB"
         ? "-getItem:ReferencePath -getItem:Import -getProperty:FinalDefineConstants"
           + " -getProperty:OptionExplicit -getProperty:OptionStrict -getProperty:OptionInfer"
-          + " -getProperty:OptionCompare"
-        : "-getItem:ReferencePath -getProperty:DefineConstants";
+          + " -getProperty:OptionCompare -getProperty:RootNamespace"
+        : "-getItem:ReferencePath -getProperty:DefineConstants -getProperty:RootNamespace";
 
     var json = Run(msbuild, $"\"{projectPath}\" -t:ResolveReferences {query} -nologo");
 
@@ -740,17 +836,24 @@ static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, La
             defines = define.GetString();
         }
 
+        string? rootNamespace = null;
+        if (properties.ValueKind == JsonValueKind.Object
+            && properties.TryGetProperty("RootNamespace", out var declaredRoot))
+        {
+            rootNamespace = declaredRoot.GetString();
+        }
+
         var options = new List<string>();
         if (profile.Name == "VB")
         {
             options.AddRange(VbOptions(properties, items));
         }
 
-        return new ProjectInputs(references, defines, options);
+        return new ProjectInputs(references, defines, rootNamespace, options);
     }
     catch (JsonException)
     {
-        return new ProjectInputs(Array.Empty<string>(), null, Array.Empty<string>());
+        return new ProjectInputs(Array.Empty<string>(), null, null, Array.Empty<string>());
     }
 }
 
@@ -881,8 +984,9 @@ static Discovery DiscoverCSharpProjects(
             }
         }
 
-        // One cache scope: every CSharp_v* project resolves against the same net48 reference set.
-        projects.Add(new ProbeProject(projectName, csproj, ceiling, Scope: "", rows));
+        // No unclaimed rows: a C# project owns its version folders on disk, so there is no shared
+        // tree for it to be under-claiming from.
+        projects.Add(new ProbeProject(projectName, csproj, ceiling, rows, []));
     }
 
     return new Discovery(projects, null);
@@ -917,7 +1021,6 @@ static Discovery DiscoverVbProjects(
     foreach (var family in families)
     {
         var sourceRoot = Path.Combine(family, "src");
-        var familyName = Path.GetRelativePath(vbRoot, family).Replace('\\', '/');
         var familyProjects = new List<ProbeProject>();
 
         foreach (var projectPath in Directory
@@ -940,20 +1043,27 @@ static Discovery DiscoverVbProjects(
             }
 
             var rows = VbRows(projectPath, sourceRoot, profile);
-            if (rows.Count == 0)
+            if (rows.Rows.Count == 0)
             {
                 skippedProjects.Add($"{projectName}: compiles no row folders under src/");
                 continue;
             }
 
-            // A net10 reference set and a net48 one disagree about what is available, and the my/
-            // projects compile with _MyType defined, so each of those is its own cache scope.
-            var scope = familyName + "|" + Path.GetFileName(projectDirectory);
-            familyProjects.Add(new ProbeProject(projectName, projectPath, ceiling, scope, rows));
+            // Under-placement is checked for a family's mainline library projects only. The my/ kind
+            // exists to house the one row that needs MyType=Windows, a per-compilation switch that
+            // cannot be scoped to a folder; it claims that row and nothing else by construction, so
+            // the rest of src/ being unclaimed there is the housing decision rather than a defect.
+            var kind = Path.GetFileName(projectDirectory);
+            var unclaimed = kind.Equals("library", StringComparison.OrdinalIgnoreCase)
+                ? UnclaimedVbRows(sourceRoot, rows, profile)
+                : [];
+
+            familyProjects.Add(
+                new ProbeProject(projectName, projectPath, ceiling, rows.Rows, unclaimed));
         }
 
         // Ascending pin order, so the lowest project probes each row first and the pins above it
-        // read the verdict out of the cache instead of paying for a second reference resolution.
+        // read the verdict out of the cache instead of paying to compile the row again.
         projects.AddRange(familyProjects
             .OrderBy(p => LadderIndex(profile.Ladder, p.Ceiling))
             .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
@@ -974,7 +1084,10 @@ static Discovery DiscoverVbProjects(
 // src/<version folder>/<group>/ path each surviving file sits under. Honoring Remove is what keeps
 // MyNamespaceHelpers attributed to the my/ projects alone; a directory-prefix reading would file it
 // under every library project too, none of which compiles it.
-static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
+//
+// The removed rows are returned alongside the compiled ones, because the under-placement check
+// needs them: a row a project deliberately excludes is a policy statement, not a row it forgot.
+static VbProjectRows VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
 {
     var projectDirectory = Path.GetDirectoryName(projectPath)!;
     var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1001,15 +1114,7 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
     var buckets = new Dictionary<(string Folder, string Group), List<string>>();
     foreach (var file in included)
     {
-        var relative = Path.GetRelativePath(sourceRoot, file);
-        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (segments.Length < 3 || segments[0] == "..")
-        {
-            throw new InvalidOperationException(
-                $"{projectPath} compiles '{file}', which is not a src/<version folder>/<group>/ row.");
-        }
-
-        var key = (segments[0], segments[1]);
+        var key = RowKey(projectPath, sourceRoot, file);
         if (!buckets.TryGetValue(key, out var files))
         {
             files = [];
@@ -1019,7 +1124,7 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
         files.Add(file);
     }
 
-    return buckets
+    var rows = buckets
         .Select(bucket => new RowGroup(
             bucket.Key.Folder,
             VbRowVersion(bucket.Key.Folder)
@@ -1027,6 +1132,68 @@ static List<RowGroup> VbRows(string projectPath, string sourceRoot, LanguageProf
                     $"{projectPath} compiles rows from '{bucket.Key.Folder}', which names no VB version."),
             bucket.Key.Group,
             bucket.Value.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray()))
+        .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
+        .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    var removedRows = removed
+        .Select(file => RowKey(projectPath, sourceRoot, file))
+        .ToHashSet();
+
+    return new VbProjectRows(rows, removedRows);
+}
+
+// Which src/<version folder>/<group>/ row a file belongs to. A file the project names but that does
+// not sit at that depth is a layout the probe cannot read, and saying so beats guessing.
+static (string Folder, string Group) RowKey(string projectPath, string sourceRoot, string file)
+{
+    var relative = Path.GetRelativePath(sourceRoot, file);
+    var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    if (segments.Length < 3 || segments[0] == "..")
+    {
+        throw new InvalidOperationException(
+            $"{projectPath} names '{file}' in a Compile item, which is not a src/<version folder>/<group>/ row.");
+    }
+
+    return (segments[0], segments[1]);
+}
+
+// Every row folder under a family's src/ that this project neither compiles nor explicitly removes.
+// The under-placement check compiles each of these at the project's pin: the corpus's model is that
+// a project holds every row that compiles at its pin, so one that succeeds here is a row the project
+// should be claiming and is not.
+static List<RowGroup> UnclaimedVbRows(string sourceRoot, VbProjectRows rows, LanguageProfile profile)
+{
+    var claimed = rows.Rows.Select(row => (row.VersionFolder, row.Group)).ToHashSet();
+    var unclaimed = new List<RowGroup>();
+
+    foreach (var versionDir in Directory.EnumerateDirectories(sourceRoot))
+    {
+        var folder = Path.GetFileName(versionDir);
+        var version = VbRowVersion(folder)
+            ?? throw new InvalidOperationException(
+                $"'{sourceRoot}' holds a folder '{folder}', which names no VB version.");
+
+        foreach (var groupDir in Directory.EnumerateDirectories(versionDir))
+        {
+            var group = Path.GetFileName(groupDir);
+            if (claimed.Contains((folder, group)) || rows.Removed.Contains((folder, group)))
+            {
+                continue;
+            }
+
+            var files = Directory
+                .EnumerateFiles(groupDir, "*" + profile.SourceExtension, SearchOption.AllDirectories)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (files.Length > 0)
+            {
+                unclaimed.Add(new RowGroup(folder, version, group, files));
+            }
+        }
+    }
+
+    return unclaimed
         .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
         .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
         .ToList();
@@ -1126,7 +1293,7 @@ static void Report(
     LanguageProfile profile,
     List<Result> results,
     List<string> skippedProjects,
-    Dictionary<string, string> periodCompilers,
+    Dictionary<string, ProbeCompiler> periodCompilers,
     bool emitJson)
 {
     // Ladder order, not string order: VB's rungs are bare numbers, and sorting them as text puts 11
@@ -1149,9 +1316,11 @@ static void Report(
 
     // Every group is listed under its outcome. Nothing is capped -- a quietly shortened report
     // reads as a clean corpus.
+    // Every outcome the run can produce has to appear here, or it is dropped from both the sectioned
+    // report and the Totals line.
     var order = new[]
     {
-        "MISPLACED", "NOT-VERSION-SPECIFIC", "UNGATED", "UNPROVEN", "INCONCLUSIVE",
+        "MISPLACED", "UNDER-PLACED", "NOT-VERSION-SPECIFIC", "UNGATED", "UNPROVEN", "INCONCLUSIVE",
         "EXEMPT", "BASELINE", "GATED",
     };
 
@@ -1292,6 +1461,18 @@ static string? ExemptionReason(string group) => group switch
         + "This harness compiles with /reference: only, so the feature is absent from the "
         + "compilation it performs and no compiler version can reveal it",
 
+    // VB's three 17.13 consumption rows are one category: each demonstrates the compiler honoring
+    // metadata a C# assembly emitted, and VB cannot express any of the three in source at all.
+    "CallerArgumentExpressionConsumption" or "OverloadResolutionPriorityConsumption"
+        or "UnmanagedConstraintRecognition" =>
+        "the VB 17.13 consumption rows demonstrate the compiler honoring metadata a C# assembly "
+        + "emitted -- CallerArgumentExpression, OverloadResolutionPriority, the unmanaged "
+        + "constraint -- and VB can express none of the three in source. The feature is absent "
+        + "from the compilation this harness performs, so no compiler version can reject it. A "
+        + "gated construct elsewhere in such a row -- CallerArgumentExpressionConsumption uses "
+        + "null-conditional access, VB 14 -- fixes a floor for that row's own sources and still "
+        + "says nothing about the 17.13 feature, which is what the probe is asked about",
+
     "Baseline" =>
         "the Baseline bucket spans VS.NET 2002 to VS2012, and the upstream sources give no "
         + "per-version attribution below VB 14. No single previous-version pin is meaningful for "
@@ -1428,6 +1609,33 @@ static string? ReadLangVersion(string projectPath, LanguageProfile profile)
     return null;
 }
 
+// The floor cache's scope, derived from what a probe compile actually depends on rather than
+// declared alongside the project. Two projects share a cached verdict only when they resolve the
+// same reference set, the same conditional-compilation constants and the same compiler options --
+// the inputs that decide whether a row compiles at all. References are sorted first, so a set that
+// MSBuild happens to emit in a different order is still recognized as the same set.
+//
+// RootNamespace is deliberately excluded even though the probe passes it. It renames the
+// declarations a row emits without bearing on whether they compile, and it differs at every pin by
+// design, so hashing it would give each pin its own scope and empty the cache without making a
+// single verdict more accurate.
+static string ScopeOf(ProjectInputs inputs)
+{
+    var buffer = new StringBuilder();
+    foreach (var reference in inputs.References.OrderBy(r => r, StringComparer.OrdinalIgnoreCase))
+    {
+        buffer.Append(reference).Append('\0');
+    }
+
+    buffer.Append('\n').Append(inputs.Defines).Append('\0');
+    foreach (var option in inputs.Options)
+    {
+        buffer.Append(option).Append('\0');
+    }
+
+    return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(buffer.ToString())));
+}
+
 static string HashFiles(string[] files)
 {
     using var sha = SHA256.Create();
@@ -1522,9 +1730,20 @@ static class Evidence
     // Only the installed SDK's compiler under /langversion bears on this floor.
     public const string SdkPin = "sdk-pin";
 
+    // The row is exempt from the floor probe, so no floor was measured and there is no evidence to
+    // tier. Distinct from None, which reports that something was compiled and none of it bears on
+    // the floor. Any compile such a row did receive -- the at-the-pin check a row filed above its
+    // project's pin gets -- speaks to the placement rather than to the floor.
+    public const string Exempt = "exempt";
+
     // Nothing compiled here bears on the floor.
     public const string None = "none";
 }
+
+// One compiler the probe drives, and whether it is a Roslyn build. The flag exists because
+// /parallel- is a Roslyn switch: the in-box csc rejects it with fatal error CS2007, and the in-box
+// vbc answers with command line warning BC2007 and ignores it.
+record ProbeCompiler(string Path, bool IsRoslyn);
 
 // A language's identity within this probe: how to find its files, spell its language versions on
 // the compiler command line, and walk its version ladder.
@@ -1547,19 +1766,33 @@ record LanguageProfile(
 // resolves to because a bucket exemption is keyed on the folder name, not on the group.
 record RowGroup(string VersionFolder, string Version, string Group, string[] Files);
 
-// One project to probe, with the rows it compiles already resolved. Scope names the reference set
-// its rows are probed against, so the floor cache never reuses a verdict across incompatible ones.
+// One project to probe, with the rows it compiles already resolved. The floor cache's scope is not
+// here: it is derived from the project's resolved compile inputs by ScopeOf, which needs an MSBuild
+// evaluation and so cannot be settled at discovery time.
 record ProbeProject(
     string Name,
     string ProjectPath,
     string Ceiling,
-    string Scope,
-    IReadOnlyList<RowGroup> Rows);
+    IReadOnlyList<RowGroup> Rows,
+    IReadOnlyList<RowGroup> UnclaimedRows);
+
+// What a VB project says about its family's shared src/ tree: the rows it compiles, and the rows it
+// explicitly excludes. The second set is what keeps a deliberate Compile Remove from reading as an
+// under-placement.
+record VbProjectRows(List<RowGroup> Rows, HashSet<(string Folder, string Group)> Removed);
 
 record Discovery(List<ProbeProject> Projects, string? Fatal);
 
-// Everything a probe compile needs from a project besides its sources.
-record ProjectInputs(string[] References, string? Defines, IReadOnlyList<string> Options);
+// Everything a probe compile needs from a project besides its sources. RootNamespace is VB-only in
+// effect: a VB compilation prepends it to every declaration, so omitting it compiles the row in a
+// different namespace than the project that ships it. csc has no such switch -- in C# the property
+// only seeds new-file templates -- so it is resolved for both languages and emitted for neither but
+// VB.
+record ProjectInputs(
+    string[] References,
+    string? Defines,
+    string? RootNamespace,
+    IReadOnlyList<string> Options);
 
 record Result(
     string Project,
