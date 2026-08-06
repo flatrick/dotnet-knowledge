@@ -10,4 +10,5 @@ file when the item is resolved; `git log` is the record.
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
 | [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
+| [The net48 C# projects are in no build matrix](net48-csharp-projects-are-in-no-build-matrix.md) | corpus, tests | Eleven need a host the suite does not use; the three that do not are simply unclaimed |
 | [Glob resolution is implemented twice](glob-resolution-is-implemented-twice.md) | tooling, tests | The two agree; sharing code across the boundary is not possible |
