@@ -173,14 +173,23 @@ gaps are VB 10 and VB 12, and nothing above VB 14 has a native ceiling at all.
 compiler are not the same claim: `native-ceiling` (a compiler topping out at the rung below settled
 it — stable), `legacy-pin` (a pre-Roslyn compiler held to that rung; a rejection proves version
 dependence, an acceptance proves nothing), `sdk-pin` (only the installed SDK under `/langversion` —
-a fact about today's toolchain, which drifts), and `none`.
+a fact about today's toolchain, which drifts), `exempt` (no probe evidence is possible for this row
+at all, which is a different claim from having gathered none), and `none`.
 
-`MISPLACED` and `NOT-VERSION-SPECIFIC` fail the run. `UNGATED`, `UNPROVEN`, `BASELINE` and
-`INCONCLUSIVE` report what the available compilers can and cannot settle. `EXEMPT` covers rows a
-floor probe structurally cannot judge — `LockStatement` (filed under C# 3.0 to mirror the source
-document, though `lock` is C# 1.0), `EmbeddedInteropTypes` (NoPIA lives in the reference, not the
-source), and VB's `Baseline` bucket (it spans VS.NET 2002 to VS2012, so no single previous-version
-pin is meaningful; it gets the own-version check only). Windows and Visual Studio's MSBuild only.
+`MISPLACED`, `NOT-VERSION-SPECIFIC` and `UNDER-PLACED` fail the run. `UNGATED`, `UNPROVEN`,
+`BASELINE` and `INCONCLUSIVE` report what the available compilers can and cannot settle. `EXEMPT`
+covers rows a floor probe structurally cannot judge — `LockStatement` (filed under C# 3.0 to mirror
+the source document, though `lock` is C# 1.0), `EmbeddedInteropTypes` (NoPIA lives in the reference,
+not the source), the three VB 17.13 consumption rows (`UnmanagedConstraintRecognition`,
+`CallerArgumentExpressionConsumption`, `OverloadResolutionPriorityConsumption` — each demonstrates
+the compiler honoring metadata a C# assembly emitted, which no `LangVersion` gates), and VB's
+`Baseline` bucket (it spans VS.NET 2002 to VS2012, so no single previous-version pin is meaningful;
+it gets the own-version check only). Windows and Visual Studio's MSBuild only.
+
+**`UNDER-PLACED` is the converse of `MISPLACED`.** A project holds *every* row that compiles at its
+pin, so a row a project could build and does not claim is as much a defect as one it claims and
+cannot. The check compiles each unclaimed `src/` row at the pin; VB only, since C# projects own
+their rows on disk rather than globbing a shared tree.
 
 **`MISPLACED` means a stale project file.** A project holds every row that compiles at its pin,
 including rows filed above it that `LangVersion` does not gate, so being filed above the pin is the

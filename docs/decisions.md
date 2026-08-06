@@ -24,6 +24,15 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · The corpus build matrix keeps `-t:Rebuild` and gains parallelism instead
+
+Dropping `-t:Rebuild` was rejected on correctness: over an unchanged tree a plain build logs
+`Skipping target "CoreCompile" because all output files are up-to-date` and still reports 0 warnings
+and 0 errors — a green gate that compiled nothing. Deleting each output directory first is sound but
+saved only 10% (125.1 s against 138.8 s). Prebuilding the two shared references
+(`CSharpComTypeLib`, `CSharp_v8.0`) and building the matrix concurrently behind them took the suite
+from ~157 s to ~55 s while keeping the clean-compile guarantee.
+
 ### 2026-08-06 · Whole-corpus scans stay uncached
 
 `search_api_text` and `find_api_references` re-read every XML file in every selected source on every

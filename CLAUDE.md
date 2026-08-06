@@ -179,11 +179,16 @@ net48 projects stay Windows-only regardless, because they need Visual Studio's `
   `/langversion:5`, `Variance` (C# 2.0) at `ISO-1`. `scripts/verify-feature-floors.cs` settles these
   by escalating to compilers at a *native* ceiling — the in-box `%WINDIR%\Microsoft.NET\Framework64`
   csc for C# 2/3/5, `Microsoft.Net.Compilers` 1.3.2 for C# 6. C# 4 and C# 1.x have no compiler on a
-  modern machine, so those floors report `UNPROVEN` rather than a guess. `MISPLACED` and
-  `NOT-VERSION-SPECIFIC` fail the run; every other outcome is a finding about the toolchain.
-  Every verdict also carries an `evidence` field — `native-ceiling`, `legacy-pin`, `sdk-pin`, `none`
-  — because a floor settled by the installed SDK under `/langversion` is a fact about today's
-  toolchain and drifts, while one settled at a native ceiling does not.
+  modern machine, so those floors report `UNPROVEN` rather than a guess. `MISPLACED`,
+  `NOT-VERSION-SPECIFIC` and `UNDER-PLACED` fail the run; every other outcome is a finding about the
+  toolchain. Every verdict also carries an `evidence` field — `native-ceiling`, `legacy-pin`,
+  `sdk-pin`, `exempt`, `none` — because a floor settled by the installed SDK under `/langversion` is
+  a fact about today's toolchain and drifts, while one settled at a native ceiling does not, and a
+  row no compiler version could ever speak to is a third thing again.
+- **`UNDER-PLACED` is the converse of `MISPLACED`.** A project holds *every* row that compiles at
+  its pin, so a row it could build and does not claim is as much a defect as one it claims and
+  cannot build. The check compiles each unclaimed `src/` row at the pin; VB only, because C#
+  projects own their rows on disk rather than globbing a shared tree.
 - **`MISPLACED` means a stale project file, not a row filed above its pin.** A project deliberately
   holds every row that compiles at its pin, so sitting above the pin is the corpus's model rather
   than an error. The probe compiles such a row at the pin first: accepted, it goes through the normal
