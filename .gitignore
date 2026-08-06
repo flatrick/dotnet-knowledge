@@ -42,6 +42,13 @@ node_modules/
 # .claude/ (shared settings, skills) is meant to be committed, so this is deliberately not `.claude/`.
 .claude/settings.local.json
 
+# Agent session artifacts. `.superpowers/` holds per-session spec-driven-development working state,
+# the same category as `.scratch/` — a record of how one session proceeded, not content this
+# repository asserts. The tooling writes a nested `.superpowers/sdd/.gitignore` containing `*`, so
+# its contents are already ignored; this entry is a repository-level backstop that does not depend
+# on a generated file continuing to exist, and it covers siblings of `sdd/` that carry no such file.
+.superpowers/
+
 # Visual Studio's per-solution local state. Every corpus project carries a .slnx, so opening
 # any of them writes a .vs/ tree — design-time build caches, file-content and Copilot indices,
 # window layout, and the binary .suo. All of it is machine-local and none of it is content.
