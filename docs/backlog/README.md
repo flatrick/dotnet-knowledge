@@ -12,4 +12,4 @@ file when the item is resolved; `git log` is the record.
 | [`find_api_references` reads attribute applications in C# short form](attribute-references-use-csharp-short-form.md) | server | Resolving the suffix is decidable only inside an attribute application; the payload question is open |
 | [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
 | [Glob resolution is implemented twice](glob-resolution-is-implemented-twice.md) | tooling, tests | The two agree; sharing code across the boundary is not possible |
-| [C# has no measured-floor column](csharp-has-no-measured-floor-column.md) | corpus | Requires the C# tree to adopt per-pin placement first |
+| [C# has no measured-floor column](csharp-has-no-measured-floor-column.md) | corpus | The sweep settled the shape — a probe-derived column, not a restructure — but the column is not built |
