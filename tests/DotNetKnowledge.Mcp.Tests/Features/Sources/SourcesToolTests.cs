@@ -184,14 +184,21 @@ public sealed class SourcesToolTests
                 CancellationToken.None,
                 @ref: null);
 
-            Assert.HasCount(5, recorder.Notifications);
+            // One notification per stage, each stage named exactly once, and a running count that
+            // reaches the denominator exactly. A skipped or doubled stage leaves the count short of
+            // its total or past it, which is the failure the client would see as a stalled bar.
+            Assert.HasCount(ExpectedStages.Length, recorder.Notifications);
             for (var index = 0; index < ExpectedStages.Length; index++)
             {
                 var notification = recorder.Notifications[index];
                 Assert.AreEqual((float)(index + 1), notification.Progress);
-                Assert.AreEqual(5f, notification.Total);
-                StringAssert.Contains(notification.Message, "local");
+                Assert.AreEqual((float)ExpectedStages.Length, notification.Total);
+                Assert.AreEqual($"local: {ExpectedStages[index]}", notification.Message);
             }
+
+            Assert.AreEqual(
+                recorder.Notifications[^1].Total,
+                recorder.Notifications[^1].Progress);
         }
         finally
         {
