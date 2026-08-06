@@ -127,6 +127,16 @@ internal static class ApiDocsFixture
         """;
 
     /// <summary>
+    /// A type one namespace below <c>System</c>, so a pattern naming <c>System</c> has both a
+    /// direct member and a descendant to tell apart. Its name shares no substring with the types
+    /// in <c>System</c>, and <c>System.Widgets</c> is a whole segment that <c>Widget</c> must not
+    /// match.
+    /// </summary>
+    public const string GadgetXml = """
+        <Type Name="Gadget" FullName="System.Widgets.Gadget" />
+        """;
+
+    /// <summary>
     /// A type whose fully-qualified name is <c>System.Widget.Create</c>, so that one symbol string
     /// resolves as a type in the source holding this file and as <c>System.Widget</c>'s member
     /// <c>Create</c> in the source holding <see cref="WidgetXml"/>.
@@ -158,6 +168,7 @@ internal static class ApiDocsFixture
                 ("xml/System/Widget.xml", WidgetXml),
                 ("xml/System/WidgetKit.xml", WidgetKitXml),
                 ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
+                ("xml/System.Widgets/Gadget.xml", GadgetXml),
             ]);
         var catalogPath = Path.Combine(root, "sources.json");
         await WriteCatalogAsync(catalogPath, repository, pin);

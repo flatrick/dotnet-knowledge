@@ -177,6 +177,34 @@ public sealed class ApiDocsToolTests
     }
 
     [TestMethod]
+    public async Task SearchApiSaysHowFarBelowTheNamedNamespaceEachMatchSits()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            var json = await ApiDocsTool.SearchApi("System", service, CancellationToken.None, limit: 100);
+
+            using var document = JsonDocument.Parse(json);
+            var items = document.RootElement.GetProperty("items")
+                .EnumerateArray()
+                .ToDictionary(item => item.GetProperty("name").GetString()!, item => item);
+
+            // Both readings are returned, as they must be, but a caller wanting only what is
+            // declared in System itself cannot otherwise express it.
+            Assert.AreEqual(0, items["System.Widget"].GetProperty("namespaceDepth").GetInt32());
+            Assert.AreEqual(1, items["System.Widgets.Gadget"].GetProperty("namespaceDepth").GetInt32());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupApiReturnsInvalidCursorForAMalformedCursor()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

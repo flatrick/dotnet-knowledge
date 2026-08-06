@@ -838,9 +838,13 @@ public sealed class ApiDocsQueryService
             foreach (var file in Directory.EnumerateFiles(namespaceDirectory, "*.xml"))
             {
                 var typeName = Path.GetFileNameWithoutExtension(file);
-                var matchedOn = ClassifyMatch(namespaceSegments, typeName, pattern, patternSegments);
+                var (matchedOn, namespaceDepth) =
+                    ClassifyMatch(namespaceSegments, typeName, pattern, patternSegments);
                 if (matchedOn is not null)
-                    items.Add(new ApiSearchItem($"{namespaceName}.{typeName}", matchedOn, provenance));
+                {
+                    items.Add(new ApiSearchItem(
+                        $"{namespaceName}.{typeName}", matchedOn, namespaceDepth, provenance));
+                }
             }
         }
 
@@ -848,7 +852,8 @@ public sealed class ApiDocsQueryService
     }
 
     /// <summary>
-    /// Decides which part of a fully-qualified name a pattern matched, or null for no match.
+    /// Decides which part of a fully-qualified name a pattern matched, or null for no match, and
+    /// for a namespace match how far below the named namespace the type sits.
     /// </summary>
     /// <remarks>
     /// A caller cannot know which kind of string it is holding — a whole name copied out of a
@@ -859,7 +864,7 @@ public sealed class ApiDocsQueryService
     /// it as a namespace would bury the type the caller wanted under everything that namespace
     /// holds.
     /// </remarks>
-    private static string? ClassifyMatch(
+    private static (string? MatchedOn, int? NamespaceDepth) ClassifyMatch(
         string[] namespaceSegments,
         string typeName,
         string pattern,
@@ -872,20 +877,26 @@ public sealed class ApiDocsQueryService
         fullNameSegments[^1] = typeName;
 
         var runStart = IndexOfSegmentRun(fullNameSegments, patternSegments);
+        var runEnd = runStart + patternSegments.Length - 1;
         if (runStart >= 0)
         {
-            var runEnd = runStart + patternSegments.Length - 1;
             // Only a multi-segment run reaching the type name is a whole-name match. A single
             // segment equal to the type name is just a type match spelled exactly.
             if (runEnd == fullNameSegments.Length - 1 && patternSegments.Length > 1)
-                return ApiNameMatch.FullName;
+                return (ApiNameMatch.FullName, null);
         }
 
         // Substring, not segment: "Concurrent" has to keep finding ConcurrentDictionary.
         if (typeName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-            return ApiNameMatch.Type;
+            return (ApiNameMatch.Type, null);
 
-        return runStart >= 0 ? ApiNameMatch.Namespace : null;
+        // A run ending one segment before the type name names the namespace the type is declared
+        // in; one ending earlier names an ancestor of it. Reported rather than filtered, because
+        // the descendant reading is what a caller naming a namespace means nearly every time, and
+        // a page already in hand is where the narrowing costs nothing.
+        return runStart >= 0
+            ? (ApiNameMatch.Namespace, fullNameSegments.Length - 2 - runEnd)
+            : (null, null);
     }
 
     /// <summary>

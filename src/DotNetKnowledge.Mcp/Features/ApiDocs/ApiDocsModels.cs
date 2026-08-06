@@ -56,9 +56,16 @@ public sealed record ApiLookupResult(
     bool IsPartial,
     string? NextPageToken);
 
+/// <param name="NamespaceDepth">
+/// How many namespace segments sit between the namespace the pattern named and the type — 0 for a
+/// type declared directly in it, 1 for one a namespace below, and so on. Present only on a
+/// <see cref="ApiNameMatch.Namespace"/> match, where it is the only thing separating "declared in
+/// this namespace" from "declared anywhere under it".
+/// </param>
 public sealed record ApiSearchItem(
     string Name,
     string MatchedOn,
+    int? NamespaceDepth,
     SourceProvenance Source);
 
 /// <summary>

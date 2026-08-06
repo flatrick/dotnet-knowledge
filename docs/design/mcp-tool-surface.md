@@ -69,6 +69,10 @@ search_api(pattern, limit?, cursor?)
     → matchedOn: "fullName" | "type" | "namespace" — so "every type in
       this namespace" is distinguishable from "types whose name contains
       this"
+    → namespaceDepth, on a namespace match only: 0 for a type declared in
+      the named namespace itself, 1 for one a namespace below it, and so
+      on — the descendants always come back, and this is what separates
+      them
 search_api_text(query, source?, limit?, cursor?)
     query: a literal, case-insensitive substring — no regex, see
       "Searching API documentation text" below
@@ -187,6 +191,16 @@ did not ask, and it cannot tell without being told. `fullName` outranks `type`, 
 `namespace`, so the most specific reading an item supports is the one reported; a multi-segment run
 reaching the type name is `fullName`, while a single segment equal to the type name is just `type`
 spelled exactly.
+
+**A namespace pattern always returns descendants, and says how far down each one is.**
+`Microsoft.CSharp` names `Microsoft.CSharp.RuntimeBinder.Binder` as well as
+`Microsoft.CSharp.CSharpCodeProvider`, and that is the right default — an agent naming a namespace
+almost always wants what is under it, and silently excluding sub-namespaces would be a plausible
+absence. But where a root is large and its direct contents are small, `System` above all, the
+handful of types actually declared there is otherwise unreachable. `namespaceDepth` reports the
+distinction the match already computed: 0 for a direct member, higher for a descendant. Reporting
+rather than filtering keeps the tool's surface at one pattern, and narrowing a page already in hand
+costs the caller nothing.
 
 ### Searching API documentation text
 

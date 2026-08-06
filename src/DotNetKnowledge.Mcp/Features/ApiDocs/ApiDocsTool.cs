@@ -125,7 +125,10 @@ public sealed class ApiDocsTool
         "\"Json\"), or a fragment of a type name (\"Concurrent\"). Namespaces match on complete " +
         "segments, type names on any substring. Every item reports matchedOn - \"fullName\", " +
         "\"type\" or \"namespace\" - so a namespace's entire contents is distinguishable from types " +
-        "named for the pattern. " +
+        "named for the pattern. A namespace match also reports namespaceDepth: 0 for a type " +
+        "declared in that namespace itself, 1 for one a namespace below, and so on. A namespace " +
+        "pattern always returns descendants too, so filter the page on namespaceDepth == 0 when " +
+        "you want only what the namespace itself declares. " +
         "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
         "call lookup_api for documentation bodies.")]
     public static async Task<string> SearchApi(

@@ -13,6 +13,8 @@ public sealed class ApiDocsQueryServiceTests
     private static readonly string[] ExpectedHolderTypes = ["System.Holder", "System.Holder<T>"];
     private static readonly string[] ExpectedWidgetTypes =
         ["System.Widget", "System.WidgetKit", "System.WidgetPolicy`1"];
+    private static readonly string[] ExpectedSystemNamespaceTypes =
+        ["System.Widget", "System.WidgetKit", "System.WidgetPolicy`1", "System.Widgets.Gadget"];
     private static readonly string[] ExpectedStringParameterTypes =
     [
         "System.String",
@@ -172,10 +174,24 @@ public sealed class ApiDocsQueryServiceTests
             CollectionAssert.AreEqual(ExpectedResolvedTypeNames, byFullName.Select(item => item.Name).ToArray());
             Assert.AreEqual(ApiNameMatch.FullName, byFullName[0].MatchedOn);
 
-            // A namespace names everything it holds, and says that is what it did.
+            // A namespace names everything under it, descendants included, and says that is what
+            // it did.
             var byNamespace = await Search(service, "System");
-            CollectionAssert.AreEqual(ExpectedWidgetTypes, byNamespace.Select(item => item.Name).ToArray());
+            CollectionAssert.AreEqual(
+                ExpectedSystemNamespaceTypes,
+                byNamespace.Select(item => item.Name).ToArray());
             Assert.IsTrue(byNamespace.All(item => item.MatchedOn == ApiNameMatch.Namespace));
+
+            // Which of them System itself declares is reported, not filtered.
+            Assert.AreEqual(
+                0,
+                byNamespace.Single(item => item.Name == "System.Widget").NamespaceDepth);
+            Assert.AreEqual(
+                1,
+                byNamespace.Single(item => item.Name == "System.Widgets.Gadget").NamespaceDepth);
+
+            // Depth belongs to the namespace reading alone; a type match did not name a namespace.
+            Assert.IsNull((await Search(service, "Widget"))[0].NamespaceDepth);
 
             // A type-name fragment still matches on any substring, and outranks the namespace
             // reading when both apply.
