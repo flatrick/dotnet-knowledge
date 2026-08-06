@@ -393,9 +393,11 @@ foreach (var project in discovery.Projects)
         var exemption = ExemptionReason(row.Group);
         if (exemption is not null)
         {
+            // Evidence.Exempt rather than WithAbovePinEvidence: no floor was measured here, and the
+            // at-the-pin compile such a row may have just received speaks to its placement, which
+            // the detail already records, not to its floor.
             results.Add(new Result(project.Name, project.Ceiling, row.Version, row.Group,
-                "EXEMPT", WithAbovePinNote(exemption, abovePinNote),
-                WithAbovePinEvidence(Evidence.None, abovePinNote)));
+                "EXEMPT", WithAbovePinNote(exemption, abovePinNote), Evidence.Exempt));
             continue;
         }
 
@@ -1340,6 +1342,18 @@ static string? ExemptionReason(string group) => group switch
         + "This harness compiles with /reference: only, so the feature is absent from the "
         + "compilation it performs and no compiler version can reveal it",
 
+    // VB's three 17.13 consumption rows are one category: each demonstrates the compiler honoring
+    // metadata a C# assembly emitted, and VB cannot express any of the three in source at all.
+    "CallerArgumentExpressionConsumption" or "OverloadResolutionPriorityConsumption"
+        or "UnmanagedConstraintRecognition" =>
+        "the VB 17.13 consumption rows demonstrate the compiler honoring metadata a C# assembly "
+        + "emitted -- CallerArgumentExpression, OverloadResolutionPriority, the unmanaged "
+        + "constraint -- and VB can express none of the three in source. The feature is absent "
+        + "from the compilation this harness performs, so no compiler version can reject it. A "
+        + "gated construct elsewhere in such a row -- CallerArgumentExpressionConsumption uses "
+        + "null-conditional access, VB 14 -- fixes a floor for that row's own sources and still "
+        + "says nothing about the 17.13 feature, which is what the probe is asked about",
+
     "Baseline" =>
         "the Baseline bucket spans VS.NET 2002 to VS2012, and the upstream sources give no "
         + "per-version attribution below VB 14. No single previous-version pin is meaningful for "
@@ -1596,6 +1610,12 @@ static class Evidence
 
     // Only the installed SDK's compiler under /langversion bears on this floor.
     public const string SdkPin = "sdk-pin";
+
+    // The row is exempt from the floor probe, so no floor was measured and there is no evidence to
+    // tier. Distinct from None, which reports that something was compiled and none of it bears on
+    // the floor. Any compile such a row did receive -- the at-the-pin check a row filed above its
+    // project's pin gets -- speaks to the placement rather than to the floor.
+    public const string Exempt = "exempt";
 
     // Nothing compiled here bears on the floor.
     public const string None = "none";

@@ -156,7 +156,8 @@ claim, and reporting a floor without saying which produced it overstates the wea
 | `native-ceiling` | A compiler whose native ceiling is the rung below settled it. Does not drift as SDKs ship, and the only tier that can settle the question in *both* directions. |
 | `legacy-pin` | A compiler that does not top out at the rung below, held there with `/langversion` instead — always an in-box, pre-Roslyn `csc`, since this tier only ever fires for the C# 1.0 and 4.0 floors. (The C# 6 / VB 14 boundary is settled at its native ceiling by `Microsoft.Net.Compilers` 1.3.2 and never reaches this tier.) One-directional: a rejection settles it — version dependence proven; an acceptance settles nothing and reports `UNPROVEN`. C# only. |
 | `sdk-pin` | The installed SDK's compiler under `/langversion`, and nothing else. Says what today's toolchain gates — a fact that drifts. |
-| `none` | Nothing compiled here bears on the floor. |
+| `exempt` | The row is exempt from the floor probe, so no floor was measured and there is no evidence to tier. Every group exemption reports this. Distinct from `none`: the at-the-pin compile such a row may still have received speaks to its placement, not to its floor. |
+| `none` | Nothing compiled here bears on the floor. A bucket exemption stays here, because its own-version check did compile. |
 
 `MANIFEST.md`'s VB **Measured floor (evidence)** column is derived from this field, so a reader is
 never left to assume the stronger claim.
@@ -272,10 +273,11 @@ Some rows cannot be judged by a floor probe for reasons inherent to the row. The
 |---|---|---|
 | `LockStatement` | `lock` shipped in C# 1.0. The corpus files it under C# 3.0 to mirror its source document's section placement, which `MANIFEST.md`'s Note column records. An older compiler accepting it is the expected result. | group |
 | `EmbeddedInteropTypes` | NoPIA is a property of the reference, not the source. The feature is absent from the compilation the probe performs, so no compiler version can reveal it. | group |
+| `CallerArgumentExpressionConsumption`, `OverloadResolutionPriorityConsumption`, `UnmanagedConstraintRecognition` (VB 17.13) | One category. Each demonstrates the compiler honoring metadata a C# assembly emitted, and VB can express none of the three in source, so the feature is absent from the compilation the probe performs and no compiler version can reject it. Verified: all three compile on the 2016 native VB 14 compiler. A gated construct elsewhere in such a row — `CallerArgumentExpressionConsumption` uses null-conditional access, so VB 11 rejects it with `BC36716` — fixes a floor for that row's own sources and still says nothing about the 17.13 feature. | group |
 | `Baseline` (VB) | The bucket spans VS.NET 2002 to VS2012 and the upstream sources give no per-version attribution below VB 14, so no single previous-version pin is meaningful for it. | bucket |
 
 The two shapes differ. A **group** exemption says the probe cannot see the feature at all, so nothing
-is compiled and the evidence is `none`. A **bucket** exemption says the bucket has no single previous
+is compiled and the evidence is `exempt`. A **bucket** exemption says the bucket has no single previous
 version to test against; the sources still have to stand on their own, so step 1 still runs — VB's
 `Baseline` rows are compiled at VB 11, the highest rung the bucket can contain, and a failure there
 reports `INCONCLUSIVE` rather than `EXEMPT`.
