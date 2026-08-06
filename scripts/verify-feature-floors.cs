@@ -204,15 +204,17 @@ var vbProfile = new LanguageProfile(
 
 var profile = language == "vb" ? vbProfile : csharpProfile;
 
-var modernCompiler = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
-if (!File.Exists(modernCompiler))
+var modernCompilerPath = Path.Combine(Path.GetDirectoryName(msbuild)!, "Roslyn", profile.CompilerFileName);
+if (!File.Exists(modernCompilerPath))
 {
-    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompiler}'.");
+    Console.Error.WriteLine($"verify-feature-floors: no {profile.CompilerFileName} beside MSBuild at '{modernCompilerPath}'.");
     return 2;
 }
 
+var modernCompiler = new ProbeCompiler(modernCompilerPath, IsRoslyn: true);
+
 // Period compilers, keyed by the language version each one natively tops out at.
-var periodCompilers = new Dictionary<string, string>();
+var periodCompilers = new Dictionary<string, ProbeCompiler>();
 
 // The .NET Framework keeps its old compilers side by side, and each one's language ceiling is
 // fixed. The C# list deliberately has no v4.0 entry: .NET 4.5 upgraded the v4.0.30319 compiler in
@@ -226,7 +228,9 @@ foreach (var (version, directory) in profile.InBoxCompilers)
     var candidate = Path.Combine(frameworkRoot, directory, profile.CompilerFileName);
     if (File.Exists(candidate))
     {
-        periodCompilers[version] = candidate;
+        // Pre-Roslyn, so no /parallel switch: the in-box csc rejects it outright with fatal error
+        // CS2007 and the in-box vbc answers with command line warning BC2007 and ignores it.
+        periodCompilers[version] = new ProbeCompiler(candidate, IsRoslyn: false);
     }
 }
 
@@ -235,7 +239,7 @@ foreach (var (version, directory) in profile.InBoxCompilers)
 var packagedCompiler = await AcquirePackagedCompilerAsync(repoRoot, offline, profile);
 if (packagedCompiler is not null)
 {
-    periodCompilers[profile.PackagedCompilerCeiling] = packagedCompiler;
+    periodCompilers[profile.PackagedCompilerCeiling] = new ProbeCompiler(packagedCompiler, IsRoslyn: true);
 }
 
 var skippedProjects = new List<string>();
@@ -450,7 +454,7 @@ static Verdict ProbeOwnVersion(
     string[] files,
     ProjectInputs inputs,
     string workRoot,
-    string modernCompiler,
+    ProbeCompiler modernCompiler,
     string exemption)
 {
     var ownArg = profile.LangVersionArg(featureVersion);
@@ -473,8 +477,8 @@ static Verdict ProbeFloor(
     string[] files,
     ProjectInputs inputs,
     string workRoot,
-    string modernCompiler,
-    Dictionary<string, string> periodCompilers)
+    ProbeCompiler modernCompiler,
+    Dictionary<string, ProbeCompiler> periodCompilers)
 {
     // Step 1 -- the group must stand on its own at its own language version, or nothing below
     // this can be interpreted.
@@ -560,14 +564,14 @@ static Verdict ProbeFloor(
     var gate = periodCompilers
         .Where(kv => LadderIndex(profile.Ladder, kv.Key) > LadderIndex(profile.Ladder, floor))
         .OrderBy(kv => LadderIndex(profile.Ladder, kv.Key))
-        .Select(kv => (Ceiling: kv.Key, Path: kv.Value))
+        .Select(kv => (Ceiling: kv.Key, Compiler: kv.Value))
         .FirstOrDefault();
 
-    if (legacyArg is not null && gate.Path is not null)
+    if (legacyArg is not null && gate.Compiler is not null)
     {
         // Control run first. Unless this compiler can handle the files at its own ceiling, a
         // failure at the floor says nothing about language versions.
-        var control = Compile(profile, gate.Path, langVersion: null, files, inputs, workRoot);
+        var control = Compile(profile, gate.Compiler, langVersion: null, files, inputs, workRoot);
         if (!control.Succeeded)
         {
             return new Verdict("INCONCLUSIVE",
@@ -575,7 +579,7 @@ static Verdict ProbeFloor(
                 Evidence.None);
         }
 
-        var legacy = Compile(profile, gate.Path, legacyArg, files, inputs, workRoot);
+        var legacy = Compile(profile, gate.Compiler, legacyArg, files, inputs, workRoot);
         if (!legacy.Succeeded)
         {
             return new Verdict("UNGATED",
@@ -605,7 +609,7 @@ static string TrivialSource(LanguageProfile profile, string workRoot)
 
 static CompileResult Compile(
     LanguageProfile profile,
-    string compiler,
+    ProbeCompiler compiler,
     string? langVersion,
     string[] files,
     ProjectInputs inputs,
@@ -643,6 +647,18 @@ static CompileResult Compile(
         {
             rsp.AppendLine($"/rootnamespace:{inputs.RootNamespace}");
         }
+
+        // Roslyn's vbc binds method bodies concurrently, so which of several genuine errors a
+        // rejection reports first varies per process and makes the Detail string in --json
+        // irreproducible. Serializing binding fixes the reported diagnostic without changing the
+        // outcome. VB only, because that is where the rotation has been observed and C#'s --json is
+        // reproducible as it stands; Roslyn only, because /parallel does not exist before it -- the
+        // in-box csc rejects the switch with CS2007 and the in-box vbc warns with BC2007, which
+        // would then be the first diagnostic line the report picked up.
+        if (compiler.IsRoslyn)
+        {
+            rsp.AppendLine("/parallel-");
+        }
     }
     else
     {
@@ -675,7 +691,7 @@ static CompileResult Compile(
     var rspPath = Path.Combine(outDir, "probe.rsp");
     File.WriteAllText(rspPath, rsp.ToString());
 
-    var psi = new ProcessStartInfo(compiler, $"/noconfig @\"{rspPath}\"")
+    var psi = new ProcessStartInfo(compiler.Path, $"/noconfig @\"{rspPath}\"")
     {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
@@ -1158,7 +1174,7 @@ static void Report(
     LanguageProfile profile,
     List<Result> results,
     List<string> skippedProjects,
-    Dictionary<string, string> periodCompilers,
+    Dictionary<string, ProbeCompiler> periodCompilers,
     bool emitJson)
 {
     // Ladder order, not string order: VB's rungs are bare numbers, and sorting them as text puts 11
@@ -1584,6 +1600,11 @@ static class Evidence
     // Nothing compiled here bears on the floor.
     public const string None = "none";
 }
+
+// One compiler the probe drives, and whether it is a Roslyn build. The flag exists because
+// /parallel- is a Roslyn switch: the in-box csc rejects it with fatal error CS2007, and the in-box
+// vbc answers with command line warning BC2007 and ignores it.
+record ProbeCompiler(string Path, bool IsRoslyn);
 
 // A language's identity within this probe: how to find its files, spell its language versions on
 // the compiler command line, and walk its version ladder.

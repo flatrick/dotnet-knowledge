@@ -585,7 +585,7 @@ only gaps are VB 10 and VB 12; above it there is no native ceiling at all, becau
 highest one that exists. In practice the escalation settles exactly **one** distinct row of this
 corpus,
 `ConsumingCSharpRefReturnValues` — reported `UNGATED` at `native-ceiling`, because the VB 14 compiler
-rejects it with `BC30657`/`BC30643` while the modern compiler accepts it at `/langversion:14`. The
+rejects it with `BC30657`/`BC36954` while the modern compiler accepts it at `/langversion:14`. The
 reason the reach is that small is arithmetic, not a defect: a floor is probed against the rung
 *below* the row's own version, the corpus has no VB 10 or VB 12 rows, and VB 14 is the only native
 ceiling that lands one rung below a version this corpus files rows at. Every other VB floor rests on

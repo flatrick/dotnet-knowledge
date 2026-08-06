@@ -248,14 +248,20 @@ project actually compiles — honoring `Remove` is what keeps `MyNamespaceHelper
 `my/` projects alone. A `Compile` glob that does not end in `**/*.vb` fails the run with exit 2
 rather than being silently skipped.
 
-**`--json` output is not reproducible run to run.** The `Detail` string for a row can vary between
-runs of unchanged code — `BC30643`, `BC30657`, and `BC36954` have all been observed for the same
-row, all genuine. The root cause is that Roslyn 1.3.2's `vbc` binds method bodies concurrently, so
-which of several real errors the probe encounters first varies per process. `Outcome` and `Evidence`
-are stable; only `Detail` varies, and today it reaches exactly one row. The consequence worth
-stating: **diffing two `--json` runs is not a valid regression technique.** Passing `/parallel-` on
-the probe's response file would settle this, at the cost of changing every compile in both
-languages.
+**VB probes serialize the compiler's binding, C# probes do not.** Roslyn's `vbc` binds method bodies
+concurrently, so which of several genuine errors a rejection reported first varied per process and
+the `Detail` string in `--json` was irreproducible — `BC30643`, `BC30657` and `BC36954` were all
+observed for the same row, all real. The VB branch of the response file therefore carries
+`/parallel-`, which makes the reported diagnostic stable without changing any `Outcome` or
+`Evidence`. Measured cost: about 5% on a whole VB run.
+
+Two gates on that, both load-bearing. **Roslyn only** — `/parallel` predates nothing older, so the
+in-box `csc` rejects it with `CS2007` and exits 1, and the in-box `vbc` answers with command line
+warning `BC2007`, which would then be the first diagnostic line the report picks up on a toolchain
+whose severity words the probe cannot match by spelling. **VB only** — the rotation has only ever
+been observed in VB, C#'s `--json` is reproducible as it stands, and serializing every C# probe
+would cost runtime for no measured gain. Two `--json` runs of unchanged code are now byte-identical
+in both languages, so diffing them *is* a valid regression technique.
 
 ## Exemptions
 
