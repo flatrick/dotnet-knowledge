@@ -7,7 +7,13 @@
 // output kind. That coordinate IS the content — the same feature sample means something different
 // in Net48_CSharp5_Library than in Net10_CSharpLatest_Library — so a file must say which project it
 // belongs to on the line an editor shows first. Each project sets <RootNamespace> to its
-// coordinate, and every C# file under it declares a namespace whose first segment is that value.
+// coordinate, and every C# file under it declares a namespace that is that value or begins with it
+// on a segment boundary.
+//
+// The comparison is over the whole dotted RootNamespace, not its first segment. Every corpus
+// coordinate happens to be one segment (Net10_CSharp13_Library), so a first-segment test passed
+// there — and reported all nine files of the one project with a dotted RootNamespace,
+// DotNetKnowledge.CSharpScriptHost, as wrong when each of them names it exactly.
 //
 // In C# that pairing is not automatic: <RootNamespace> only seeds new-file templates, it does not
 // wrap existing files. So the two drift silently, which is exactly what happened before this guard
@@ -75,7 +81,9 @@ var supportProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
 var rootNamespacePattern = new Regex(@"<RootNamespace>\s*(?<value>[^<\s][^<]*?)\s*</RootNamespace>");
 var startupObjectPattern = new Regex(@"<StartupObject>\s*(?<value>[^<\s][^<]*?)\s*</StartupObject>");
-var namespacePattern = new Regex(@"^namespace\s+(?<head>[A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Multiline);
+var namespacePattern = new Regex(
+    @"^namespace\s+(?<name>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)",
+    RegexOptions.Multiline);
 var vbNamespacePattern = new Regex(@"^\s*Namespace\s+(?<head>[A-Za-z_][A-Za-z0-9_]*)",
     RegexOptions.Multiline | RegexOptions.IgnoreCase);
 
@@ -225,12 +233,17 @@ foreach (var projectPath in projectFiles)
             continue;
         }
 
-        foreach (var head in matches.Select(match => match.Groups["head"].Value).Distinct(StringComparer.Ordinal))
+        foreach (var declared in matches.Select(match => match.Groups["name"].Value).Distinct(StringComparer.Ordinal))
         {
-            if (head != rootNamespace)
+            // Segment boundary, not a bare prefix: Net10_CSharp1_Library must not satisfy a project
+            // whose RootNamespace is Net10_CSharp1_LibraryExtras.
+            var namesProject = declared == rootNamespace
+                || declared.StartsWith(rootNamespace + ".", StringComparison.Ordinal);
+
+            if (!namesProject)
             {
                 findings.Add(new Finding("wrong-namespace", sourceRelative,
-                    $"namespace starts with {head}, but this file belongs to {rootNamespace} ({projectRelative})"));
+                    $"declares namespace {declared}, but this file belongs to {rootNamespace} ({projectRelative})"));
             }
         }
     }
@@ -310,7 +323,11 @@ static string? FindRepoRoot(string start)
     var dir = new DirectoryInfo(start);
     while (dir is not null)
     {
-        if (Directory.Exists(Path.Combine(dir.FullName, ".git")))
+        // In a linked worktree `.git` is a FILE holding a gitdir pointer, not a directory. Testing
+        // only for a directory walks straight past the worktree root to the main checkout, so the
+        // scan reports on code the caller is not working in — a pass that measured nothing.
+        var gitPath = Path.Combine(dir.FullName, ".git");
+        if (Directory.Exists(gitPath) || File.Exists(gitPath))
             return dir.FullName;
         dir = dir.Parent;
     }

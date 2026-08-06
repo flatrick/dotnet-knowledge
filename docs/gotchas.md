@@ -24,6 +24,16 @@ needs more.
 
 ---
 
+### 2026-08-06 · A guard that walks up to `.git` passes silently from a worktree · codebase
+
+`verify-project-namespaces.cs` tested `Directory.Exists(".git")` only. In a linked worktree `.git`
+is a file, so the walk continued to the main checkout and every run scanned *that* tree — a seeded
+violation in the worktree went unreported and the run still exited 0. The failure mode is a green
+guard that measured someone else's code, which is worse than a red one.
+`verify-no-vendored-content.cs`, `install-corpus-test-sdks.cs`, `verify-feature-floors.cs` and
+`generate-net48-examples.cs` already tested both; only this one did not. Seed a violation and
+confirm it is reported before trusting any new tree-walking guard.
+
 ### 2026-08-06 · `dotnet test` sets `DOTNET_HOST_PATH` itself · environment
 
 The variable cannot be used to detect that a caller chose the repository-private host: `dotnet test`
