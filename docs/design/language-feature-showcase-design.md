@@ -438,9 +438,12 @@ the SDK/TFM corpus matrix.
 These layers are complementary. A successful project build cannot establish a historical feature
 boundary or prove a comment about runtime behavior. Every project build still requires **0 errors
 and 0 warnings**. The build matrix discovers every SDK-style C# library project under
-`CSharp/dotnet/` and every VB project under `VB.NET/`; `CorpusProjectDiscoveryTests` holds the exact
-expected list, which is the count of record. The legacy `CSharp_v7.0` project needs Windows and
-Visual Studio's `MSBuild.exe`:
+`CSharp/dotnet/`, every project under `CSharp/dotNetFramework/`, and every VB project under
+`VB.NET/`; `CorpusProjectDiscoveryTests` holds the exact expected list, which is the count of
+record. `CSharp/dotNetFramework/` is two roots rather than one, because its two halves need
+different hosts: eleven legacy non-SDK projects build only under Windows and Visual Studio's
+`MSBuild.exe`, and the remaining three are SDK-style and build like the rest of the matrix. The
+legacy `CSharp_v7.0` project is representative:
 
 ```
 "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" \
@@ -531,12 +534,19 @@ mixed static/instance candidate set, a "movable fixed buffer" sample that indexe
 parameter (a *fixed* variable, always legal), and a non-trailing-named-argument comment asserting a
 rule that a fully-named call has never been subject to. Each compiled clean at *N−1*.
 
-**Pinning to `ISO-1` or `ISO-2` needs `GenerateTargetFrameworkAttribute=false`.** The SDK generates
-an `AssemblyAttributes.cs` containing `[assembly: global::System.Runtime.Versioning.TargetFramework]`,
+**Pinning to C# 1.x needs `GenerateTargetFrameworkAttribute=false`.** The build generates an
+`AssemblyAttributes.cs` containing `[assembly: global::System.Runtime.Versioning.TargetFramework]`,
 and `global::` is a C# 2.0 construct, so every C# 1.x pin fails with `CS8022: Feature 'namespace
 alias qualifier' is not available in C# 1` no matter what the samples contain. The error names a
 generated file rather than a sample, which is the tell. Suppress the attribute and the pin reports
 only what the samples are responsible for.
+
+This is not confined to probes or to `ISO-1`/`ISO-2` spellings, and not to SDK-style projects:
+`Microsoft.Common.CurrentVersion.targets` generates the same file for a legacy non-SDK project.
+`CSharp_v1.0` is the tracked corpus project that proves it, and the way it stayed broken is the
+argument for the build layer existing at all — `verify-feature-floors.cs` compiles rows in isolation
+with `csc` and never builds the project, so it reported every one of that project's rows without
+complaint while the project itself did not build.
 
 Expect the failure code to vary by feature kind: a syntax addition yields `CS8320`/`CS8302`/`CS8370`/
 `CS8400`/`CS8773` ("feature is not available in C# N"), while a resolution-rule change such as

@@ -82,12 +82,14 @@ Smoke-testing the server over stdio needs a redirected-process driver, not a she
 
 ### Building corpus projects
 
-SDK-style projects (`CSharp/dotnet/10/latest/*`, the VB projects) build with `dotnet build`. The
-net48 C# projects are **legacy non-SDK XML and need Visual Studio's `MSBuild.exe` on Windows**:
+SDK-style projects (`CSharp/dotnet/10/latest/*`, the VB projects, and three of the fourteen net48 C#
+projects — `CSharp_v1.0-Unsafe`, `CSharp_v8.0`, `CSharp_v8.0-Unsafe`) build with `dotnet build`. The
+other eleven net48 C# projects are **legacy non-SDK XML and need Visual Studio's `MSBuild.exe` on
+Windows**:
 
 ```bash
 # vswhere lives at "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe";
-# scripts/verify-feature-floors.cs locates MSBuild the same way.
+# scripts/verify-feature-floors.cs and CorpusProjectBuildTests locate MSBuild the same way.
 vswhere -latest -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe"
 MSBuild.exe examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj -t:Restore;Build
 ```
@@ -96,6 +98,12 @@ MSBuild.exe examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/C
 a non-SDK project consumes package assets through NuGet targets that ship with VS, not with the
 SDK. It fails with `CS0246` on `Span` and `ValueTask` and says nothing about the toolchain, so it
 reads as a broken sample.
+
+`CorpusProjectBuildTests` builds both halves. The legacy half runs through `MSBuild.exe` and reports
+inconclusive — naming the `vswhere` path it inspected — when Visual Studio is absent; every other
+row runs through the repository-private host. `MSBuild.exe -v:minimal` prints no
+`0 Warning(s)`/`0 Error(s)` summary at all, unlike `dotnet build -v:minimal`, so that half also
+passes `-clp:Summary`.
 
 ## The corpus
 
@@ -214,9 +222,11 @@ net48 projects stay Windows-only regardless, because they need Visual Studio's `
   report `UNPROVEN`, and nothing above VB 14 has a native ceiling at all. In practice that reaches
   exactly one row of this corpus — `ConsumingCSharpRefReturnValues`, `UNGATED` at `native-ceiling`.
   Every other VB floor rests on `sdk-pin` or on nothing.
-- **Pinning an SDK-style project to `ISO-1`/`ISO-2` needs `GenerateTargetFrameworkAttribute=false`**
-  — the SDK's generated `AssemblyAttributes.cs` uses `global::`, so every C# 1.x era probe otherwise
-  reports a phantom `CS8022`.
+- **Pinning any project to C# 1.x needs `GenerateTargetFrameworkAttribute=false`** — the generated
+  `AssemblyAttributes.cs` uses `global::`, so every C# 1.x era probe otherwise reports a phantom
+  `CS8022`. This is not an SDK-only hazard, and `ISO-1`/`ISO-2` are not the only spellings that hit
+  it: `Microsoft.Common.CurrentVersion.targets` generates the same file for a legacy non-SDK
+  project, which is how `CSharp_v1.0` sat broken while every probe of its rows reported clean.
 - **Both net48 C# project families need an explicit `Microsoft.CSharp` reference** for the C# 4.0
   `dynamic` row. That failure is `CS0656` at *emit*, so any earlier binding error in the project
   hides it entirely.

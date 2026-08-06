@@ -7,26 +7,65 @@ internal sealed record CorpusProject(
     string TargetFramework,
     string LanguageVersion);
 
+internal enum CorpusProjectKind
+{
+    /// <summary>
+    /// SDK-style, default compilation, no <c>OutputType</c> of its own. The kind the
+    /// <c>CSharp/dotnet/</c> and <c>VB.NET/</c> roots select, where <c>exe</c> and <c>unsafe</c>
+    /// are separate project kinds beside the libraries.
+    /// </summary>
+    SdkStyleSafeLibrary,
+
+    /// <summary>Every SDK-style project, whatever it compiles as.</summary>
+    SdkStyle,
+
+    /// <summary>Every legacy non-SDK project. These build only under Visual Studio's MSBuild.</summary>
+    Legacy
+}
+
 internal static class CorpusProjectDiscovery
 {
     private static readonly string[] ExcludedDirectoryNames = ["bin", "obj", ".artifacts"];
 
     public static IReadOnlyList<CorpusProject> FindSdkStyleLibraries(string repositoryRoot) =>
-        Scan(repositoryRoot, ["CSharp", "dotnet"], "*.csproj", "SDK-style C# corpus");
+        Scan(repositoryRoot, ["CSharp", "dotnet"], "*.csproj", "SDK-style C# corpus", CorpusProjectKind.SdkStyleSafeLibrary);
 
     // The VB net48 family is SDK-style, unlike most of the C# net48 tree, so both VB families are
     // scanned from one root.
     public static IReadOnlyList<CorpusProject> FindSdkStyleVbProjects(string repositoryRoot) =>
-        Scan(repositoryRoot, ["VB.NET"], "*.vbproj", "VB.NET corpus");
+        Scan(repositoryRoot, ["VB.NET"], "*.vbproj", "VB.NET corpus", CorpusProjectKind.SdkStyleSafeLibrary);
+
+    /// <summary>
+    /// The SDK-style projects in the otherwise-legacy C# net48 tree. Unlike the two roots above
+    /// this one takes every SDK-style project it finds, because the net48 tree houses per-pin
+    /// probes rather than kinds: two of the three carry <c>AllowUnsafeBlocks</c> precisely because
+    /// <c>/unsafe</c> is a per-compilation switch, and excluding them would leave a project the
+    /// corpus authored and no test builds.
+    /// </summary>
+    public static IReadOnlyList<CorpusProject> FindSdkStyleNetFrameworkProjects(string repositoryRoot) =>
+        Scan(repositoryRoot, ["CSharp", "dotNetFramework"], "*.csproj", "net48 C# corpus", CorpusProjectKind.SdkStyle);
+
+    /// <summary>
+    /// The legacy non-SDK projects in the C# net48 tree. These need Visual Studio's
+    /// <c>MSBuild.exe</c>, not the SDK host the rest of the matrix builds with, so they are a
+    /// separate root with a separate runner — see <c>LegacyCorpusProjectBuildTests</c>.
+    /// </summary>
+    public static IReadOnlyList<CorpusProject> FindLegacyNetFrameworkProjects(string repositoryRoot) =>
+        Scan(repositoryRoot, ["CSharp", "dotNetFramework"], "*.csproj", "net48 C# corpus", CorpusProjectKind.Legacy);
 
     public static IReadOnlyList<CorpusProject> FindAllSdkStyleProjects(string repositoryRoot) =>
-        [.. FindSdkStyleLibraries(repositoryRoot), .. FindSdkStyleVbProjects(repositoryRoot)];
+    [
+        .. FindSdkStyleLibraries(repositoryRoot),
+        .. FindSdkStyleNetFrameworkProjects(repositoryRoot),
+        .. FindSdkStyleVbProjects(repositoryRoot)
+    ];
 
     private static CorpusProject[] Scan(
         string repositoryRoot,
         string[] corpusSegments,
         string searchPattern,
-        string description)
+        string description,
+        CorpusProjectKind kind)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
 
@@ -41,7 +80,7 @@ internal static class CorpusProjectDiscovery
         return Directory.EnumerateFiles(corpusRoot, searchPattern, SearchOption.AllDirectories)
             .Where(path => !HasExcludedDirectory(corpusRoot, path))
             .Select(ReadProject)
-            .Where(project => project.IsSdkStyle && project.IsLibrary && !project.AllowsUnsafeBlocks)
+            .Where(project => Selects(kind, project))
             .Select(project => new CorpusProject(
                 Path.GetRelativePath(fullRepositoryRoot, project.Path).Replace('\\', '/'),
                 project.TargetFramework!,
@@ -76,7 +115,7 @@ internal static class CorpusProjectDiscovery
                 !string.IsNullOrWhiteSpace(element.Attribute("Name")?.Value));
         if (!isSdkStyle)
         {
-            return new DiscoveredProject(Path.GetFullPath(path), false, false, false, null, null);
+            return ReadLegacyProject(project, path);
         }
 
         var targetFramework = ReadOptionalSingleValue(project, "TargetFramework", path);
@@ -111,10 +150,41 @@ internal static class CorpusProjectDiscovery
             languageVersion);
     }
 
+    /// <summary>
+    /// A legacy non-SDK project names its framework with <c>TargetFrameworkVersion</c>
+    /// (<c>v4.8</c>), not <c>TargetFramework</c>, so its coordinate is read from a different
+    /// property. Both are required here for the same reason the SDK-style read requires them: the
+    /// coordinate is what a build failure is reported against.
+    /// </summary>
+    private static DiscoveredProject ReadLegacyProject(XElement project, string path)
+    {
+        var targetFrameworkVersion = ReadRequiredSingleValue(project, "TargetFrameworkVersion", path);
+        var languageVersion = ReadRequiredSingleValue(project, "LangVersion", path);
+        var outputType = ReadOptionalSingleValue(project, "OutputType", path);
+        var allowUnsafeBlocks = ReadOptionalSingleValue(project, "AllowUnsafeBlocks", path);
+
+        return new DiscoveredProject(
+            Path.GetFullPath(path),
+            false,
+            outputType is null || string.Equals(outputType, "Library", StringComparison.OrdinalIgnoreCase),
+            allowUnsafeBlocks is not null && ParseBoolean(allowUnsafeBlocks, "AllowUnsafeBlocks", path),
+            targetFrameworkVersion,
+            languageVersion);
+    }
+
+    private static bool Selects(CorpusProjectKind kind, DiscoveredProject project) => kind switch
+    {
+        CorpusProjectKind.SdkStyleSafeLibrary =>
+            project.IsSdkStyle && project.IsLibrary && !project.AllowsUnsafeBlocks,
+        CorpusProjectKind.SdkStyle => project.IsSdkStyle,
+        CorpusProjectKind.Legacy => !project.IsSdkStyle,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown corpus project kind.")
+    };
+
     private static string ReadRequiredSingleValue(XElement project, string propertyName, string path) =>
         ReadOptionalSingleValue(project, propertyName, path)
         ?? throw new InvalidOperationException(
-            $"SDK-style corpus project is missing {propertyName}: {path}.");
+            $"Corpus project is missing {propertyName}: {path}.");
 
     private static string? ReadOptionalSingleValue(XElement project, string propertyName, string path)
     {
@@ -130,7 +200,7 @@ internal static class CorpusProjectDiscovery
         if (elements.Any(element => string.IsNullOrWhiteSpace(element.Value)))
         {
             throw new InvalidOperationException(
-                $"SDK-style corpus project has an empty {propertyName} value: {path}.");
+                $"Corpus project has an empty {propertyName} value: {path}.");
         }
 
         var values = elements
@@ -140,7 +210,7 @@ internal static class CorpusProjectDiscovery
         if (values.Length != 1)
         {
             throw new InvalidOperationException(
-                $"SDK-style corpus project has contradictory {propertyName} values: {path}.");
+                $"Corpus project has contradictory {propertyName} values: {path}.");
         }
 
         return values[0];
@@ -154,7 +224,7 @@ internal static class CorpusProjectDiscovery
         }
 
         throw new InvalidOperationException(
-            $"SDK-style corpus project has an invalid {propertyName} value '{value}': {path}.");
+            $"Corpus project has an invalid {propertyName} value '{value}': {path}.");
     }
 
     private static bool HasExcludedDirectory(string corpusRoot, string path)
