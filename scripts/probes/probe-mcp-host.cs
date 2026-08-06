@@ -19,6 +19,11 @@
 //   2. Why does every git subprocess hang under a stdio host? `probe_process` runs one command with
 //      a hard timeout and reports the child's process id without necessarily killing it, so an idle
 //      child can be inspected from outside while it is still stuck.
+//   3. Does the MCP client surface progress notifications at all, and in what order? `sync_source`
+//      reports five stages, and progress is the only thing separating a slow first clone from a hung
+//      one — but a client that sends no progress token gets a no-op reporter and the server cannot
+//      tell. `probe_progress` sends a known sequence with a delay between steps and returns that
+//      exact sequence, so what the client rendered can be diffed against what was sent.
 //
 // It is deliberately separate from src/DotNetKnowledge.Mcp: the fault is environmental, and a probe
 // that shares none of the real server's state cannot be accused of carrying the fault with it.
@@ -29,6 +34,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol;
 using ModelContextProtocol.Extensions.Tasks;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -199,6 +205,65 @@ public static class HostProbe
     {
         await Task.Delay(TimeSpan.FromSeconds(seconds)).ConfigureAwait(false);
         return $"This client declares io.modelcontextprotocol/tasks. Ran {seconds}s as a task.";
+    }
+
+    [McpServerTool(Name = "probe_progress", ReadOnly = true)]
+    [Description(
+        "Send a known number of progress notifications, one every delayMilliseconds, then return " +
+        "the exact sequence that was sent. Diff what this client rendered against sentNotifications: " +
+        "nothing rendered means the client dropped them, and a different order means it reordered " +
+        "them. progressToken is null when the client asked for no progress at all, in which case " +
+        "the SDK hands the tool a no-op reporter — reporterType names the object that received the " +
+        "reports, so a silent client can be told from a silent server.")]
+    public static async Task<string> ProbeProgress(
+        IProgress<ProgressNotificationValue> progress,
+        RequestContext<CallToolRequestParams> context,
+        CancellationToken cancellationToken,
+        int steps = 5,
+        int delayMilliseconds = 800)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var sent = new List<object>();
+        var cancelled = false;
+        try
+        {
+            for (var step = 1; step <= steps; step++)
+            {
+                await Task.Delay(delayMilliseconds, cancellationToken).ConfigureAwait(false);
+                var message = $"probe step {step} of {steps}";
+                progress.Report(new ProgressNotificationValue
+                {
+                    Progress = step,
+                    Total = steps,
+                    Message = message,
+                });
+                sent.Add(new
+                {
+                    progress = step,
+                    total = steps,
+                    message,
+                    atMilliseconds = stopwatch.ElapsedMilliseconds,
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            cancelled = true;
+        }
+
+        stopwatch.Stop();
+        return JsonSerializer.Serialize(
+            new
+            {
+                requestedSteps = steps,
+                delayMilliseconds,
+                progressToken = context.Params?.ProgressToken?.ToString(),
+                reporterType = progress.GetType().FullName,
+                cancelled,
+                elapsedMilliseconds = stopwatch.ElapsedMilliseconds,
+                sentNotifications = sent,
+            },
+            WriteOptions);
     }
 
     [McpServerTool(Name = "probe_sleep", ReadOnly = true)]

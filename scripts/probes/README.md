@@ -42,6 +42,7 @@ swallows the server's stdout entirely and reads as a server fault.
 | `probe_process` | Does a child process complete? Runs one command under a hard timeout, with `stdinMode` selecting whether the child inherits the host's stdin. `killOnTimeout: false` leaves a hung child alive for external inspection. |
 | `probe_task_required` | Does this client declare `io.modelcontextprotocol/tasks`? Runs in `Required` mode, so support is a result and absence is JSON-RPC error -32021. |
 | `probe_sleep` | What does this client do with a call that outlives its patience — cancel, time out, or wait? |
+| `probe_progress` | Does this client surface progress notifications, and in what order? Sends a known sequence with a delay between steps and returns that sequence, so what the client rendered can be diffed against what was sent. `progressToken: null` means the client asked for no progress at all, and `reporterType` names the object that received the reports — which is how a silent client is told from a silent server. |
 
 `probe_host`'s `protocolVersion`, `clientInfo` and `clientCapabilities` read as `null` over stdio.
 They are populated from per-request metadata, which the HTTP transports carry and stdio does not;
