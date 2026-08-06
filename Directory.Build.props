@@ -9,6 +9,15 @@
     -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 
+    <!--
+      The other half of the same gate. TreatWarningsAsErrors reaches the compilers and NuGet, but
+      not MSBuild's own MSB#### warnings, so a build carrying one still exits 0. With both set the
+      exit code decides on its own, and no test has to match on the severity word — which is
+      localized, and this repository is developed on a sv-SE host. scripts/Directory.Build.props
+      resets this alongside TreatWarningsAsErrors, for the reason stated there.
+    -->
+    <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
+
     <!-- Baseline for real projects; the corpus turns analyzers off for itself, since its examples
          are deliberately minimal and illustrative rather than exemplary. -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>

@@ -121,10 +121,12 @@ package at all.
 2. Isolated compilation cases prove positive and negative feature boundaries.
 3. Runtime cases prove comments that assert observable behavior.
 
-Every project build still requires 0 errors and 0 warnings. `TreatWarningsAsErrors` is inherited so
-that layer is mechanical; never add a `#pragma warning disable` to get past a warning. A clean build
-does not prove a sample demonstrates its feature, because cumulative projects can accept constructs
-outside the row's intended boundary.
+Every project build still requires 0 errors and 0 warnings. `TreatWarningsAsErrors` and
+`MSBuildTreatWarningsAsErrors` are both inherited so that layer is mechanical; the first reaches the
+compilers and NuGet, the second reaches MSBuild's own `MSB####` warnings, and only the pair makes
+the exit code sufficient on its own. Never add a `#pragma warning disable` to get past a warning. A
+clean build does not prove a sample demonstrates its feature, because cumulative projects can accept
+constructs outside the row's intended boundary.
 
 Install or verify the exact test SDKs with `dotnet scripts/install-corpus-test-sdks.cs`; see
 [`scripts/install-corpus-test-sdks.md`](scripts/install-corpus-test-sdks.md) for the private-host

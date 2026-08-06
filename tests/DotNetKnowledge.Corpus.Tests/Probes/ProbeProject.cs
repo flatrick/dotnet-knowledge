@@ -133,6 +133,11 @@ internal sealed partial class ProbeProject
             new XElement("TargetFramework", expectation.TargetFramework),
             new XElement("LangVersion", expectation.LanguageVersion),
             new XElement("TreatWarningsAsErrors", "true"),
+            // A probe is written under the temp directory, so no Directory.Build.props reaches it
+            // and both halves of the zero-warning gate have to be stated here. Without the second,
+            // an MSB#### warning leaves the build at exit 0, and the only thing that catches it is
+            // CorpusCompilationTests matching on the severity word — which is localized.
+            new XElement("MSBuildTreatWarningsAsErrors", "true"),
             new XElement("EnableDefaultCompileItems", "false"),
             new XElement("GenerateTargetFrameworkAttribute", "false"));
         if (harnessPath is not null)
