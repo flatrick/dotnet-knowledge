@@ -373,8 +373,8 @@ capability the tools do not replace.
 ## Fetching
 
 Use a blobless, sparse, single-branch clone; the `sparse` array in `sources.json` names the paths
-each source's tools actually read. `scripts/fetch-roslyn-wiki.cs` already does exactly this and is
-the working reference implementation:
+each source's tools actually read. `src/DotNetKnowledge.Mcp/Sources/SourceSynchronizer.cs` implements
+exactly this:
 
 ```
 git clone --filter=blob:none --no-checkout --sparse <url> <dir>
