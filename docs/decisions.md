@@ -24,6 +24,15 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · A query for `Foo` excludes `FooAttribute`'s applications and names the sibling
+
+ECMA XML spells an attribute application in C# short form, so 78 of 617 attribute types collide with
+a de-suffixed sibling in the same namespace. Unioning the two readings was rejected: it inflates the
+`attribute` total with hits belonging to a different type, and any caller filtering on `kind` alone
+gets a wrong count. Excluding them silently was rejected as a plausible absence. The response
+therefore carries a `note` naming the sibling, its application count, and the call that reaches it —
+the shape `lookup_api`'s `member_not_found` envelope already uses.
+
 ### 2026-08-06 · The corpus build matrix keeps `-t:Rebuild` and gains parallelism instead
 
 Dropping `-t:Rebuild` was rejected on correctness: over an unchanged tree a plain build logs
