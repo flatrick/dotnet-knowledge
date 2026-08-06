@@ -12,8 +12,10 @@ C#, VB.NET and Roslyn:
 1. **`examples/language-features/`** — an authored corpus of every C# and VB.NET language feature,
    one example per feature per language version across several TFM/project-format combinations,
    plus a curated C# script showcase. It is complete against `MANIFEST.md`, which is the count of
-   record; every project builds at 0 errors and 0 warnings, and every script scenario has verified
-   host behavior.
+   record; every project **in the build matrix** builds at 0 errors and 0 warnings, and every script
+   scenario has verified host behavior. The matrix is 45 of the corpus's 53 projects; what is in it,
+   what is deliberately outside it, and what is still an open gap are under "Building the corpus"
+   below.
 2. **`src/`** — an MCP stdio server that serves that corpus, plus API and language-design docs
    fetched from upstream Microsoft repositories.
 
@@ -102,18 +104,35 @@ itself, so one file serves every pin. Edit the file under `src/`; there is no se
 step, and `VbSourceCoverageTests` fails if a row under `src/` is compiled by no project.
 `MyType=Windows` is per-compilation and lives only in the net48 family's `my/` projects.
 
-**Building the corpus.** `CorpusProjectBuildTests` discovers and builds the SDK-style C# library
-projects under `examples/language-features/CSharp/dotnet/` and every VB project under
-`examples/language-features/VB.NET/`, all at 0 errors and 0 warnings.
-`CorpusProjectDiscoveryTests` holds the exact expected list; that is the count of record. The legacy
-`examples/language-features/CSharp/dotNetFramework/v4.8/CSharp_v7.0/CSharp70.csproj` needs Visual
-Studio's `MSBuild.exe` on Windows — `dotnet build` restores its `PackageReference` items and then
-resolves none of them, failing with `CS0246` on `Span` and `ValueTask` while saying nothing about
-the toolchain. `CSharp_v8.0` and the eleven net48 VB projects — the latter through their family's
-`Directory.Build.props` — carry `Microsoft.NETFramework.ReferenceAssemblies` and so need no
-machine-installed targeting pack. No other net48 project does: the two SDK-style `*-Unsafe` net48
-projects have no props above them supplying it, and a legacy non-SDK project cannot consume the
-package at all.
+**Building the corpus.** `CorpusProjectBuildTests` discovers and builds four roots at 0 errors and
+0 warnings: the SDK-style C# **library** projects under
+`examples/language-features/CSharp/dotnet/`, every SDK-style project under
+`examples/language-features/CSharp/dotNetFramework/`, every VB project under
+`examples/language-features/VB.NET/`, and — through Visual Studio's `MSBuild.exe` rather than the
+SDK host — every legacy non-SDK project under `examples/language-features/CSharp/dotNetFramework/`.
+`CorpusProjectDiscoveryTests` holds the exact expected list; that is the count of record.
+
+That is 45 of the corpus's 53 projects. Two of the remaining eight are outside it deliberately:
+`CSharp/CSharpComTypeLib/` is prebuilt as a shared reference at the same bar, and
+`CSharp/csx/roslyn-5.6.0/host/` has a Roslyn host coordinate rather than an SDK/TFM one. The other
+six — three `exe` and three `unsafe` projects under `CSharp/dotnet/` — are built by nothing and
+referenced by nothing, which is an open gap rather than a decision:
+[`docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md`](docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md).
+
+The eleven legacy projects need Visual Studio's `MSBuild.exe` on Windows — `dotnet build` restores
+their `PackageReference` items and then resolves none of them, failing with `CS0246` on `Span` and
+`ValueTask` while saying nothing about the toolchain. That host is machine-installed rather than
+supplied by the repository-private test host, so **on a machine without Visual Studio those eleven
+report inconclusive**, naming the `vswhere` path that was inspected. `CSharp_v8.0` and the eleven
+net48 VB projects — the latter through their family's `Directory.Build.props` — carry
+`Microsoft.NETFramework.ReferenceAssemblies` and so need no machine-installed targeting pack. No
+other net48 project does: the two SDK-style `*-Unsafe` net48 projects have no props above them
+supplying it, and a legacy non-SDK project cannot consume the package at all.
+
+`CSharp_v1.0` and `CSharp_v1.0-Unsafe` both carry `GenerateTargetFrameworkAttribute=false`. Any
+project pinned to C# 1.x needs it, SDK-style or not: the generated `AssemblyAttributes.cs` spells
+its `TargetFramework` attribute with `global::`, and the resulting `CS8022` names a generated file
+rather than a sample, so it reads as a broken corpus.
 
 **Corpus verification has three layers.**
 

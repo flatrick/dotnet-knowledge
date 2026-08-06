@@ -24,6 +24,24 @@ needs more.
 
 ---
 
+### 2026-08-06 · `MSBuild.exe -v:minimal` prints no build summary, where `dotnet build -v:minimal` does · environment
+
+`CorpusProjectBuildTests` asserts on the exact lines `0 Warning(s)` and `0 Error(s)`, which
+`dotnet build -v:minimal` emits. Visual Studio's `MSBuild.exe` at the same verbosity emits the
+project's output line and nothing else — no `Build succeeded.` block at all — so a legacy project
+that built perfectly failed the assertion while its exit code was 0 and its log looked healthy. The
+summary is a console-logger parameter, not a verbosity level: `-clp:Summary` restores it at
+`-v:minimal`, and `-v:normal` restores it by printing everything.
+
+### 2026-08-06 · A green floor probe says nothing about whether the project builds · codebase
+
+`scripts/verify-feature-floors.cs` reported every row of `CSharp_v1.0` without complaint while the
+project itself failed with a single `CS8022` on MSBuild's generated `AssemblyAttributes.cs`. The
+probe compiles rows standalone with `csc` and sets `GenerateTargetFrameworkAttribute=false` on its
+own scratch projects, so the one file that breaks the real project is never in its inputs. Two
+verification layers that look redundant were not: a probe verifies rows, a matrix verifies projects,
+and only the second sees a project-level failure.
+
 ### 2026-08-06 · A localized toolchain makes `--json` reproducible per machine, not per repository · environment
 
 On a sv-SE host the floor probe's `Detail` carried Swedish prose — `CS0410: Ingen överlagring för …`

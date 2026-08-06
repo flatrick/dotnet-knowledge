@@ -86,12 +86,14 @@ runs-on: windows-2025-vs2026
 ```
 
 `windows-2025-vs2026` names both the operating system and the Visual Studio version. That second
-half is the part this repository actually depends on: the net48 corpus builds through Visual
+half is the part this repository actually depends on: the legacy net48 corpus builds through Visual
 Studio's `MSBuild.exe`, and `scripts/verify-feature-floors.cs` locates compilers through `vswhere`
-and through the in-box `%WINDIR%\Microsoft.NET\Framework64` compilers. GitHub migrates `-latest`
-labels to a new image gradually, so under `windows-latest` an image migration would surface as a
-corpus failure with no corresponding commit — indistinguishable, at first reading, from a corpus
-regression.
+and through the in-box `%WINDIR%\Microsoft.NET\Framework64` compilers. `CorpusProjectBuildTests`
+depends on it too and reports those eleven projects inconclusive without it, so an image that
+dropped Visual Studio would turn a gate into eleven skips rather than a failure. GitHub migrates
+`-latest` labels to a new image gradually, so under `windows-latest` an image migration would
+surface as a corpus failure with no corresponding commit — indistinguishable, at first reading, from
+a corpus regression.
 
 Exact action tags trade automatic patch adoption for one reviewable commit per version change.
 `.github/dependabot.yml` supplies the adoption, weekly, scoped to `github-actions`. NuGet is

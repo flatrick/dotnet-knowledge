@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using DotNetKnowledge.Corpus.Tests.Execution;
 using DotNetKnowledge.Corpus.Tests.Projects;
+using DotNetKnowledge.Corpus.Tests.Toolchains;
 
 namespace DotNetKnowledge.Corpus.Tests;
 
@@ -19,6 +20,18 @@ public sealed class CorpusProjectBuildTests
             ["UseSharedCompilation"] = "false",
             ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0",
             ["MSBUILDDISABLENODEREUSE"] = "1"
+        };
+
+    /// <summary>
+    /// The same, plus the one knob that fixes MSBuild's own message language. MSBuild has no
+    /// <c>/preferreduilang</c>; <c>DOTNET_CLI_UI_LANGUAGE</c> is the whole mechanism, and without it
+    /// this repository's sv-SE development host can print a localized summary that
+    /// <see cref="ContainsExactSummaryLine"/> would not match.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string?> LegacyBuildEnvironment =
+        new Dictionary<string, string?>(BuildEnvironment)
+        {
+            ["DOTNET_CLI_UI_LANGUAGE"] = "en-US"
         };
 
     /// <summary>
@@ -51,6 +64,13 @@ public sealed class CorpusProjectBuildTests
     private static readonly Lazy<string[]> MatrixProjectPaths =
         new(() => [.. ProjectCoordinates().Select(coordinate => (string)coordinate[0])]);
 
+    private static readonly Lazy<string[]> LegacyProjectPaths =
+        new(() => [.. LegacyProjectCoordinates().Select(coordinate => (string)coordinate[0])]);
+
+    private static string legacyHostPath = string.Empty;
+
+    private static string legacyHostUnavailableReason = string.Empty;
+
     /// <summary>
     /// Rebuilds the shared project references, then starts every matrix build without awaiting it.
     /// The builds are independent processes over disjoint output directories, so the matrix is
@@ -69,11 +89,28 @@ public sealed class CorpusProjectBuildTests
                 RepositoryRoot());
             var result = await BuildAsync(projectPath, buildProjectReferences: true);
             AssertZeroWarningsAndErrors(result, relativePath);
+
+            // CSharp_v8.0 is both a shared reference and a matrix entry. Publishing the prebuild's
+            // result under its path is what keeps it from being rebuilt a second time — a rebuild
+            // that would delete and rewrite the assembly the nine net48 VB projects are reading
+            // concurrently. The result is a full -t:Rebuild held to the same bar, so the matrix
+            // loses no evidence by reusing it.
+            _ = MatrixBuilds.TryAdd(projectPath, Task.FromResult(result));
         }
 
         foreach (var projectPath in MatrixProjectPaths.Value)
         {
             _ = MatrixBuilds.GetOrAdd(projectPath, StartMatrixBuild);
+        }
+
+        if (!new VisualStudioMsBuild().TryResolve(out legacyHostPath, out legacyHostUnavailableReason))
+        {
+            return;
+        }
+
+        foreach (var projectPath in LegacyProjectPaths.Value)
+        {
+            _ = MatrixBuilds.GetOrAdd(projectPath, StartLegacyBuild);
         }
     }
 
@@ -84,6 +121,33 @@ public sealed class CorpusProjectBuildTests
     public async Task RebuildHasZeroWarningsAndErrors(string projectPath, string coordinate)
     {
         var result = await MatrixBuilds.GetOrAdd(projectPath, StartMatrixBuild);
+
+        AssertZeroWarningsAndErrors(result, coordinate);
+    }
+
+    /// <summary>
+    /// The legacy non-SDK half of the net48 C# tree. It is the same gate as the matrix above and
+    /// shares its concurrency, but it runs under Visual Studio's <c>MSBuild.exe</c>, which is
+    /// machine-installed rather than supplied by the repository-private host.
+    /// </summary>
+    /// <remarks>
+    /// A machine without Visual Studio cannot build these at all, so the case reports inconclusive
+    /// and names what was inspected. That is a skip, and a skip is worse than a failure — but
+    /// failing here would report a corpus defect for a host that is simply not equipped, and the
+    /// reason string is what keeps the two apart.
+    /// </remarks>
+    [TestMethod]
+    [DynamicData(
+        nameof(LegacyProjectCoordinates),
+        DynamicDataDisplayName = nameof(ProjectCoordinateDisplayName))]
+    public async Task LegacyRebuildHasZeroWarningsAndErrors(string projectPath, string coordinate)
+    {
+        if (legacyHostPath.Length == 0)
+        {
+            Assert.Inconclusive($"{coordinate}{Environment.NewLine}{legacyHostUnavailableReason}");
+        }
+
+        var result = await MatrixBuilds.GetOrAdd(projectPath, StartLegacyBuild);
 
         AssertZeroWarningsAndErrors(result, coordinate);
     }
@@ -112,7 +176,22 @@ public sealed class CorpusProjectBuildTests
                 Path.GetFullPath(
                     project.RepositoryRelativePath.Replace('/', Path.DirectorySeparatorChar),
                     repositoryRoot),
-                $"{project.TargetFramework}/{language} {project.LanguageVersion}"
+                $"{ProjectDirectoryName(project)} [{project.TargetFramework}/{language} {project.LanguageVersion}]"
+            ];
+        }
+    }
+
+    public static IEnumerable<object[]> LegacyProjectCoordinates()
+    {
+        var repositoryRoot = RepositoryRoot();
+        foreach (var project in CorpusProjectDiscovery.FindLegacyNetFrameworkProjects(repositoryRoot))
+        {
+            yield return
+            [
+                Path.GetFullPath(
+                    project.RepositoryRelativePath.Replace('/', Path.DirectorySeparatorChar),
+                    repositoryRoot),
+                $"{ProjectDirectoryName(project)} [{project.TargetFramework}/C# {project.LanguageVersion}, non-SDK]"
             ];
         }
     }
@@ -122,6 +201,16 @@ public sealed class CorpusProjectBuildTests
         _ = methodInfo;
         return (string)data[1];
     }
+
+    /// <summary>
+    /// The coordinate alone does not identify a project: <c>CSharp_v8.0</c> and
+    /// <c>CSharp_v8.0-Unsafe</c> share <c>net48/C# 8.0</c>, the two net48 VB <c>11</c> projects share
+    /// <c>net48/VB 11</c>, and <c>CSharp_v7.1</c> and <c>CSharp_v7.1-async_main</c> share
+    /// <c>v4.8/C# 7.1</c>. The owning directory is what the corpus names them by, and a display name
+    /// that repeats makes one of a colliding pair unattributable in a result list.
+    /// </summary>
+    private static string ProjectDirectoryName(CorpusProject project) =>
+        project.RepositoryRelativePath.Split('/')[^2];
 
     private static void AssertZeroWarningsAndErrors(ProcessResult result, string subject)
     {
@@ -136,12 +225,18 @@ public sealed class CorpusProjectBuildTests
     }
 
     private static Task<ProcessResult> StartMatrixBuild(string projectPath) =>
+        StartBuild(() => BuildAsync(projectPath, buildProjectReferences: false));
+
+    private static Task<ProcessResult> StartLegacyBuild(string projectPath) =>
+        StartBuild(() => BuildLegacyAsync(projectPath));
+
+    private static Task<ProcessResult> StartBuild(Func<Task<ProcessResult>> build) =>
         Task.Run(async () =>
         {
             await BuildSlots.WaitAsync(CancellationToken.None);
             try
             {
-                return await BuildAsync(projectPath, buildProjectReferences: false);
+                return await build();
             }
             finally
             {
@@ -175,6 +270,24 @@ public sealed class CorpusProjectBuildTests
             BuildEnvironment,
             cancellationToken: CancellationToken.None);
     }
+
+    /// <summary>
+    /// The legacy half's runner. Three of its differences from <see cref="BuildAsync"/> are
+    /// load-bearing rather than spelling:
+    /// <c>-t:Restore;Rebuild</c> because <c>MSBuild.exe</c> has no implicit restore;
+    /// <c>-p:BuildProjectReferences=false</c> for the reason the matrix passes
+    /// <c>--no-dependencies</c>, since ten of these reference <c>CSharpComTypeLib</c>;
+    /// and <c>-clp:Summary</c> because <c>MSBuild.exe -v:minimal</c> — unlike
+    /// <c>dotnet build -v:minimal</c> — prints no <c>0 Warning(s)</c> / <c>0 Error(s)</c> block at
+    /// all, which would fail <see cref="AssertZeroWarningsAndErrors"/> on a build that succeeded.
+    /// </summary>
+    private static async Task<ProcessResult> BuildLegacyAsync(string projectPath) =>
+        await new ProcessRunner().RunAsync(
+            legacyHostPath,
+            [projectPath, "-t:Restore;Rebuild", "-nologo", "-v:minimal", "-clp:Summary", "-p:BuildProjectReferences=false"],
+            RepositoryRoot(),
+            LegacyBuildEnvironment,
+            cancellationToken: CancellationToken.None);
 
     private static string DotnetPath()
     {

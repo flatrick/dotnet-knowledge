@@ -24,6 +24,18 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · The legacy net48 projects get a second runner, not an exemption
+
+The eleven legacy non-SDK C# projects are now a fourth discovery root built through Visual Studio's
+`MSBuild.exe`, located with the same `vswhere` query `scripts/verify-feature-floors.cs` uses; a host
+without Visual Studio reports them inconclusive and names the path it inspected.
+Rejected: recording that `verify-feature-floors.cs` already verifies them. It compiles rows in
+isolation and never builds the project, and `CSharp_v1.0` is the proof — every one of its rows
+probed clean while the project failed to build at all. A verification that cannot see a total build
+failure is not verification of the build.
+Cost measured: 17.3 s for all eleven serially, and +2 s on the suite once they share the matrix's
+existing concurrency (1 m 56 s → 1 m 58 s).
+
 ### 2026-08-06 · The zero-warning gate is closed at the build, not in the assertion
 
 `TreatWarningsAsErrors` reaches the compilers and NuGet but not MSBuild's own `MSB####` warnings, so

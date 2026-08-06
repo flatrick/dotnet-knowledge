@@ -9,6 +9,13 @@
     <OutputType>Library</OutputType>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>1</LangVersion>
+    <!--
+      Microsoft.Common.CurrentVersion.targets generates an AssemblyAttributes.cs whose
+      TargetFramework attribute is spelled with global::, which is C# 2.0 syntax. Any project
+      pinned to C# 1.x fails on that generated file with CS8022 before it reaches a single
+      authored line, so the attribute has to be suppressed here.
+    -->
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
