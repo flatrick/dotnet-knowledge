@@ -4,9 +4,15 @@
     when MSBuild walks up from the temp project location. Production analyzer
     settings (TreatWarningsAsErrors, AnalysisLevel) are not appropriate for
     utility scripts, so we reset them here.
+
+    MSBuildTreatWarningsAsErrors is reset for a second reason: it enforces the
+    corpus's zero-warning gate, and a script is not gated content. Leaving it on
+    would let an environmental MSB#### warning stop every verify-* script from
+    running at all, which is a worse failure than the warning it reports.
   -->
   <PropertyGroup>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
     <AnalysisLevel>none</AnalysisLevel>
     <Nullable>disable</Nullable>
   </PropertyGroup>

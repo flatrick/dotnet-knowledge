@@ -161,10 +161,15 @@ net48 projects stay Windows-only regardless, because they need Visual Studio's `
 - **Verification has three layers:** project builds prove validity at a declared SDK/TFM/language
   coordinate; isolated compilation cases prove positive and negative feature boundaries; runtime
   cases prove comments that assert observable behavior.
-- **Every project build requires 0 errors AND 0 warnings.** `TreatWarningsAsErrors` is inherited
-  from the root `Directory.Build.props` specifically so this layer is mechanical. Never add a
-  `#pragma warning disable` to get past a warning, and do not override the property in the corpus
-  subtree.
+- **Every project build requires 0 errors AND 0 warnings.** `TreatWarningsAsErrors` and
+  `MSBuildTreatWarningsAsErrors` are both inherited from the root `Directory.Build.props`
+  specifically so this layer is mechanical.
+  The pair is what makes the exit code sufficient: `TreatWarningsAsErrors` reaches the compilers and
+  NuGet, `MSBuildTreatWarningsAsErrors` reaches MSBuild's own `MSB####` warnings, and without the
+  second a build carrying one still exits 0.
+  Never add a `#pragma warning disable` to get past a warning, and do not override either property
+  in the corpus subtree.
+  `scripts/Directory.Build.props` resets both, because a dev script is not gated content.
 - **An older TFM does not select its historical compiler.** SDK 10 targeting an older TFM uses SDK
   10's compiler against the older reference pack. Keep SDK, TFM, `LangVersion`, and runtime
   execution as separate case inputs.

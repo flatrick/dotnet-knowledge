@@ -24,6 +24,19 @@ and the entry links there.
 
 ---
 
+### 2026-08-06 · The zero-warning gate is closed at the build, not in the assertion
+
+`TreatWarningsAsErrors` reaches the compilers and NuGet but not MSBuild's own `MSB####` warnings, so
+a build carrying one exited 0 and only `CorpusCompilationTests`/`CorpusRuntimeTests` matching the
+substring `"warning "` caught it — a word `verify-feature-floors.cs` already treats as localized.
+Rejected: rewriting those assertions to match diagnostic codes, which leaves the exit code lying and
+has to be repeated in every future harness; `MSBuildTreatWarningsAsErrors=true` at the root makes the
+exit code sufficient regardless of locale, and the substring assertions stay as belt and braces.
+Measured before changing anything: zero `MSB####` and zero `NU####` warnings across both solutions
+and all 53 corpus projects, so closing the gate cost nothing.
+`scripts/Directory.Build.props` resets it as it already resets `TreatWarningsAsErrors` — a dev script
+is not gated content, and an environmental `MSB####` must not stop every `verify-*` script running.
+
 ### 2026-08-06 · C# gets a probe-derived column, not a per-pin restructure
 
 A sweep of the whole C# ladder (90 distinct rows, 1,022 compiles) found 7 rows compiling below the
