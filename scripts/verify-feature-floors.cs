@@ -628,6 +628,14 @@ static CompileResult Compile(
         }
 
         rsp.AppendLine($"/vbruntime:\"{vbRuntime}\"");
+
+        // A VB compilation prepends RootNamespace to every declaration, so a probe that omits it
+        // compiles the row in a different namespace than the project that ships it. csc has no
+        // /rootnamespace switch, which is why this is inside the VB branch.
+        if (!string.IsNullOrWhiteSpace(inputs.RootNamespace))
+        {
+            rsp.AppendLine($"/rootnamespace:{inputs.RootNamespace}");
+        }
     }
     else
     {
@@ -716,8 +724,8 @@ static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, La
     var query = profile.Name == "VB"
         ? "-getItem:ReferencePath -getItem:Import -getProperty:FinalDefineConstants"
           + " -getProperty:OptionExplicit -getProperty:OptionStrict -getProperty:OptionInfer"
-          + " -getProperty:OptionCompare"
-        : "-getItem:ReferencePath -getProperty:DefineConstants";
+          + " -getProperty:OptionCompare -getProperty:RootNamespace"
+        : "-getItem:ReferencePath -getProperty:DefineConstants -getProperty:RootNamespace";
 
     var json = Run(msbuild, $"\"{projectPath}\" -t:ResolveReferences {query} -nologo");
 
@@ -755,17 +763,24 @@ static ProjectInputs ResolveProjectInputs(string msbuild, string projectPath, La
             defines = define.GetString();
         }
 
+        string? rootNamespace = null;
+        if (properties.ValueKind == JsonValueKind.Object
+            && properties.TryGetProperty("RootNamespace", out var declaredRoot))
+        {
+            rootNamespace = declaredRoot.GetString();
+        }
+
         var options = new List<string>();
         if (profile.Name == "VB")
         {
             options.AddRange(VbOptions(properties, items));
         }
 
-        return new ProjectInputs(references, defines, options);
+        return new ProjectInputs(references, defines, rootNamespace, options);
     }
     catch (JsonException)
     {
-        return new ProjectInputs(Array.Empty<string>(), null, Array.Empty<string>());
+        return new ProjectInputs(Array.Empty<string>(), null, null, Array.Empty<string>());
     }
 }
 
@@ -1573,8 +1588,16 @@ record ProbeProject(
 
 record Discovery(List<ProbeProject> Projects, string? Fatal);
 
-// Everything a probe compile needs from a project besides its sources.
-record ProjectInputs(string[] References, string? Defines, IReadOnlyList<string> Options);
+// Everything a probe compile needs from a project besides its sources. RootNamespace is VB-only in
+// effect: a VB compilation prepends it to every declaration, so omitting it compiles the row in a
+// different namespace than the project that ships it. csc has no such switch -- in C# the property
+// only seeds new-file templates -- so it is resolved for both languages and emitted for neither but
+// VB.
+record ProjectInputs(
+    string[] References,
+    string? Defines,
+    string? RootNamespace,
+    IReadOnlyList<string> Options);
 
 record Result(
     string Project,

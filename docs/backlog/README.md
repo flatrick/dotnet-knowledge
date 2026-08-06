@@ -21,5 +21,4 @@ file when the item is resolved; `git log` is the record.
 | [Glob resolution is implemented twice](glob-resolution-is-implemented-twice.md) | tooling, tests | The two agree; sharing code across the boundary is not possible |
 | [UnmanagedConstraintRecognition may need an exemption](unmanaged-constraint-recognition-exemption.md) | corpus | A corpus decision, not a tooling one |
 | [The corpus build matrix dominates suite runtime](corpus-build-matrix-runtime.md) | tests | Tolerable today |
-| [The probe omits RootNamespace](probe-omits-rootnamespace.md) | tooling | No current row is affected |
 | [C# has no measured-floor column](csharp-has-no-measured-floor-column.md) | corpus | Requires the C# tree to adopt per-pin placement first |

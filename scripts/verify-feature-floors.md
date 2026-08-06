@@ -66,7 +66,11 @@ MSBuild. The reference set for each probe comes from MSBuild rather than being h
 probe sees exactly the assemblies the real build sees. For VB the resolution also carries over the
 project's `Option Explicit`/`Strict`/`Infer`/`Compare` settings, its project-level `Imports`, and
 `FinalDefineConstants`; without them ordinary rows fail with `BC30209` and `BC30451`, which read
-exactly like version gating.
+exactly like version gating. It carries `RootNamespace` too, as `/rootnamespace:`, because a VB
+compilation prepends that to every declaration and a probe omitting it would compile the row in a
+different namespace than the project that ships it. **`csc` has no such switch** — in C# the
+property only seeds new-file templates — so the value is resolved for both languages and emitted
+only for VB.
 
 Exit code is **1** when any group is `MISPLACED` or `NOT-VERSION-SPECIFIC` — the two outcomes that
 mean the corpus is wrong. **2** for a setup failure that means nothing was probed: an unknown
