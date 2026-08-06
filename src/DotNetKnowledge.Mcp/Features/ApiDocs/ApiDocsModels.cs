@@ -80,6 +80,42 @@ public sealed record ApiTextSearchResult(
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);
 
+/// <summary>
+/// How a declaration uses the type asked about. These are different questions wearing one word:
+/// "what accepts a CancellationToken" and "what derives from Stream" have different answers and
+/// different uses, so a hit says which it is and a caller can ask for one.
+/// </summary>
+public static class ApiReferenceKind
+{
+    public const string Parameter = "parameter";
+    public const string Return = "return";
+    public const string Base = "base";
+    public const string Interface = "interface";
+
+    public static readonly string[] All = [Parameter, Return, Base, Interface];
+}
+
+public sealed record ApiReferenceHit(
+    string Symbol,
+    string Kind,
+    string? ParameterName,
+    string? TypeExpression,
+    string? Signature,
+    SourceProvenance Source);
+
+/// <summary>
+/// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
+/// of references, and paginating them twenty at a time is a way of not saying so.
+/// </summary>
+public sealed record ApiReferenceTotals(int Parameter, int Return, int Base, int Interface);
+
+public sealed record ApiReferenceResult(
+    IReadOnlyList<ApiReferenceHit> Hits,
+    ApiReferenceTotals Totals,
+    bool IsPartial,
+    string? NextPageToken,
+    IReadOnlyList<SourceProvenance> SearchedSources);
+
 public sealed class SourceNotSyncedException : InvalidOperationException
 {
     public SourceNotSyncedException(string sourceName, Exception? innerException = null)

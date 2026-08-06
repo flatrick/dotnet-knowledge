@@ -75,6 +75,16 @@ search_api_text(query, source?, limit?, cursor?)
       at 300 characters with isTruncated stating it — never bodies
     → limit: 1-100, default 20
 
+find_api_references(symbol, kind?, source?, limit?, cursor?)
+    symbol: a fully-qualified TYPE name — the thing being used
+    kind: "parameter" | "return" | "base" | "interface"; omit for all
+    → declarations that use the type structurally, matched inside
+      compound expressions: string[], out string, IEnumerable<string>
+    → hits: owning symbol, kind, parameterName, the type expression as
+      declared, and the C# signature
+    → totals: per-kind counts over the WHOLE result set, not the page
+    → limit: 1-100, default 20
+
 ── language design docs ──────────────────────────────────────────────
 search_language_docs(query, regex?, source?, limit?, cursor?)
     query: a literal substring; regex: true switches to full .NET
@@ -210,6 +220,36 @@ Hits are deduplicated on symbol, element and text. Overloads each carry their ow
 `MemberName`, so identical prose on `Create(a)` and `Create(a, b)` would otherwise arrive as
 repeated hits a caller cannot tell apart; prose that genuinely differs between overloads survives,
 because the text is part of the key.
+
+### Structural references are a different question from prose
+
+`search_api_text` answers "which docs mention this type". `find_api_references` answers "which
+declarations use it" — a parameter, a return, a base class, an interface list. Measured on the
+pinned corpus, the two differ by an order of magnitude for a popular type: `System.String` has
+roughly 2,000 prose references and over 18,000 structural ones. Merging them would produce a result
+serving neither question.
+
+**Matching is on type-name boundaries, not equality and not substring.** A parameter is far more
+often `System.String[]`, `System.String&`, or `IEnumerable<System.String>` than a bare
+`System.String`, so equality would miss every `params string[]` and every `out string` — absences
+that read as facts. A plain substring test would instead match `System.StringComparer`. The
+occurrence therefore has to sit on boundaries: not preceded or followed by a character that
+continues an identifier, a dotted path, or a `+` nested-type separator.
+
+The prefilter can be the whole symbol here, unlike the prose search. A structural reference spells
+the type out in an attribute or element with no rendering step in between, so the raw file text is
+guaranteed to contain it.
+
+**`kind` says where a reference sits, not what the type is to it.** A class implementing
+`IComparer<string>` is an `interface` hit for `System.String`; `typeExpression` carries the
+interface as declared, and comparing it against the symbol is what distinguishes an exact base or
+interface from a parameterized one. That is why the field is in the payload rather than inferred.
+
+**Totals cover the whole result set, before `kind` narrows it.** A widely-used type has tens of
+thousands of references, and paginating them twenty at a time is a way of not saying so; a caller
+asking only about parameters can still see that five hundred types implement the interface.
+
+Query cost is 0.7-1.8 s against the whole corpus, so this needs no index either.
 
 ### Text is normalized at the read, and budgeted at the payload
 

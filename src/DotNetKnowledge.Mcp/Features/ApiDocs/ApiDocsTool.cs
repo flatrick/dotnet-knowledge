@@ -263,6 +263,90 @@ public sealed class ApiDocsTool
         }
     }
 
+    [McpServerTool(Name = "find_api_references", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Find declarations that USE a type: methods taking it as a parameter, methods returning it, " +
+        "types deriving from it, and types implementing it. The inverse of lookup_api, which says " +
+        "what a type offers rather than what uses it. Pass a fully-qualified type name. " +
+        "Matches the type inside a compound signature too, so System.String finds string[], " +
+        "out string and IEnumerable<string>. Each hit reports kind - \"parameter\", \"return\", " +
+        "\"base\" or \"interface\" - plus the owning symbol, the type expression and the C# " +
+        "signature; kind also filters. kind says WHERE the reference sits, not that the type is " +
+        "itself the base or interface: a class implementing IComparer<string> is an \"interface\" " +
+        "hit for System.String, and typeExpression says which. Compare typeExpression against the " +
+        "symbol to tell an exact base or interface from a parameterized one. " +
+        "Every response carries per-kind totals for the WHOLE result set, so a widely-used type is " +
+        "visibly widely used rather than silently paginated. " +
+        "Prose mentions are search_api_text's job, not this tool's.")]
+    public static async Task<string> FindApiReferences(
+        string symbol,
+        ApiDocsQueryService service,
+        CancellationToken cancellationToken,
+        string? kind = null,
+        string? source = null,
+        int? limit = null,
+        string? cursor = null)
+    {
+        try
+        {
+            var result = await service.FindReferencesAsync(
+                symbol,
+                kind,
+                source,
+                limit ?? 20,
+                cursor,
+                cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Serialize(result, WriteOptions);
+        }
+        catch (SourceNotSyncedException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_not_synced",
+                    message = exception.Message,
+                    source = exception.SourceName,
+                },
+                WriteOptions);
+        }
+        catch (TimeoutException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "git_timeout",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (ArgumentException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = string.Equals(exception.ParamName, "cursor", StringComparison.Ordinal)
+                        ? "invalid_cursor"
+                        : "invalid_request",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (InvalidDataException exception)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    error = "source_invalid",
+                    message = exception.Message,
+                },
+                WriteOptions);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return SerializeSourceInvalid(exception);
+        }
+    }
+
     private static string SerializeSourceInvalid(Exception exception) =>
         JsonSerializer.Serialize(
             new

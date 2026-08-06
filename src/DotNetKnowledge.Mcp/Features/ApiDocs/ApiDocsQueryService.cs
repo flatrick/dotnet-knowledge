@@ -404,6 +404,243 @@ public sealed class ApiDocsQueryService
         }
     }
 
+    /// <summary>
+    /// Finds declarations that use a type structurally — as a parameter, as a return type, as a
+    /// base class, or in an interface list.
+    /// </summary>
+    /// <remarks>
+    /// The inverse of <see cref="LookupAsync"/>: not "what does this type offer" but "what uses it".
+    /// Prose mentions are <c>search_api_text</c>'s job and are deliberately not counted here, since
+    /// a sentence naming a type and a signature accepting one are different facts.
+    /// </remarks>
+    public async Task<ApiReferenceResult> FindReferencesAsync(
+        string symbol,
+        string? kind,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
+        ValidateSymbol(symbol);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
+        if (kind is not null && !ApiReferenceKind.All.Contains(kind, StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                $"kind must be omitted or one of \"{string.Join("\", \"", ApiReferenceKind.All)}\".",
+                nameof(kind));
+        }
+
+        var hits = new List<ApiReferenceHit>();
+        var searchedSources = new List<SourceProvenance>();
+        foreach (var sourceName in ResolveSourceNames(source))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceRead<ApiReferenceHit> read;
+            try
+            {
+                read = await _synchronizer.ReadCurrentSourceAsync(
+                    sourceName,
+                    (definition, state, directory) => ReadReferenceSource(
+                        sourceName, directory, symbol, definition, state, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new SourceNotSyncedException(sourceName, exception);
+            }
+
+            searchedSources.Add(read.Provenance);
+            hits.AddRange(read.Items);
+        }
+
+        // Totals describe the whole matched set before the kind filter narrows it, so a caller
+        // asking only for parameters can still see that a thousand types derive from this one.
+        var totals = new ApiReferenceTotals(
+            Parameter: hits.Count(hit => hit.Kind == ApiReferenceKind.Parameter),
+            Return: hits.Count(hit => hit.Kind == ApiReferenceKind.Return),
+            Base: hits.Count(hit => hit.Kind == ApiReferenceKind.Base),
+            Interface: hits.Count(hit => hit.Kind == ApiReferenceKind.Interface));
+
+        var revisions = searchedSources
+            .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
+            .ToArray();
+        var scope = JsonSerializer.Serialize(new[] { symbol, kind ?? string.Empty, source ?? string.Empty });
+        var offset = DecodeCursor(cursor, "references", scope, revisions);
+
+        var ordered = hits
+            .Where(hit => kind is null || hit.Kind == kind)
+            .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Kind, StringComparer.Ordinal)
+            .ThenBy(hit => hit.ParameterName ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(hit => hit.TypeExpression ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ToArray();
+        if (offset > ordered.Length)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = ordered.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < ordered.Length;
+        return new ApiReferenceResult(
+            Hits: page,
+            Totals: totals,
+            IsPartial: isPartial,
+            NextPageToken: isPartial ? EncodeCursor("references", scope, nextOffset, revisions) : null,
+            SearchedSources: searchedSources);
+    }
+
+    private static SourceRead<ApiReferenceHit> ReadReferenceSource(
+        string sourceName,
+        string directory,
+        string symbol,
+        SourceDefinition definition,
+        SourceSyncState state,
+        CancellationToken cancellationToken)
+    {
+        var docsRoot = ResolveDocsRoot(sourceName, directory);
+        var provenance = ToProvenance(definition, state);
+        var files = Directory.EnumerateFiles(docsRoot, "*.xml", SearchOption.AllDirectories);
+        var hits = new System.Collections.Concurrent.ConcurrentBag<ApiReferenceHit>();
+
+        // The whole symbol is a sound prefilter here, unlike prose: a structural reference always
+        // spells the type out in an attribute or element, with no rendering step in between.
+        Parallel.ForEach(
+            files,
+            new ParallelOptions { CancellationToken = cancellationToken },
+            file =>
+            {
+                string text;
+                try
+                {
+                    text = File.ReadAllText(file);
+                }
+                catch (IOException)
+                {
+                    return;
+                }
+
+                if (!text.Contains(symbol, StringComparison.Ordinal))
+                    return;
+
+                foreach (var hit in ReadReferenceHits(file, text, symbol, provenance))
+                    hits.Add(hit);
+            });
+
+        return new SourceRead<ApiReferenceHit>(provenance, hits.ToArray());
+    }
+
+    private static IEnumerable<ApiReferenceHit> ReadReferenceHits(
+        string path,
+        string text,
+        string symbol,
+        SourceProvenance provenance)
+    {
+        XElement? root;
+        try
+        {
+            root = XDocument.Parse(text).Root;
+        }
+        catch (System.Xml.XmlException)
+        {
+            yield break;
+        }
+
+        if (root is null)
+            yield break;
+
+        var fullName = root.Attribute("FullName")?.Value
+            ?? root.Attribute("Name")?.Value
+            ?? Path.GetFileNameWithoutExtension(path);
+
+        // A type never counts as a reference to itself.
+        if (string.Equals(fullName, symbol, StringComparison.Ordinal))
+            yield break;
+
+        var baseTypeName = root.Element("Base")?.Element("BaseTypeName")?.Value;
+        if (baseTypeName is not null && ReferencesType(baseTypeName, symbol))
+            yield return new ApiReferenceHit(fullName, ApiReferenceKind.Base, null, baseTypeName, null, provenance);
+
+        foreach (var interfaceName in root.Element("Interfaces")?.Elements("Interface")
+                     .Select(item => item.Element("InterfaceName")?.Value) ?? [])
+        {
+            if (interfaceName is not null && ReferencesType(interfaceName, symbol))
+            {
+                yield return new ApiReferenceHit(
+                    fullName, ApiReferenceKind.Interface, null, interfaceName, null, provenance);
+            }
+        }
+
+        foreach (var member in root.Descendants("Member"))
+        {
+            var memberName = member.Attribute("MemberName")?.Value;
+            var memberSymbol = memberName is null ? fullName : $"{fullName}.{memberName}";
+            var signature = member.Elements("MemberSignature")
+                .LastOrDefault(element => string.Equals(element.Attribute("Language")?.Value, "C#", StringComparison.Ordinal))
+                ?.Attribute("Value")?.Value;
+
+            var returnType = member.Element("ReturnValue")?.Element("ReturnType")?.Value;
+            if (returnType is not null && ReferencesType(returnType, symbol))
+            {
+                yield return new ApiReferenceHit(
+                    memberSymbol, ApiReferenceKind.Return, null, returnType, signature, provenance);
+            }
+
+            foreach (var parameter in member.Element("Parameters")?.Elements("Parameter") ?? [])
+            {
+                var parameterType = parameter.Attribute("Type")?.Value;
+                if (parameterType is not null && ReferencesType(parameterType, symbol))
+                {
+                    yield return new ApiReferenceHit(
+                        memberSymbol,
+                        ApiReferenceKind.Parameter,
+                        parameter.Attribute("Name")?.Value,
+                        parameterType,
+                        signature,
+                        provenance);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a type expression uses <paramref name="symbol"/> as a whole type.
+    /// </summary>
+    /// <remarks>
+    /// Equality is not enough and substring is too much. A parameter is far more often
+    /// <c>System.String[]</c> or <c>System.String&amp;</c> or
+    /// <c>IEnumerable&lt;System.String&gt;</c> than a bare <c>System.String</c>, so equality would
+    /// miss every <c>params string[]</c> and every <c>out string</c> — absences that read as facts.
+    /// A plain substring test would instead match <c>System.StringComparer</c>, so the occurrence
+    /// has to sit on type-name boundaries.
+    /// </remarks>
+    private static bool ReferencesType(string typeExpression, string symbol)
+    {
+        var start = 0;
+        while (true)
+        {
+            var index = typeExpression.IndexOf(symbol, start, StringComparison.Ordinal);
+            if (index < 0)
+                return false;
+
+            var before = index == 0 ? '\0' : typeExpression[index - 1];
+            var afterIndex = index + symbol.Length;
+            var after = afterIndex >= typeExpression.Length ? '\0' : typeExpression[afterIndex];
+
+            if (!ContinuesName(before) && !ContinuesName(after))
+                return true;
+
+            start = index + 1;
+        }
+
+        // A letter, digit or underscore on either side means a longer identifier; a dot means a
+        // longer path, so "System.String" must not match inside "Foo.System.String" or
+        // "System.String.Enumerator". '+' separates a nested type, which is a different type again.
+        static bool ContinuesName(char character) =>
+            char.IsLetterOrDigit(character) || character is '_' or '.' or '+';
+    }
+
     private string[] ResolveSourceNames(string? source)
     {
         if (source is not null)

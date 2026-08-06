@@ -241,8 +241,8 @@ serves every clone and worktree on the machine, and it is deliberately not the X
 directory: a synced pin must survive cache cleaners (`docs/decisions.md`).
 
 Implemented: `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
-`search_language_docs`, `get_language_doc` and `get_language_doc_outline`. Bundled-example queries
-are future work. The intended surface for all of them is in `docs/design/mcp-tool-surface.md`; known
+`find_api_references`, `search_language_docs`, `get_language_doc` and `get_language_doc_outline`.
+Bundled-example queries are future work. The intended surface for all of them is in `docs/design/mcp-tool-surface.md`; known
 defects are one file each in `docs/backlog/`.
 
 `Text/DocumentationText.cs` is the one seam where documentation text is cleaned, and it has two
