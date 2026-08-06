@@ -49,7 +49,6 @@ public sealed class ApiDocsQueryService
         var matches = new List<ApiTypeDocumentation>();
         var resolvedTypeNames = new List<string>();
         var searchedSources = new List<SourceProvenance>();
-        var reads = new List<LookupRead>();
 
         foreach (var sourceName in sourceNames)
         {
@@ -69,7 +68,6 @@ public sealed class ApiDocsQueryService
             }
 
             searchedSources.Add(read.Provenance);
-            reads.Add(read);
             matches.AddRange(read.Matches);
             resolvedTypeNames.AddRange(read.ResolvedTypeNames);
         }
@@ -86,12 +84,6 @@ public sealed class ApiDocsQueryService
         var distinctTypeNames = resolvedTypeNames.Distinct(StringComparer.Ordinal)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
-
-        // A bare type name asks for an inventory; naming a member asks for its documentation. The
-        // symbol is the whole selector, so the expensive response is unreachable rather than
-        // merely opt-out. The reads already answered this question when they resolved the symbol,
-        // so it is carried out rather than recomputed — recomputing risks the two disagreeing.
-        var signaturesOnly = reads.Any(read => read.Matches.Count > 0 && !read.SymbolNamedAMember);
 
         // Paging runs over one flat, ordinally-ordered member sequence across every match, so a
         // three-type result such as List has one pagination state rather than three. A type with
@@ -125,7 +117,9 @@ public sealed class ApiDocsQueryService
             {
                 Members = group
                     .Where(pair => pair.Member is not null)
-                    .Select(pair => signaturesOnly ? ToSignature(pair.Member!) : pair.Member!)
+                    .Select(pair => pair.Type.Detail == ApiLookupDetail.Signatures
+                        ? ToSignature(pair.Member!)
+                        : pair.Member!)
                     .ToArray(),
             })
             .ToArray();
@@ -680,15 +674,13 @@ public sealed class ApiDocsQueryService
 
             // Every type whose name matched, before member filtering. This is what distinguishes
             // "no such type" from "the type exists and the member did not match".
-            documented.Select(type => type.FullName).ToArray(),
-            memberName is not null);
+            documented.Select(type => type.FullName).ToArray());
     }
 
     private sealed record LookupRead(
         SourceProvenance Provenance,
         IReadOnlyList<ApiTypeDocumentation> Matches,
-        IReadOnlyList<string> ResolvedTypeNames,
-        bool SymbolNamedAMember);
+        IReadOnlyList<string> ResolvedTypeNames);
 
     private static SourceRead<ApiSearchItem> ReadSearchSource(
         string sourceName,
@@ -898,7 +890,14 @@ public sealed class ApiDocsQueryService
                 Repo: definition.Repository,
                 Ref: state.Ref,
                 Commit: state.Commit,
-                FetchedAt: state.FetchedAt));
+                FetchedAt: state.FetchedAt),
+
+            // A bare type name asks for an inventory; naming a member asks for its documentation.
+            // The symbol is the whole selector, so the expensive response is unreachable rather
+            // than merely opt-out. The tier is settled here because the reading is per source: one
+            // source resolving the string as a type must not collapse another source's member
+            // match, for which full documentation was the right answer.
+            Detail: memberName is null ? ApiLookupDetail.Signatures : ApiLookupDetail.Full);
     }
 
     private static ApiMemberDocumentation? ReadMember(XElement member)

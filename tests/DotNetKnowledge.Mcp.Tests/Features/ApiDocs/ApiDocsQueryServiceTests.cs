@@ -404,6 +404,41 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task LookupAsyncDecidesTheDetailTierPerSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateOverlappingSourcesServiceAsync(root);
+
+            // One string, two readings: dotnet-api-docs resolves System.Widget's member Create,
+            // roslyn-api-docs resolves a type of that name.
+            var result = await service.LookupAsync(
+                "System.Widget.Create", source: null, limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual(ApiLookupOutcome.Found, result.Outcome);
+            var asMember = result.Matches.Single(match => match.FullName == "System.Widget");
+            var asType = result.Matches.Single(match => match.FullName == "System.Widget.Create");
+
+            // Naming a member is how a caller asks for its documentation, and the other source's
+            // reading of the same string must not take it away.
+            Assert.AreEqual("Creates a widget.", asMember.Members.Single().Summary);
+            Assert.AreEqual(ApiLookupDetail.Full, asMember.Detail);
+
+            // A bare type name is an inventory request, and stays one. Detail is what lets a
+            // caller tell this from a signatures-only decision made for the other match.
+            Assert.IsNull(asType.Members.Single().Summary);
+            Assert.AreEqual(ApiLookupDetail.Signatures, asType.Detail);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task LookupAsyncBudgetsWholeTypeResponsesAndPaginates()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

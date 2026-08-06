@@ -20,8 +20,11 @@ public sealed class ApiDocsTool
     [Description(
         "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
         "TypeName returns every member's signature only; TypeName.MemberName returns full " +
-        "documentation for that member. Pass source to restrict the lookup to dotnet-api-docs or " +
-        "roslyn-api-docs, and limit/cursor to page. Returns provenance with every match.")]
+        "documentation for that member. Each match reports detail - \"signatures\" or \"full\" - " +
+        "because the tier is decided per source, so one source resolving the string as a type " +
+        "never collapses another's member match. Pass source to restrict the lookup to " +
+        "dotnet-api-docs or roslyn-api-docs, and limit/cursor to page. Returns provenance with " +
+        "every match.")]
     public static async Task<string> LookupApi(
         string symbol,
         ApiDocsQueryService service,

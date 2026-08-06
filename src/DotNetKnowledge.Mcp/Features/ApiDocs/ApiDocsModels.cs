@@ -20,10 +20,22 @@ public sealed record ApiMemberDocumentation(
     string? Returns,
     string? Remarks);
 
+/// <summary>
+/// Which reading of the requested symbol produced a match, and therefore how much of each member
+/// it carries. Without it a caller cannot tell a signatures-only answer from a signatures-only
+/// decision, because the two look identical in the payload.
+/// </summary>
+public static class ApiLookupDetail
+{
+    public const string Signatures = "signatures";
+    public const string Full = "full";
+}
+
 public sealed record ApiTypeDocumentation(
     string FullName,
     IReadOnlyList<ApiMemberDocumentation> Members,
-    SourceProvenance Source);
+    SourceProvenance Source,
+    string Detail);
 
 /// <summary>
 /// Why a lookup returned nothing. A type that does not exist and a member that does not exist need

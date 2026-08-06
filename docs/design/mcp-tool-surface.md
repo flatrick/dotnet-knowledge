@@ -46,6 +46,11 @@ lookup_api(symbol, source?, limit?, cursor?)
       only, across every matching type; naming a member ("Type.Member")
       returns that member's full documentation — summary, parameters,
       returns, and remarks
+    → detail: "signatures" | "full" per match, because the tier is decided
+      per source — one source resolving the string as a type must not
+      collapse another source's member match, and a signatures-only
+      answer is otherwise indistinguishable from a signatures-only
+      decision
     → limit: 1-100, default 20, over one flat member sequence across all
       matched types; cursor: opaque, bound to the symbol and to the
       searched sources' revisions, so a cursor from before a
