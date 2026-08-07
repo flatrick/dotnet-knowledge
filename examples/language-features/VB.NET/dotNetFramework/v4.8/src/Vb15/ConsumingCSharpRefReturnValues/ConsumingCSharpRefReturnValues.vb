@@ -27,6 +27,7 @@ Namespace Vb15.ConsumingCSharpRefReturnValues
         ' The reference is real on the C# side — ReplaceInPlace assigns through
         ' it and the array changes. VB reads the value out rather than holding
         ' the alias, so the write has to happen where the ref local can live.
+        ' Runtime verification: Vb15.ConsumingCSharpRefReturnValuesNet48
         Public Function MutateThroughApi() As Integer
             Dim values() As Integer = {1, 2, 3}
             RefSamples.ReplaceInPlace(values, 2, 99)

@@ -29,6 +29,7 @@ public sealed class ProbeProjectTests
             expectation,
             sourcePath,
             harnessPath: null,
+            projectReferences: [],
             TestContext.CancellationToken);
         var probeDirectory = result.ProjectDirectory;
 
@@ -67,6 +68,7 @@ public sealed class ProbeProjectTests
             SuccessfulCompilation("net10.0", "14.0"),
             "tests/DotNetKnowledge.Corpus.Tests/Fixtures/AlwaysValid.cs",
             harnessPath: null,
+            projectReferences: [],
             TestContext.CancellationToken);
 
         AssertSuccessfulBuild(result);
@@ -80,6 +82,7 @@ public sealed class ProbeProjectTests
             FailedCompilation("net5.0", "9.0", "CS8773"),
             "tests/DotNetKnowledge.Corpus.Tests/Fixtures/FileScopedNamespace.cs",
             harnessPath: null,
+            projectReferences: [],
             TestContext.CancellationToken);
 
         Assert.AreNotEqual(0, result.Process.ExitCode, result.CompleteOutput);
@@ -95,6 +98,7 @@ public sealed class ProbeProjectTests
             SuccessfulCompilation("net5.0", "10.0"),
             "tests/DotNetKnowledge.Corpus.Tests/Fixtures/FileScopedNamespace.cs",
             harnessPath: null,
+            projectReferences: [],
             TestContext.CancellationToken);
 
         AssertSuccessfulBuild(result);

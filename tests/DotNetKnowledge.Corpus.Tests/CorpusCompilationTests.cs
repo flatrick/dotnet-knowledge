@@ -43,6 +43,7 @@ public sealed class CorpusCompilationTests
             expectation,
             testCase.Source,
             harnessPath: null,
+            testCase.ProjectReferences,
             TestContext.CancellationToken);
         var failure = $"{coordinate}{Environment.NewLine}{result.CompleteOutput}";
 

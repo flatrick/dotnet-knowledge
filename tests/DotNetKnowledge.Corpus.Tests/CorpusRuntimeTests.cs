@@ -68,6 +68,7 @@ public sealed class CorpusRuntimeTests
             compilation,
             testCase.Source,
             expectation.Harness,
+            testCase.ProjectReferences,
             TestContext.CancellationToken);
         var buildFailure = $"{coordinate}{Environment.NewLine}{build.CompleteOutput}";
         Assert.AreEqual(0, build.Process.ExitCode, buildFailure);
@@ -81,6 +82,7 @@ public sealed class CorpusRuntimeTests
         var result = await ProbeProject.RunAsync(
             sdk,
             build,
+            expectation.TargetFramework,
             TestContext.CancellationToken);
         var runtimeFailure =
             $"{coordinate}{Environment.NewLine}" +
@@ -150,6 +152,16 @@ public sealed class CorpusRuntimeTests
 
     private static void RequireRuntime(ToolchainInventory inventory, string targetFramework)
     {
+        if (NetFrameworkTargetFramework.IsFramework(targetFramework))
+        {
+            if (!new NetFrameworkRuntime().TryResolve(out var reason))
+            {
+                throw new InvalidOperationException(reason);
+            }
+
+            return;
+        }
+
         const string prefix = "net";
         if (!targetFramework.StartsWith(prefix, StringComparison.Ordinal) ||
             !inventory.HasRuntime(targetFramework[prefix.Length..]))

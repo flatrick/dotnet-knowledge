@@ -526,7 +526,22 @@ The case with that exact ID must contain at least one runtime expectation, and t
 in the canonical source path named by the case. Every runtime case whose source is in the corpus
 must have exactly one canonical marker. Toolchain-only cases whose source lives under `tests/` are
 marker-exempt. This contract establishes a mechanical link for declared runtime claims; it does not
-classify every corpus row as runtime-verifiable.
+classify every corpus row as runtime-verifiable. The marker scan covers both runtimes
+(`CSharp/dotnet/10/latest`, `CSharp/dotNetFramework`, `VB.NET/dotnet/Net10`, `VB.NET/dotNetFramework`),
+so a marker written anywhere in the corpus is discovered and, if unpaired with a real case, fails the
+coverage check rather than being silently invisible to it.
+
+A runtime case's `targetFramework` may name either a CoreCLR coordinate (`net7.0`, `net10.0`) or a
+net48 one; its `source`/`harness` may be C# or VB. `ProbeProject` picks the probe project's language
+from the source file's own extension and, for a net48 coordinate, builds an ordinary SDK-style net48
+project — carrying `Microsoft.NETFramework.ReferenceAssemblies` and `System.Memory` so it needs no
+machine-installed targeting pack, the same packages the corpus's own net48 VB family carries — and
+launches the built `.exe` directly — a Framework `OutputType=Exe` build has no separate managed
+`.dll` and no `dotnet` host to run it through, unlike CoreCLR's `dotnet <assembly.dll>`. That launch
+is gated on an explicit Windows/`Framework64\v4.0.30319` preflight, the same in-box CLR root the
+floor probe's native-ceiling compilers already resolve against. A case may also list
+`projectReferences` when its subject depends on a support assembly — `CSharpRefReturnLib`, the VB 15
+ref-return row's C# subject, is the first case to use it.
 
 ### A project build cannot tell whether a sample demonstrates its feature
 
