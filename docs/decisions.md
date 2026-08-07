@@ -24,6 +24,20 @@ and the entry links there.
 
 ---
 
+### 2026-08-07 · The two VB `Compile` glob resolvers become one file, shared with `#:include`
+
+`scripts/shared/CompileItems.cs` is now the only implementation; `verify-feature-floors.cs` names it
+with `#:include` and `DotNetKnowledge.Corpus.Tests.csproj` with a linked `<Compile Include>`.
+Rejected: leaving the duplication, whose stated reason — that a test project and a single-file
+script cannot share code — is false on SDK 10; measured on 10.0.302, `#:include` binds a sibling
+file and, without it, a sibling `.cs` in the same directory does not bind, so a shared file reaches
+exactly the scripts that name it. Also rejected: a shared library via `#:project`, which buys an
+assembly boundary this does not need and costs a `.csproj`, a `Corpus.slnx` entry and a project
+build per script run; and a test comparing the script's `--json` against its own resolution, which
+detects drift instead of preventing it. All 915 VB floor-probe verdicts are byte-identical across
+the change. Spec:
+[`docs/superpowers/specs/2026-08-07-shared-compile-glob-resolution-design.md`](superpowers/specs/2026-08-07-shared-compile-glob-resolution-design.md).
+
 ### 2026-08-06 · The net48 VB ref-return subject comes from a support assembly, not a corpus project
 
 `CSharpRefReturnLib` is a dedicated SDK-style net48 support assembly supplying `RefSamples.Find` and

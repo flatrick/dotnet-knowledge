@@ -371,6 +371,12 @@ for turning Actions on.
 1. **Tooling is single-file C#, never a shell script.** No `.sh`, `.ps1`, `.bat`, or `.py` — every
    tool must run on native Windows with only the .NET SDK. `scripts/Directory.Build.props` resets
    the production analyzer settings for these.
+   [`scripts/shared/`](scripts/shared/) is the one exception, and only for code a test must also
+   compile — today just `CompileItems.cs`, the single VB `Compile` glob resolver that
+   `verify-feature-floors.cs` `#:include`s and `DotNetKnowledge.Corpus.Tests.csproj` links. Such a
+   file is compiled by two hosts with different settings, so it carries a file-level
+   `#nullable enable` and must stay clean under the test project's analyzers and
+   `TreatWarningsAsErrors`. Edit it at its own path, not through the link.
 2. **State current truth only.** Documents do not narrate their own history; `git log` is the
    changelog. No "previously said X" footers, no dated verification stamps.
    [`docs/decisions.md`](docs/decisions.md) and [`docs/gotchas.md`](docs/gotchas.md) are the two

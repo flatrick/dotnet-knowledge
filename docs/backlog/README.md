@@ -12,4 +12,3 @@ file when the item is resolved; `git log` is the record.
 | [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
 | [The `exe` and `unsafe` projects under `CSharp/dotnet/` are in no build matrix](csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md) | corpus, tests | The exclusion is deliberate and asserted, but no recorded decision says why; the parallel net48 case was settled the other way |
 | [A net48 row cannot carry a runtime claim](net48-rows-cannot-carry-a-runtime-claim.md) | corpus, tests | Extending the marker roots is cheap; whether a net48 case is runnable at all is the open part |
-| [Glob resolution is implemented twice](glob-resolution-is-implemented-twice.md) | tooling, tests | The two agree; sharing code across the boundary is not possible |

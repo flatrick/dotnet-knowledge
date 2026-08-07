@@ -61,8 +61,13 @@ These come from `flatrick/dotnet-mcp`, where this content originated. They are k
 earned their place, not out of habit.
 
 1. **Tooling is single-file C#, never a shell script.** No `.sh`, `.ps1`, `.bat`, or `.py`. Every
-   tool must run on native Windows with only the .NET SDK. Pass arguments after `--`, because
-   `dotnet <file>.cs` silently claims some flags for itself.
+   tool must run on native Windows with only the .NET SDK, and needs no project of its own. Pass
+   arguments after `--`, because `dotnet <file>.cs` silently claims some flags for itself.
+   `scripts/shared/` is the one exception, and only for code a test must also compile: a script
+   names such a file with `#:include` and the test project with a linked `<Compile Include>`, so
+   the two cannot drift. A file-based program does not glob its own directory, so nothing there
+   reaches a script that has not named it. Wanting to reuse a helper between two scripts does not
+   meet the bar.
 2. **No silent truncation.** A capped result set must say so — `isPartial`, `nextPageToken`, or
    similar. An agent that receives a quietly-truncated search concludes the symbol does not exist.
 3. **State current truth only.** Documents do not narrate their own history; `git log` is the
