@@ -1,16 +1,16 @@
-using System.Xml.Linq;
+using DotNetKnowledge.CorpusTooling;
 
 namespace DotNetKnowledge.Corpus.Tests.Projects;
 
 // Coverage here is computed at file granularity, not directory granularity, and is Remove-aware:
 // for each project, a Compile Remove glob subtracts the files it matches from that project's
-// Compile Include set before the result counts toward corpus coverage. A directory-prefix check
-// would call a file "covered" merely because it sits under a directory some project's Include
-// glob names, even if a Remove in that same project excludes it and no other project references
-// it. This test resolves every glob to the .vb files that actually exist on disk and requires
-// each corpus file to survive in at least one project's Include-minus-Remove set. It does not
-// model any MSBuild glob shape beyond this corpus's own "<directory>/**/*.vb" convention — see
-// ResolveGlob.
+// Compile Include set before the result counts toward corpus coverage. This test requires each
+// corpus file to survive in at least one project's Include-minus-Remove set.
+//
+// The resolution itself lives in scripts/shared/CompileItems.cs, linked into this project and
+// #:include'd by scripts/verify-feature-floors.cs, so the two guards that read a VB project's
+// Compile items cannot drift apart. That file also carries the reasoning for the file-granular,
+// Remove-aware reading and for the one glob shape it models.
 [TestClass]
 [TestCategory("Unit")]
 public sealed class VbSourceCoverageTests
@@ -42,9 +42,8 @@ public sealed class VbSourceCoverageTests
             string.Join(Environment.NewLine, uncovered));
     }
 
-    // The set of .vb files this family's projects actually compile: each project's Compile
-    // Include globs, resolved to files on disk, minus its Compile Remove globs, resolved the
-    // same way. A file only counts as covered if some project's net result still contains it.
+    // The set of .vb files this family's projects actually compile. A file only counts as covered
+    // if some project's net Include-minus-Remove result still contains it.
     private static HashSet<string> CompiledFiles(string familyRoot)
     {
         var compiled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -57,51 +56,10 @@ public sealed class VbSourceCoverageTests
                 continue;
             }
 
-            var projectDirectory = Path.GetDirectoryName(project)!;
-            var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var compile in XDocument.Load(project).Descendants().Where(element => element.Name.LocalName == "Compile"))
-            {
-                var includeGlob = compile.Attribute("Include")?.Value;
-                if (!string.IsNullOrWhiteSpace(includeGlob))
-                {
-                    included.UnionWith(ResolveGlob(project, projectDirectory, includeGlob));
-                }
-
-                var removeGlob = compile.Attribute("Remove")?.Value;
-                if (!string.IsNullOrWhiteSpace(removeGlob))
-                {
-                    removed.UnionWith(ResolveGlob(project, projectDirectory, removeGlob));
-                }
-            }
-
-            included.ExceptWith(removed);
-            compiled.UnionWith(included);
+            compiled.UnionWith(CompileItems.Resolve(project, ".vb").Included);
         }
 
         return compiled;
-    }
-
-    // Every Compile Include/Remove glob in this corpus has the shape "<directory>/**/*.vb". Resolve
-    // that to the .vb files actually present under the directory rather than implementing a general
-    // glob matcher. A glob that does not fit this shape throws, so a future pattern change fails the
-    // test loudly instead of silently under- or over-counting coverage.
-    private static IEnumerable<string> ResolveGlob(string project, string projectDirectory, string glob)
-    {
-        const string tailPattern = "**/*.vb";
-        if (!glob.EndsWith(tailPattern, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Unrecognized Compile glob \"{glob}\" in {project}: expected it to end in \"{tailPattern}\".");
-        }
-
-        var directoryPart = glob[..^tailPattern.Length];
-        var directory = Path.GetFullPath(Path.Combine(projectDirectory, directoryPart)).TrimEnd(Path.DirectorySeparatorChar);
-
-        return Directory.Exists(directory)
-            ? Directory.EnumerateFiles(directory, "*.vb", SearchOption.AllDirectories)
-            : [];
     }
 
     private static IEnumerable<string> VbFamilyRoots(string repositoryRoot)

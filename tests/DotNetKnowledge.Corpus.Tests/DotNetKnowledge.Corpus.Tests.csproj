@@ -13,6 +13,15 @@
     <Content Include="TestCases\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
+    <!--
+      The one implementation of VB Compile item resolution, shared with
+      scripts/verify-feature-floors.cs, which names the same file with an #:include directive. Both
+      guards read a VB project's Compile items; compiling one file into both is what stops them
+      drifting apart. Edit it at its own path, not through this link.
+    -->
+    <Compile Include="..\..\scripts\shared\CompileItems.cs" Link="Shared\CompileItems.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Net.Compilers.Toolset" Version="5.6.0" PrivateAssets="all" GeneratePathProperty="true" />
     <ProjectReference Include="..\..\examples\language-features\CSharp\csx\roslyn-5.6.0\host\host.csproj" />
   </ItemGroup>

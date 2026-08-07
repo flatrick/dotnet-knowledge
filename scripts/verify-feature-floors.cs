@@ -1,5 +1,6 @@
 #!/usr/bin/env dotnet
 #:property PublishAot=false
+#:include shared/CompileItems.cs
 #nullable enable
 
 // Verify that every language-feature example actually requires the language version it is filed
@@ -126,7 +127,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
+
+using DotNetKnowledge.CorpusTooling;
 
 var projectFilter = (string?)null;
 var emitJson = false;
@@ -1207,37 +1209,15 @@ static Discovery DiscoverVbProjects(
     return new Discovery(projects, null);
 }
 
-// The row folders a single VB project compiles: its Compile Include globs resolved to files on
-// disk, minus its Compile Remove globs resolved the same way, then bucketed by the
-// src/<version folder>/<group>/ path each surviving file sits under. Honoring Remove is what keeps
-// MyNamespaceHelpers attributed to the my/ projects alone; a directory-prefix reading would file it
-// under every library project too, none of which compiles it.
+// The row folders a single VB project compiles: the project's net Compile set — Include globs
+// resolved to files on disk, minus its Remove globs resolved the same way, by CompileItems.Resolve —
+// bucketed by the src/<version folder>/<group>/ path each surviving file sits under.
 //
 // The removed rows are returned alongside the compiled ones, because the under-placement check
 // needs them: a row a project deliberately excludes is a policy statement, not a row it forgot.
 static VbProjectRows VbRows(string projectPath, string sourceRoot, LanguageProfile profile)
 {
-    var projectDirectory = Path.GetDirectoryName(projectPath)!;
-    var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-    foreach (var compile in XDocument.Load(projectPath).Descendants()
-                 .Where(element => element.Name.LocalName == "Compile"))
-    {
-        var includeGlob = compile.Attribute("Include")?.Value;
-        if (!string.IsNullOrWhiteSpace(includeGlob))
-        {
-            included.UnionWith(ResolveGlob(projectPath, projectDirectory, includeGlob, profile));
-        }
-
-        var removeGlob = compile.Attribute("Remove")?.Value;
-        if (!string.IsNullOrWhiteSpace(removeGlob))
-        {
-            removed.UnionWith(ResolveGlob(projectPath, projectDirectory, removeGlob, profile));
-        }
-    }
-
-    included.ExceptWith(removed);
+    var (included, removed) = CompileItems.Resolve(projectPath, profile.SourceExtension);
 
     var buckets = new Dictionary<(string Folder, string Group), List<string>>();
     foreach (var file in included)
@@ -1325,30 +1305,6 @@ static List<RowGroup> UnclaimedVbRows(string sourceRoot, VbProjectRows rows, Lan
         .OrderBy(row => LadderIndex(profile.Ladder, row.Version))
         .ThenBy(row => row.Group, StringComparer.OrdinalIgnoreCase)
         .ToList();
-}
-
-// Every Compile Include/Remove glob in this corpus has the shape "<directory>/**/*.vb". Resolve that
-// to the source files actually present under the directory rather than implementing a general glob
-// matcher. A glob that does not fit this shape throws, so a future pattern change fails loudly
-// instead of silently dropping rows from the probe.
-static IEnumerable<string> ResolveGlob(
-    string projectPath, string projectDirectory, string glob, LanguageProfile profile)
-{
-    var tailPattern = "**/*" + profile.SourceExtension;
-    if (!glob.EndsWith(tailPattern, StringComparison.Ordinal))
-    {
-        throw new InvalidOperationException(
-            $"Unrecognized Compile glob \"{glob}\" in {projectPath}: expected it to end in \"{tailPattern}\".");
-    }
-
-    var directoryPart = glob[..^tailPattern.Length];
-    var directory = Path.GetFullPath(Path.Combine(projectDirectory, directoryPart))
-        .TrimEnd(Path.DirectorySeparatorChar);
-
-    return Directory.Exists(directory)
-        ? Directory.EnumerateFiles(directory, "*" + profile.SourceExtension, SearchOption.AllDirectories)
-            .Select(Path.GetFullPath)
-        : [];
 }
 
 static bool IsBuildOutput(string path) =>
