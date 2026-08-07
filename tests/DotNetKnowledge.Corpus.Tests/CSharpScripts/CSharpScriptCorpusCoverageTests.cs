@@ -150,9 +150,9 @@ public sealed class CSharpScriptCorpusCoverageTests
     [TestMethod]
     public void ScriptHostRemainsOutsideTheSdkTfmCorpusMatrix()
     {
-        var projects = CorpusProjectDiscovery.FindSdkStyleLibraries(CSharpScriptTestPaths.RepositoryRoot);
+        var projects = CorpusProjectDiscovery.FindSdkStyleCSharpDotNetProjects(CSharpScriptTestPaths.RepositoryRoot);
 
-        Assert.HasCount(11, projects);
+        Assert.HasCount(17, projects);
         Assert.IsTrue(projects.All(project =>
             project.RepositoryRelativePath.StartsWith(
                 "examples/language-features/CSharp/dotnet/",

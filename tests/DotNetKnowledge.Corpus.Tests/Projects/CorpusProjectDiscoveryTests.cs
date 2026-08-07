@@ -5,7 +5,7 @@ namespace DotNetKnowledge.Corpus.Tests.Projects;
 public sealed class CorpusProjectDiscoveryTests
 {
     [TestMethod]
-    public void FindSdkStyleLibrariesReturnsTheCompleteSortedCorpusMatrix()
+    public void FindSdkStyleCSharpDotNetProjectsReturnsTheCompleteSortedCorpusMatrix()
     {
         var repositoryRoot = RepositoryRoot();
         CorpusProject[] expected =
@@ -14,8 +14,14 @@ public sealed class CorpusProjectDiscoveryTests
             new("examples/language-features/CSharp/dotnet/10/11.0/library/library.csproj", "net10.0", "11.0"),
             new("examples/language-features/CSharp/dotnet/10/12.0/library/library.csproj", "net10.0", "12.0"),
             new("examples/language-features/CSharp/dotnet/10/13.0/library/library.csproj", "net10.0", "13.0"),
+            new("examples/language-features/CSharp/dotnet/10/13.0/unsafe/unsafe.csproj", "net10.0", "13.0"),
+            new("examples/language-features/CSharp/dotnet/10/14.0/exe/exe.csproj", "net10.0", "14.0"),
             new("examples/language-features/CSharp/dotnet/10/14.0/library/library.csproj", "net10.0", "14.0"),
+            new("examples/language-features/CSharp/dotnet/10/14.0/unsafe/unsafe.csproj", "net10.0", "14.0"),
+            new("examples/language-features/CSharp/dotnet/10/9.0/exe/exe.csproj", "net10.0", "9.0"),
+            new("examples/language-features/CSharp/dotnet/10/latest/exe/exe.csproj", "net10.0", "latest"),
             new("examples/language-features/CSharp/dotnet/10/latest/library/library.csproj", "net10.0", "latest"),
+            new("examples/language-features/CSharp/dotnet/10/latest/unsafe/unsafe.csproj", "net10.0", "latest"),
             new("examples/language-features/CSharp/dotnet/5.0/10.0/library/library.csproj", "net5.0", "10.0"),
             new("examples/language-features/CSharp/dotnet/6.0/10.0/library/library.csproj", "net6.0", "10.0"),
             new("examples/language-features/CSharp/dotnet/7.0/10.0/library/library.csproj", "net7.0", "10.0"),
@@ -23,15 +29,13 @@ public sealed class CorpusProjectDiscoveryTests
             new("examples/language-features/CSharp/dotnet/9.0/10.0/library/library.csproj", "net9.0", "10.0")
         ];
 
-        var actual = CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot).ToArray();
+        var actual = CorpusProjectDiscovery.FindSdkStyleCSharpDotNetProjects(repositoryRoot).ToArray();
 
         CollectionAssert.AreEqual(expected, actual);
-        Assert.AreEqual(11, actual.Length);
+        Assert.AreEqual(17, actual.Length);
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/bin/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/obj/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/.artifacts/", StringComparison.Ordinal)));
-        Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/unsafe/", StringComparison.Ordinal)));
-        Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/exe/", StringComparison.Ordinal)));
         Assert.IsFalse(actual.Any(project => project.RepositoryRelativePath.Contains("/dotNetFramework/", StringComparison.Ordinal)));
         // The two support assemblies are not corpus projects and hold no feature rows. They sit
         // beside the corpus roots rather than inside one, and CorpusProjectBuildTests builds them
@@ -122,12 +126,12 @@ public sealed class CorpusProjectDiscoveryTests
         var actual = CorpusProjectDiscovery.FindAllSdkStyleProjects(repositoryRoot);
 
         CollectionAssert.AreEqual(
-            CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot)
+            CorpusProjectDiscovery.FindSdkStyleCSharpDotNetProjects(repositoryRoot)
                 .Concat(CorpusProjectDiscovery.FindSdkStyleNetFrameworkProjects(repositoryRoot))
                 .Concat(CorpusProjectDiscovery.FindSdkStyleVbProjects(repositoryRoot))
                 .ToArray(),
             actual.ToArray());
-        Assert.AreEqual(34, actual.Count);
+        Assert.AreEqual(40, actual.Count);
     }
 
     [TestMethod]
@@ -169,7 +173,7 @@ public sealed class CorpusProjectDiscoveryTests
     }
 
     [TestMethod]
-    public void FindSdkStyleLibrariesUsesProjectPropertiesInsteadOfFolderNames()
+    public void FindSdkStyleCSharpDotNetProjectsUsesProjectPropertiesInsteadOfFolderNames()
     {
         var repositoryRoot = CreateRepository();
 
@@ -206,11 +210,22 @@ public sealed class CorpusProjectDiscoveryTests
                 <LangVersion>latest</LangVersion>
                 """);
 
-            var actual = CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot);
+            var actual = CorpusProjectDiscovery.FindSdkStyleCSharpDotNetProjects(repositoryRoot);
 
+            // Neither folder name nor OutputType/AllowUnsafeBlocks decides inclusion for this root:
+            // the first three are discovered regardless of what their folder looks like or what they
+            // compile as, and only obj/ — an excluded directory name — is left out.
             CollectionAssert.AreEqual(
                 new[]
                 {
+                    new CorpusProject(
+                        "examples/language-features/CSharp/dotnet/another/apparent/library.csproj",
+                        "net9.0;net10.0",
+                        "13.0"),
+                    new CorpusProject(
+                        "examples/language-features/CSharp/dotnet/looks/like/a/library.csproj",
+                        "net10.0",
+                        "latest"),
                     new CorpusProject(
                         "examples/language-features/CSharp/dotnet/unexpected/location/corpus.csproj",
                         "net7.0",
@@ -227,7 +242,7 @@ public sealed class CorpusProjectDiscoveryTests
     [TestMethod]
     [DataRow("<LangVersion>latest</LangVersion>")]
     [DataRow("<TargetFramework>net10.0</TargetFramework>")]
-    public void FindSdkStyleLibrariesRejectsMissingCoordinateValues(string projectProperties)
+    public void FindSdkStyleCSharpDotNetProjectsRejectsMissingCoordinateValues(string projectProperties)
     {
         var repositoryRoot = CreateRepository();
 
@@ -236,7 +251,7 @@ public sealed class CorpusProjectDiscoveryTests
             var projectPath = CreateProject(repositoryRoot, "missing/library.csproj", projectProperties);
 
             var exception = Assert.ThrowsExactly<InvalidOperationException>(
-                () => CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot));
+                () => CorpusProjectDiscovery.FindSdkStyleCSharpDotNetProjects(repositoryRoot));
 
             StringAssert.Contains(exception.Message, projectPath);
         }
@@ -259,7 +274,7 @@ public sealed class CorpusProjectDiscoveryTests
         <LangVersion>13.0</LangVersion>
         <LangVersion>latest</LangVersion>
         """)]
-    public void FindSdkStyleLibrariesRejectsContradictoryCoordinateValues(string projectProperties)
+    public void FindSdkStyleCSharpDotNetProjectsRejectsContradictoryCoordinateValues(string projectProperties)
     {
         var repositoryRoot = CreateRepository();
 
@@ -268,7 +283,7 @@ public sealed class CorpusProjectDiscoveryTests
             var projectPath = CreateProject(repositoryRoot, "contradictory/library.csproj", projectProperties);
 
             var exception = Assert.ThrowsExactly<InvalidOperationException>(
-                () => CorpusProjectDiscovery.FindSdkStyleLibraries(repositoryRoot));
+                () => CorpusProjectDiscovery.FindSdkStyleCSharpDotNetProjects(repositoryRoot));
 
             StringAssert.Contains(exception.Message, projectPath);
         }

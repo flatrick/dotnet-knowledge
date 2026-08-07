@@ -53,9 +53,3 @@ Two parts, and the first is worth doing on its own:
 
 Until part 2 is settled, the claim in `ConsumingCSharpRefReturnValues` should say what actually backs
 it, or the sentence asserting observable mutation should go.
-
-## Related
-
-- [The `exe` and `unsafe` projects under `CSharp/dotnet/` are in no build
-  matrix](csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md) — the same shape: a guard
-  whose reach is narrower than the rule it enforces.

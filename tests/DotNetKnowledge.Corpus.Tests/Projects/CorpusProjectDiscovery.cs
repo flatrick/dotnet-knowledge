@@ -11,8 +11,9 @@ internal enum CorpusProjectKind
 {
     /// <summary>
     /// SDK-style, default compilation, no <c>OutputType</c> of its own. The kind the
-    /// <c>CSharp/dotnet/</c> and <c>VB.NET/</c> roots select, where <c>exe</c> and <c>unsafe</c>
-    /// are separate project kinds beside the libraries.
+    /// <c>VB.NET/</c> root selects — VB.NET has no separate <c>exe</c> or <c>unsafe</c> project
+    /// kind, unlike <c>CSharp/dotnet/</c>, which selects <c>SdkStyle</c> instead so its <c>exe</c>
+    /// and <c>unsafe</c> projects build alongside the libraries.
     /// </summary>
     SdkStyleSafeLibrary,
 
@@ -27,8 +28,14 @@ internal static class CorpusProjectDiscovery
 {
     private static readonly string[] ExcludedDirectoryNames = ["bin", "obj", ".artifacts"];
 
-    public static IReadOnlyList<CorpusProject> FindSdkStyleLibraries(string repositoryRoot) =>
-        Scan(repositoryRoot, ["CSharp", "dotnet"], "*.csproj", "SDK-style C# corpus", CorpusProjectKind.SdkStyleSafeLibrary);
+    /// <summary>
+    /// Every SDK-style project under the <c>CSharp/dotnet/</c> root, <c>OutputType</c> and
+    /// <c>AllowUnsafeBlocks</c> included — the same reasoning as
+    /// <c>FindSdkStyleNetFrameworkProjects</c>: excluding the <c>exe</c> and <c>unsafe</c> projects
+    /// would leave a project the corpus authored and no test builds.
+    /// </summary>
+    public static IReadOnlyList<CorpusProject> FindSdkStyleCSharpDotNetProjects(string repositoryRoot) =>
+        Scan(repositoryRoot, ["CSharp", "dotnet"], "*.csproj", "SDK-style C# corpus", CorpusProjectKind.SdkStyle);
 
     // The VB net48 family is SDK-style, unlike most of the C# net48 tree, so both VB families are
     // scanned from one root.
@@ -55,7 +62,7 @@ internal static class CorpusProjectDiscovery
 
     public static IReadOnlyList<CorpusProject> FindAllSdkStyleProjects(string repositoryRoot) =>
     [
-        .. FindSdkStyleLibraries(repositoryRoot),
+        .. FindSdkStyleCSharpDotNetProjects(repositoryRoot),
         .. FindSdkStyleNetFrameworkProjects(repositoryRoot),
         .. FindSdkStyleVbProjects(repositoryRoot)
     ];

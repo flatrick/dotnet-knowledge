@@ -24,6 +24,17 @@ and the entry links there.
 
 ---
 
+### 2026-08-07 · The `CSharp/dotnet/` `exe` and `unsafe` projects join the SdkStyle build matrix
+
+`CorpusProjectDiscovery`'s `CSharp/dotnet/` root now selects `CorpusProjectKind.SdkStyle` — the kind
+`FindSdkStyleNetFrameworkProjects` already selects for `CSharp/dotNetFramework/` — instead of
+`SdkStyleSafeLibrary`, so the six `exe` and `unsafe` projects under `10/{9.0,13.0,14.0,latest}/` now
+build under `CorpusProjectBuildTests` alongside the eleven libraries.
+Rejected: leaving them excluded. The exclusion had no recorded justification — it traced to a
+plan-authoring step written a day after the six projects already existed, while the pre-extraction
+design doc's completion gate had included them and the identical net48 case was already settled the
+other way: a corpus-authored project no test builds is a defect, not an exemption.
+
 ### 2026-08-07 · The two VB `Compile` glob resolvers become one file, shared with `#:include`
 
 `scripts/shared/CompileItems.cs` is now the only implementation; `verify-feature-floors.cs` names it

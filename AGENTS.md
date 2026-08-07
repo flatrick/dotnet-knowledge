@@ -111,19 +111,16 @@ step, and `VbSourceCoverageTests` fails if a row under `src/` is compiled by no 
 `MyType=Windows` is per-compilation and lives only in the net48 family's `my/` projects.
 
 **Building the corpus.** `CorpusProjectBuildTests` discovers and builds four roots at 0 errors and
-0 warnings: the SDK-style C# **library** projects under
-`examples/language-features/CSharp/dotnet/`, every SDK-style project under
-`examples/language-features/CSharp/dotNetFramework/`, every VB project under
+0 warnings: every SDK-style project under `examples/language-features/CSharp/dotnet/`, every
+SDK-style project under `examples/language-features/CSharp/dotNetFramework/`, every VB project under
 `examples/language-features/VB.NET/`, and — through Visual Studio's `MSBuild.exe` rather than the
 SDK host — every legacy non-SDK project under `examples/language-features/CSharp/dotNetFramework/`.
 `CorpusProjectDiscoveryTests` holds the exact expected list; that is the count of record.
 
-That is 45 of the corpus's 54 projects. Three of the remaining nine are outside it deliberately:
+That is 51 of the corpus's 54 projects. The remaining three are outside it deliberately:
 `CSharp/CSharpComTypeLib/` and `CSharp/CSharpRefReturnLib/` are prebuilt as shared references at the
 same bar, and `CSharp/csx/roslyn-5.6.0/host/` has a Roslyn host coordinate rather than an SDK/TFM
-one. The other six — three `exe` and three `unsafe` projects under `CSharp/dotnet/` — are built by
-nothing and referenced by nothing, which is an open gap rather than a decision:
-[`docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md`](docs/backlog/csharp-dotnet-exe-and-unsafe-projects-are-in-no-build-matrix.md).
+one.
 
 The eleven legacy projects need Visual Studio's `MSBuild.exe` on Windows — `dotnet build` restores
 their `PackageReference` items and then resolves none of them, failing with `CS0246` on `Span` and
