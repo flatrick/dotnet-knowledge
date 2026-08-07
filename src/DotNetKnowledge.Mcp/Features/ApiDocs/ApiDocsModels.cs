@@ -80,18 +80,34 @@ public static class ApiNameMatch
     public const string FullName = "fullName";
 }
 
+/// <summary>
+/// Guidance attached to an otherwise-empty <see cref="ApiSearchResult"/> for a dotted pattern. A
+/// <c>Type.Member</c> name or a generic type's arity-less full name matches no type name and would
+/// return a bare empty set — the plausible absence this server exists to avoid — so the note names
+/// the calls that would actually reach what the caller asked for.
+/// </summary>
+public sealed record ApiSearchNote(string Message);
+
 public sealed record ApiSearchResult(
     IReadOnlyList<ApiSearchItem> Items,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<SourceProvenance> SearchedSources,
+    ApiSearchNote? Note = null);
 
+/// <param name="MoreFromSymbol">
+/// How many further matches this symbol had that the per-symbol cap dropped from the result set, set
+/// on the last kept hit of a symbol that overflowed and null otherwise. One symbol whose every doc
+/// element mentions the query would otherwise fill a page and read as "only this API mentions it";
+/// the count says the rest are reachable with lookup_api on the same symbol.
+/// </param>
 public sealed record ApiTextHit(
     string Symbol,
     string Element,
     string Text,
     bool IsTruncated,
-    SourceProvenance Source);
+    SourceProvenance Source,
+    int? MoreFromSymbol = null);
 
 public sealed record ApiTextSearchResult(
     IReadOnlyList<ApiTextHit> Hits,

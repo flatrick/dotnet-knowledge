@@ -224,6 +224,50 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task SearchAsyncNotesADottedPatternThatMatchedNothing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateWidgetServiceAsync(root);
+
+            // "Widget.Create" is Widget's member Create, not a type name — search_api matches type
+            // names only, so it returns nothing. The empty set must not read as "no such API".
+            var memberQualified = await service.SearchAsync(
+                "Widget.Create", limit: 100, cursor: null, CancellationToken.None);
+            Assert.IsEmpty(memberQualified.Items);
+            Assert.IsNotNull(memberQualified.Note);
+            StringAssert.Contains(memberQualified.Note.Message, "lookup_api");
+
+            // "System.WidgetPolicy" is the generic type WidgetPolicy`1's name without its arity, so
+            // the whole-name match misses; the note points at searching the simple name.
+            var genericFullName = await service.SearchAsync(
+                "System.WidgetPolicy", limit: 100, cursor: null, CancellationToken.None);
+            Assert.IsEmpty(genericFullName.Items);
+            Assert.IsNotNull(genericFullName.Note);
+            StringAssert.Contains(genericFullName.Note.Message, "WidgetPolicy");
+
+            // A pattern that matched carries no note.
+            var matched = await service.SearchAsync(
+                "Widget", limit: 100, cursor: null, CancellationToken.None);
+            Assert.IsNotEmpty(matched.Items);
+            Assert.IsNull(matched.Note);
+
+            // An undotted miss has no member/generic reading to suggest.
+            var undotted = await service.SearchAsync(
+                "Nonesuch", limit: 100, cursor: null, CancellationToken.None);
+            Assert.IsEmpty(undotted.Items);
+            Assert.IsNull(undotted.Note);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task SearchTextAsyncMatchesRenderedProseAndNamesTheOwningSymbol()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

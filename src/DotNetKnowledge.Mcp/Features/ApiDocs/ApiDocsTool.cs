@@ -130,7 +130,9 @@ public sealed class ApiDocsTool
         "pattern always returns descendants too, so filter the page on namespaceDepth == 0 when " +
         "you want only what the namespace itself declares. " +
         "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
-        "call lookup_api for documentation bodies.")]
+        "call lookup_api for documentation bodies. This tool matches type names, not members: a " +
+        "dotted pattern that matched nothing carries a note pointing at lookup_api for a Type.Member " +
+        "name, or at searching the simple name for a generic type's full name.")]
     public static async Task<string> SearchApi(
         string pattern,
         ApiDocsQueryService service,
@@ -204,7 +206,10 @@ public sealed class ApiDocsTool
         "answer because it takes the name as input; use search_api when you have a name. " +
         "Returns the owning symbol, which documentation element matched, and the matched text " +
         "capped at 300 characters with isTruncated saying so - never whole documents. Feed the " +
-        "returned symbol to lookup_api for the full entry. Regex is not supported here.")]
+        "returned symbol to lookup_api for the full entry. Hits are ranked (summaries first, " +
+        "whole-word matches above mid-word ones), and at most two per symbol are returned; when a " +
+        "symbol had more, its last kept hit reports moreFromSymbol and lookup_api on that symbol " +
+        "reaches them. Regex is not supported here.")]
     public static async Task<string> SearchApiText(
         string query,
         ApiDocsQueryService service,

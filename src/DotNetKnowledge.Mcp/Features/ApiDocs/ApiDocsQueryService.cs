@@ -21,6 +21,13 @@ public sealed class ApiDocsQueryService
     /// </summary>
     private const int MatchTextBudget = 300;
 
+    /// <summary>
+    /// Matches one symbol contributes to a text-search result set before the rest are folded behind a
+    /// <c>moreFromSymbol</c> count. Two carries the headline and its leading detail without letting a
+    /// symbol whose every element mentions the query crowd out every other API.
+    /// </summary>
+    private const int TextHitsPerSymbol = 2;
+
     private readonly SourceCatalog _catalog;
     private readonly SourceSynchronizer _synchronizer;
 
@@ -174,21 +181,38 @@ public sealed class ApiDocsQueryService
             .ToArray();
         var offset = DecodeCursor(cursor, "search", pattern, revisions);
 
-        var ordered = items
-            .OrderBy(item => item.Name, StringComparer.Ordinal)
-            .ThenBy(item => item.Source.Repo, StringComparer.Ordinal)
-            .ToArray();
-        if (offset > ordered.Length)
+        var ordered = ApiSearchRanking.Order(items, pattern);
+        if (offset > ordered.Count)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
 
         var page = ordered.Skip(offset).Take(limit).ToArray();
         var nextOffset = offset + page.Length;
-        var isPartial = nextOffset < ordered.Length;
+        var isPartial = nextOffset < ordered.Count;
         return new ApiSearchResult(
             Items: page,
             IsPartial: isPartial,
             NextPageToken: isPartial ? EncodeCursor("search", pattern, nextOffset, revisions) : null,
-            SearchedSources: searchedSources);
+            SearchedSources: searchedSources,
+            Note: DottedMissNote(pattern, ordered.Count));
+    }
+
+    // search_api matches type names, not members: a Type.Member name, or a generic type's full name
+    // shorn of its `arity, matches nothing and returns an empty set that reads as "no such API". When
+    // a dotted pattern of non-empty segments finds nothing, name the calls that would reach it.
+    private static ApiSearchNote? DottedMissNote(string pattern, int matchCount)
+    {
+        if (matchCount > 0)
+            return null;
+
+        var segments = pattern.Split('.');
+        if (segments.Length < 2 || Array.Exists(segments, segment => segment.Length == 0))
+            return null;
+
+        var leaf = segments[^1];
+        return new ApiSearchNote(
+            $"No type name matched '{pattern}'. If it names a member, call "
+            + $"lookup_api(symbol: \"{pattern}\"). If it is a generic type's full name, search its "
+            + $"simple name: search_api(pattern: \"{leaf}\").");
     }
 
     /// <summary>
@@ -248,19 +272,17 @@ public sealed class ApiDocsQueryService
         // Create(a) and Create(a, b) would otherwise arrive as two hits a caller cannot tell apart.
         // Prose that genuinely differs between overloads survives, because the text is part of the
         // key.
-        var ordered = hits
-            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo))
-            .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Element, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Text, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
-            .ToArray();
-        if (offset > ordered.Length)
+        var deduplicated = hits
+            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo));
+        var ordered = ApiTextRanking.CollapsePerSymbol(
+            ApiTextRanking.Order(deduplicated, query),
+            TextHitsPerSymbol);
+        if (offset > ordered.Count)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
 
         var page = ordered.Skip(offset).Take(limit).ToArray();
         var nextOffset = offset + page.Length;
-        var isPartial = nextOffset < ordered.Length;
+        var isPartial = nextOffset < ordered.Count;
         return new ApiTextSearchResult(
             Hits: page,
             IsPartial: isPartial,
