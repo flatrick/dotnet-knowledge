@@ -39,6 +39,19 @@ public sealed class ApiSearchRankingTests
     }
 
     [TestMethod]
+    public void GenericTypeCountsAsExactNameOverNonGenericNamesake()
+    {
+        // System.Span`1 is what "Span" almost always means; its `1 arity must not demote it below a
+        // non-generic namesake sitting in a deeper namespace.
+        var ordered = OrderedNames(
+            "Span",
+            Type("System.Windows.Documents.Span"),
+            Type("System.Span`1"));
+
+        Assert.AreEqual("System.Span`1", ordered[0]);
+    }
+
+    [TestMethod]
     public void PrefixRanksAboveNonPrefixSubstring()
     {
         var ordered = OrderedNames(

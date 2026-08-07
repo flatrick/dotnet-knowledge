@@ -46,12 +46,30 @@ public static class ApiSearchRanking
         if (item.MatchedOn == ApiNameMatch.Namespace)
             return 0;
 
-        var simpleName = LastSegment(item.Name);
+        var simpleName = StripGenericArity(LastSegment(item.Name));
         if (simpleName.Equals(leaf, StringComparison.OrdinalIgnoreCase))
             return 0;
         if (simpleName.StartsWith(leaf, StringComparison.OrdinalIgnoreCase))
             return 1;
         return 2;
+    }
+
+    // ECMA XML spells a generic type Span`1, so its simple name never equals the base "Span" a caller
+    // types. Drop a trailing `arity (Span`1 → Span) so the generic type reads as the exact match it
+    // is; leave a mid-name backtick alone, as in the nested Span`1+Enumerator, which is not one.
+    private static string StripGenericArity(string simpleName)
+    {
+        var tick = simpleName.LastIndexOf('`');
+        if (tick <= 0 || tick == simpleName.Length - 1)
+            return simpleName;
+
+        for (var index = tick + 1; index < simpleName.Length; index++)
+        {
+            if (!char.IsDigit(simpleName[index]))
+                return simpleName;
+        }
+
+        return simpleName[..tick];
     }
 
     // A shallower namespace is the more mainline home for a name, so System.Span outranks a
