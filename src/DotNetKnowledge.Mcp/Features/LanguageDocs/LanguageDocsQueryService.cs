@@ -100,21 +100,17 @@ public sealed class LanguageDocsQueryService
             hits.AddRange(read.Hits);
         }
 
-        var ordered = hits
-            .OrderBy(hit => hit.Path, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Line)
-            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
-            .ToArray();
+        var ordered = LanguageDocRanking.Order(hits, query);
 
         var revisions = searchedSources.Select(RevisionKey).ToArray();
         var scope = EncodeScope(query, regex, source ?? string.Empty);
         var offset = DecodeCursor(cursor, "lang-search", scope, revisions);
-        if (offset > ordered.Length)
+        if (offset > ordered.Count)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
 
         var page = ordered.Skip(offset).Take(limit).ToArray();
         var nextOffset = offset + page.Length;
-        var isPartial = nextOffset < ordered.Length;
+        var isPartial = nextOffset < ordered.Count;
 
         return new LanguageDocSearchResult(
             page,

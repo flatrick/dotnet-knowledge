@@ -174,16 +174,13 @@ public sealed class ApiDocsQueryService
             .ToArray();
         var offset = DecodeCursor(cursor, "search", pattern, revisions);
 
-        var ordered = items
-            .OrderBy(item => item.Name, StringComparer.Ordinal)
-            .ThenBy(item => item.Source.Repo, StringComparer.Ordinal)
-            .ToArray();
-        if (offset > ordered.Length)
+        var ordered = ApiSearchRanking.Order(items, pattern);
+        if (offset > ordered.Count)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
 
         var page = ordered.Skip(offset).Take(limit).ToArray();
         var nextOffset = offset + page.Length;
-        var isPartial = nextOffset < ordered.Length;
+        var isPartial = nextOffset < ordered.Count;
         return new ApiSearchResult(
             Items: page,
             IsPartial: isPartial,
@@ -248,19 +245,15 @@ public sealed class ApiDocsQueryService
         // Create(a) and Create(a, b) would otherwise arrive as two hits a caller cannot tell apart.
         // Prose that genuinely differs between overloads survives, because the text is part of the
         // key.
-        var ordered = hits
-            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo))
-            .OrderBy(hit => hit.Symbol, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Element, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Text, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
-            .ToArray();
-        if (offset > ordered.Length)
+        var deduplicated = hits
+            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo));
+        var ordered = ApiTextRanking.Order(deduplicated, query);
+        if (offset > ordered.Count)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
 
         var page = ordered.Skip(offset).Take(limit).ToArray();
         var nextOffset = offset + page.Length;
-        var isPartial = nextOffset < ordered.Length;
+        var isPartial = nextOffset < ordered.Count;
         return new ApiTextSearchResult(
             Hits: page,
             IsPartial: isPartial,
