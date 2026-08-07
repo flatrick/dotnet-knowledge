@@ -24,6 +24,20 @@ and the entry links there.
 
 ---
 
+### 2026-08-07 · Runtime cases gain net48 and VB execution instead of an exemption
+
+`ProbeProject` now writes `probe.vbproj` when the source is `.vb` and launches a built net48 `.exe`
+directly instead of `dotnet <assembly.dll>`, gated on a new `NetFrameworkRuntime` preflight
+(`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\mscorlib.dll`); `CorpusCase` gained
+`projectReferences` so a subject can depend on a support assembly like `CSharpRefReturnLib`.
+Rejected: documenting net48 as permanently unrunnable and reworking the one unbacked VB claim in
+`ConsumingCSharpRefReturnValues` instead — closing the gap properly was cheap enough once traced
+(both build paths already write an SDK-style project; only the run step and the project's language
+were hardcoded) and leaves no corpus row permanently unable to carry a runtime claim. Also rejected:
+inlining a copy of `RefSamples` into the VB harness instead of a `ProjectReference` to
+`CSharpRefReturnLib.csproj`, which would have duplicated the exact subject the net48 VB row already
+depends on.
+
 ### 2026-08-07 · The `CSharp/dotnet/` `exe` and `unsafe` projects join the SdkStyle build matrix
 
 `CorpusProjectDiscovery`'s `CSharp/dotnet/` root now selects `CorpusProjectKind.SdkStyle` — the kind

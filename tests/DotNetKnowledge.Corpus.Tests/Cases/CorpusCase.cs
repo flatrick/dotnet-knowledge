@@ -10,8 +10,11 @@ internal sealed record CorpusCase(
     string Id,
     string Source,
     IReadOnlyList<CompilationExpectation> Compilations,
-    IReadOnlyList<RuntimeExpectation> Runtimes)
+    IReadOnlyList<RuntimeExpectation> Runtimes,
+    IReadOnlyList<string> ProjectReferences = null!)
 {
+    public IReadOnlyList<string> ProjectReferences { get; init; } = ProjectReferences ?? [];
+
     public IReadOnlyList<string> Validate(string repositoryRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
@@ -25,6 +28,14 @@ internal sealed record CorpusCase(
         if (!File.Exists(Path.Combine(repositoryRoot, Source)))
         {
             errors.Add($"Source does not exist: {Source}.");
+        }
+
+        foreach (var projectReference in ProjectReferences)
+        {
+            if (!File.Exists(Path.Combine(repositoryRoot, projectReference)))
+            {
+                errors.Add($"Project reference does not exist: {projectReference}.");
+            }
         }
 
         var compilationCoordinates = new HashSet<string>(StringComparer.Ordinal);

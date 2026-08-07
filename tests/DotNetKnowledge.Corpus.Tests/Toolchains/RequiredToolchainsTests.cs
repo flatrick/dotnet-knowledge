@@ -20,12 +20,12 @@ public sealed class RequiredToolchainsTests
             .OfType<string>()
             .ToList();
 
-        missing.AddRange(from runtimeBand in cases.SelectMany(testCase => testCase.Runtimes)
-                .Select(runtime => RuntimeBand(runtime.TargetFramework))
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(ParseBand)
-            where !inventory.HasRuntime(runtimeBand)
-            select $"Microsoft.NETCore.App runtime {runtimeBand}");
+        missing.AddRange(cases.SelectMany(testCase => testCase.Runtimes)
+            .Select(runtime => runtime.TargetFramework)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(targetFramework => targetFramework, StringComparer.Ordinal)
+            .Select(targetFramework => MissingRuntimeToolchain(inventory, targetFramework))
+            .OfType<string>());
 
         if (missing.Count > 0)
         {
@@ -103,6 +103,19 @@ public sealed class RequiredToolchainsTests
         {
             return exception.Message;
         }
+    }
+
+    private static string? MissingRuntimeToolchain(ToolchainInventory inventory, string targetFramework)
+    {
+        if (NetFrameworkTargetFramework.IsFramework(targetFramework))
+        {
+            return new NetFrameworkRuntime().TryResolve(out var reason) ? null : reason;
+        }
+
+        var runtimeBand = RuntimeBand(targetFramework);
+        return inventory.HasRuntime(runtimeBand)
+            ? null
+            : $"Microsoft.NETCore.App runtime {runtimeBand}";
     }
 
     private static string RuntimeBand(string targetFramework)

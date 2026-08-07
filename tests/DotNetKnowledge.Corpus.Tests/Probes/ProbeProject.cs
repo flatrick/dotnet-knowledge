@@ -20,11 +20,13 @@ internal sealed partial class ProbeProject
         CompilationExpectation expectation,
         string sourcePath,
         string? harnessPath,
+        IReadOnlyList<string> projectReferences,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sdk);
         ArgumentNullException.ThrowIfNull(expectation);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        ArgumentNullException.ThrowIfNull(projectReferences);
 
         var resolvedSourcePath = ResolveRepositoryPath(sourcePath);
         var resolvedHarnessPath = harnessPath is null ? null : ResolveRepositoryPath(harnessPath);
@@ -32,6 +34,13 @@ internal sealed partial class ProbeProject
         if (resolvedHarnessPath is not null)
         {
             EnsureSourceExists(resolvedHarnessPath, nameof(harnessPath));
+            EnsureSameLanguage(resolvedSourcePath, resolvedHarnessPath);
+        }
+
+        var resolvedProjectReferences = projectReferences.Select(ResolveRepositoryPath).ToArray();
+        foreach (var resolvedProjectReference in resolvedProjectReferences)
+        {
+            EnsureSourceExists(resolvedProjectReference, nameof(projectReferences));
         }
 
         var resolvedOwnedRoot = Path.GetFullPath(OwnedRoot);
@@ -43,19 +52,21 @@ internal sealed partial class ProbeProject
         try
         {
             var globalJsonPath = Path.Combine(projectDirectory, "global.json");
-            var projectPath = Path.Combine(projectDirectory, "probe.csproj");
+            var projectFileName = $"probe.{ProjectExtension(resolvedSourcePath)}";
+            var projectPath = Path.Combine(projectDirectory, projectFileName);
             await WriteGlobalJson(globalJsonPath, sdk, cancellationToken);
             await WriteProject(
                 projectPath,
                 expectation,
                 resolvedSourcePath,
                 resolvedHarnessPath,
+                resolvedProjectReferences,
                 cancellationToken);
 
             var runner = new ProcessRunner();
             var process = await runner.RunAsync(
                 DotNetHost(sdk),
-                ["build", "probe.csproj", "-t:Rebuild", "--nologo", "-v:minimal"],
+                ["build", projectFileName, "-t:Rebuild", "--nologo", "-v:minimal"],
                 projectDirectory,
                 new Dictionary<string, string?> { ["MSBuildSDKsPath"] = null },
                 cancellationToken);
@@ -80,10 +91,12 @@ internal sealed partial class ProbeProject
     public static Task<ProcessResult> RunAsync(
         InstalledSdk sdk,
         ProbeResult successfulBuild,
+        string targetFramework,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sdk);
         ArgumentNullException.ThrowIfNull(successfulBuild);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
 
         if (successfulBuild.Process.ExitCode != 0)
         {
@@ -91,6 +104,25 @@ internal sealed partial class ProbeProject
         }
 
         var outputRoot = Path.Combine(successfulBuild.ProjectDirectory, "bin");
+
+        // A .NET Framework OutputType=Exe build has no dotnet host to launch and no separate
+        // probe.dll -- the .exe it emits is the only assembly, and Windows launches it directly.
+        if (NetFrameworkTargetFramework.IsFramework(targetFramework))
+        {
+            var frameworkProbePath = Directory
+                .GetFiles(outputRoot, "probe.exe", SearchOption.AllDirectories)
+                .Single();
+            var frameworkOutputDirectory = Path.GetDirectoryName(frameworkProbePath)
+                ?? throw new InvalidOperationException(
+                    $"Could not resolve the probe output directory: {frameworkProbePath}.");
+
+            return new ProcessRunner().RunAsync(
+                Path.GetFullPath(frameworkProbePath),
+                [],
+                frameworkOutputDirectory,
+                cancellationToken: cancellationToken);
+        }
+
         var probePath = Directory
             .GetFiles(outputRoot, "probe.dll", SearchOption.AllDirectories)
             .Single();
@@ -126,8 +158,12 @@ internal sealed partial class ProbeProject
         CompilationExpectation expectation,
         string sourcePath,
         string? harnessPath,
+        IReadOnlyList<string> projectReferences,
         CancellationToken cancellationToken)
     {
+        var isVisualBasic = Path.GetExtension(sourcePath) == ".vb";
+        var subjectExtension = isVisualBasic ? "vb" : "cs";
+
         var propertyGroup = new XElement(
             "PropertyGroup",
             new XElement("TargetFramework", expectation.TargetFramework),
@@ -147,12 +183,20 @@ internal sealed partial class ProbeProject
                 new XElement("CheckEolTargetFramework", "false"));
         }
 
+        if (isVisualBasic)
+        {
+            // VB prepends RootNamespace to every declaration at compile time, unlike C# where it is
+            // inert for an explicit namespace block. Left unset it defaults to this project's own
+            // name ("probe") and silently double-prefixes the subject's own Namespace statement.
+            propertyGroup.Add(new XElement("RootNamespace", string.Empty));
+        }
+
         var itemGroup = new XElement(
             "ItemGroup",
-            CompileItem(sourcePath, "Subject.cs"));
+            CompileItem(sourcePath, $"Subject.{subjectExtension}"));
         if (harnessPath is not null)
         {
-            itemGroup.Add(CompileItem(harnessPath, "Program.cs"));
+            itemGroup.Add(CompileItem(harnessPath, $"Program.{subjectExtension}"));
         }
 
         var document = new XDocument(
@@ -160,8 +204,43 @@ internal sealed partial class ProbeProject
                 "Project",
                 new XAttribute("Sdk", "Microsoft.NET.Sdk"),
                 propertyGroup,
-                itemGroup));
+                itemGroup,
+                ReferenceItemGroups(expectation.TargetFramework, projectReferences)));
         await File.WriteAllTextAsync(path, document.ToString(), cancellationToken);
+    }
+
+    private static IEnumerable<XElement> ReferenceItemGroups(
+        string targetFramework,
+        IReadOnlyList<string> projectReferences)
+    {
+        if (NetFrameworkTargetFramework.IsFramework(targetFramework))
+        {
+            // Supplies the net48 reference assemblies so the probe builds without depending on a
+            // machine-installed .NET Framework targeting pack -- the same package the corpus's own
+            // net48 SDK-style projects carry.
+            yield return new XElement(
+                "ItemGroup",
+                new XElement(
+                    "PackageReference",
+                    new XAttribute("Include", "Microsoft.NETFramework.ReferenceAssemblies"),
+                    new XAttribute("Version", "1.0.3"),
+                    new XAttribute("PrivateAssets", "all")),
+                // On net48, Span(Of T)/MemoryMarshal arrive through this package rather than the
+                // shared framework -- the same version the corpus's own net48 VB family carries.
+                new XElement(
+                    "PackageReference",
+                    new XAttribute("Include", "System.Memory"),
+                    new XAttribute("Version", "4.5.5")));
+        }
+
+        if (projectReferences.Count > 0)
+        {
+            yield return new XElement(
+                "ItemGroup",
+                projectReferences.Select(projectReference => new XElement(
+                    "ProjectReference",
+                    new XAttribute("Include", projectReference))));
+        }
     }
 
     private static XElement CompileItem(string path, string link) =>
@@ -169,6 +248,25 @@ internal sealed partial class ProbeProject
             "Compile",
             new XAttribute("Include", path),
             new XAttribute("Link", link));
+
+    private static string ProjectExtension(string sourcePath) =>
+        Path.GetExtension(sourcePath) switch
+        {
+            ".cs" => "csproj",
+            ".vb" => "vbproj",
+            _ => throw new InvalidOperationException($"Unsupported probe source language: {sourcePath}."),
+        };
+
+    private static void EnsureSameLanguage(string sourcePath, string harnessPath)
+    {
+        var sourceExtension = Path.GetExtension(sourcePath);
+        var harnessExtension = Path.GetExtension(harnessPath);
+        if (!string.Equals(sourceExtension, harnessExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Harness language must match the source language: {sourcePath} vs {harnessPath}.");
+        }
+    }
 
     private static List<string> ExtractDiagnostics(ProcessResult process)
     {

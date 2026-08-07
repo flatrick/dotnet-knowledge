@@ -10,4 +10,3 @@ file when the item is resolved; `git log` is the record.
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
 | [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
-| [A net48 row cannot carry a runtime claim](net48-rows-cannot-carry-a-runtime-claim.md) | corpus, tests | Extending the marker roots is cheap; whether a net48 case is runnable at all is the open part |

@@ -87,6 +87,7 @@ public sealed class RuntimeClaimCoverageTests
             "Net10");
         Directory.CreateDirectory(csharpRoot);
         Directory.CreateDirectory(visualBasicRoot);
+        CreateNet48Roots(repositoryRoot);
 
         try
         {
@@ -114,6 +115,85 @@ public sealed class RuntimeClaimCoverageTests
         }
     }
 
+    [TestMethod]
+    public void CanonicalMarkerDiscoveryScansTheNet48Trees()
+    {
+        var repositoryRoot = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-{Guid.NewGuid():N}");
+        var csharpRoot = Path.Combine(
+            repositoryRoot,
+            "examples",
+            "language-features",
+            "CSharp",
+            "dotnet",
+            "10",
+            "latest");
+        var visualBasicRoot = Path.Combine(
+            repositoryRoot,
+            "examples",
+            "language-features",
+            "VB.NET",
+            "dotnet",
+            "Net10");
+        Directory.CreateDirectory(csharpRoot);
+        Directory.CreateDirectory(visualBasicRoot);
+        var (csharpNet48Root, visualBasicNet48Root) = CreateNet48Roots(repositoryRoot);
+
+        try
+        {
+            var csharpSourcePath = Path.Combine(csharpNet48Root, "RuntimeClaim.cs");
+            File.WriteAllText(
+                csharpSourcePath,
+                """
+                namespace RuntimeClaims
+                {
+                    // Runtime verification: CSharp7.RuntimeClaim
+                }
+                """);
+            var visualBasicSourcePath = Path.Combine(visualBasicNet48Root, "RuntimeClaim.vb");
+            File.WriteAllText(
+                visualBasicSourcePath,
+                """
+                Namespace RuntimeClaims
+                    ' Runtime verification: Vb15.RuntimeClaim
+                End Namespace
+                """);
+
+            var markers = FindCanonicalMarkers(repositoryRoot);
+
+            Assert.HasCount(2, markers);
+            CollectionAssert.Contains(
+                markers.Select(marker => marker.Id).ToArray(),
+                "CSharp7.RuntimeClaim");
+            CollectionAssert.Contains(
+                markers.Select(marker => marker.Id).ToArray(),
+                "Vb15.RuntimeClaim");
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+        }
+    }
+
+    private static (string CSharpNet48Root, string VisualBasicNet48Root) CreateNet48Roots(string repositoryRoot)
+    {
+        var csharpNet48Root = Path.Combine(
+            repositoryRoot,
+            "examples",
+            "language-features",
+            "CSharp",
+            "dotNetFramework");
+        var visualBasicNet48Root = Path.Combine(
+            repositoryRoot,
+            "examples",
+            "language-features",
+            "VB.NET",
+            "dotNetFramework");
+        Directory.CreateDirectory(csharpNet48Root);
+        Directory.CreateDirectory(visualBasicNet48Root);
+
+        return (csharpNet48Root, visualBasicNet48Root);
+    }
+
     private static CaseDocument[] LoadCases()
     {
         var caseDirectory = Path.Combine(AppContext.BaseDirectory, "TestCases");
@@ -133,7 +213,9 @@ public sealed class RuntimeClaimCoverageTests
         string[] canonicalRoots =
         [
             "examples/language-features/CSharp/dotnet/10/latest",
-            "examples/language-features/VB.NET/dotnet/Net10"
+            "examples/language-features/CSharp/dotNetFramework",
+            "examples/language-features/VB.NET/dotnet/Net10",
+            "examples/language-features/VB.NET/dotNetFramework"
         ];
         var markers = new List<RuntimeMarker>();
 
