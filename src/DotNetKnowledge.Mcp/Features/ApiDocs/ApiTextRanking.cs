@@ -27,6 +27,44 @@ public static class ApiTextRanking
             .ToArray();
     }
 
+    /// <summary>
+    /// Keeps at most <paramref name="perSymbolLimit"/> hits per owning symbol, in the order given,
+    /// so one heavily-documented symbol cannot crowd every other API off the page. The last kept hit
+    /// of a symbol that overflowed carries the dropped count in
+    /// <see cref="ApiTextHit.MoreFromSymbol"/>; lookup_api on that symbol reaches the rest.
+    /// </summary>
+    /// <remarks>
+    /// Runs on the already-ranked, whole result set before paging, so the collapsed sequence is a
+    /// stable total order and an offset cursor keeps addressing the same set across pages.
+    /// </remarks>
+    public static IReadOnlyList<ApiTextHit> CollapsePerSymbol(
+        IReadOnlyList<ApiTextHit> hits,
+        int perSymbolLimit)
+    {
+        ArgumentNullException.ThrowIfNull(hits);
+        ArgumentOutOfRangeException.ThrowIfLessThan(perSymbolLimit, 1);
+
+        var totalPerSymbol = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var hit in hits)
+            totalPerSymbol[hit.Symbol] = totalPerSymbol.GetValueOrDefault(hit.Symbol) + 1;
+
+        var keptPerSymbol = new Dictionary<string, int>(StringComparer.Ordinal);
+        var kept = new List<ApiTextHit>(hits.Count);
+        foreach (var hit in hits)
+        {
+            var soFar = keptPerSymbol.GetValueOrDefault(hit.Symbol);
+            if (soFar >= perSymbolLimit)
+                continue;
+
+            var isLastKept = soFar == perSymbolLimit - 1;
+            var dropped = totalPerSymbol[hit.Symbol] - perSymbolLimit;
+            kept.Add(isLastKept && dropped > 0 ? hit with { MoreFromSymbol = dropped } : hit);
+            keptPerSymbol[hit.Symbol] = soFar + 1;
+        }
+
+        return kept;
+    }
+
     // A summary is the entry's headline; returns and remarks expand on it; a parameter or exception
     // clause is the finest detail. The param element is labeled "param:name", so match by prefix.
     private static int ElementRank(string element)

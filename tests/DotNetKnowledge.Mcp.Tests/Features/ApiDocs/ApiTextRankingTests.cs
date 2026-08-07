@@ -53,4 +53,28 @@ public sealed class ApiTextRankingTests
 
         CollectionAssert.AreEqual(OrdinalWithinElement, ordered);
     }
+
+    [TestMethod]
+    public void CollapsePerSymbolKeepsTopHitsAndCountsTheRest()
+    {
+        // One symbol with four matching doc elements would consume most of a page. Keep the two
+        // best and record how many more the caller can reach with lookup_api.
+        var collapsed = ApiTextRanking.CollapsePerSymbol(
+            [
+                Hit("System.Math.Round", "summary", "rounds midpoint values"),
+                Hit("System.Math.Round", "remarks", "midpoint values, that is, values ending in 5"),
+                Hit("System.Math.Round", "remarks", "another midpoint remark"),
+                Hit("System.Math.Round", "exception", "a midpoint related exception"),
+                Hit("System.Decimal.Round", "summary", "rounds midpoint values for decimal"),
+            ],
+            perSymbolLimit: 2);
+
+        var round = collapsed.Where(hit => hit.Symbol == "System.Math.Round").ToArray();
+        Assert.HasCount(2, round);
+        Assert.IsNull(round[0].MoreFromSymbol);
+        Assert.AreEqual(2, round[1].MoreFromSymbol);
+
+        var decimalRound = collapsed.Single(hit => hit.Symbol == "System.Decimal.Round");
+        Assert.IsNull(decimalRound.MoreFromSymbol);
+    }
 }
