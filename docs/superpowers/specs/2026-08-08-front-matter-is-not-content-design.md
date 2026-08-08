@@ -19,9 +19,9 @@ the other way.
 
 | query | total matching lines | from front-matter keys |
 |---|---|---|
-| `description` | 545 | 451 (83%) |
-| `title` | 485 | 451 (93%) |
-| `author` | 1131 | 451 (40%) |
+| `description` | 521 | 451 (87%) |
+| `title` | 482 | 451 (94%) |
+| `author` | 1105 | 868 (79%) |
 
 408 files times six keys is roughly 2,400 metadata lines competing with real prose for a result page
 capped at 20.

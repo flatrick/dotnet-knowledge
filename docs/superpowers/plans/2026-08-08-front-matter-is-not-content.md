@@ -221,7 +221,7 @@ git commit -m "Add MarkdownFrontMatter.BodyStartLine"
 
 ### Task 2: `search_docs` stops matching front matter
 
-Measured over `nuget-docs` at the pinned commit, front-matter keys are 451 of 545 lines matching `description` (83%), 451 of 485 matching `title` (93%), and 451 of 1131 matching `author` (40%). Against a result page capped at 20, that metadata crowds out prose. The three language sources have zero files beginning with `---`, so this is inert on them.
+Measured over `nuget-docs` at the pinned commit, front-matter keys are 451 of 521 lines matching `description` (87%), 451 of 482 matching `title` (94%), and 868 of 1105 matching `author` (79%). Against a result page capped at 20, that metadata crowds out prose. The three language sources have zero files beginning with `---`, so this is inert on them.
 
 **Files:**
 - Modify: `src/DotNetKnowledge.Markdown/MarkdownLineSearch.cs` — the `Search` overload taking `Regex? compiledPattern`, which the other overload delegates to

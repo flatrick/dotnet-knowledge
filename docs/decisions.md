@@ -31,9 +31,10 @@ and the entry links there.
 property of
 [`docs/superpowers/specs/2026-08-08-nuget-docs-source-design.md`](superpowers/specs/2026-08-08-nuget-docs-source-design.md).
 Rejected: keeping it searchable, whose stated reason was that suppressing it would manufacture a
-silent absence. Measured over `nuget-docs` at the pin, front-matter keys are 451 of 545 lines
-matching `description`, 451 of 485 matching `title` and 451 of 1131 matching `author` — against a
-page capped at 20 — and once `get_doc` starts after the front matter those hits carry an empty
+silent absence. Measured over `nuget-docs` at the pin, front-matter keys are 451 of 521 lines
+matching `description` (87%), 451 of 482 matching `title` (94%) and 868 of 1105 matching `author`
+(79%, higher because `ms.author:` also contains the word) — against a page capped at 20 — and once
+`get_doc` starts after the front matter those hits carry an empty
 section path and name lines no call returns, which is a worse failure than the absence.
 Also rejected: excluding it from `get_doc` only, which leaves search and fetch disagreeing about
 what exists; and returning the parsed keys as a structured field, which no client wants.
