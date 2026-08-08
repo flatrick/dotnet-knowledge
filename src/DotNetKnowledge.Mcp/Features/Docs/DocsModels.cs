@@ -1,8 +1,8 @@
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 
-namespace DotNetKnowledge.Mcp.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Features.Docs;
 
-public sealed record LanguageDocLineHit(
+public sealed record DocLineHit(
     string Path,
     int Line,
     string Text,
@@ -10,13 +10,13 @@ public sealed record LanguageDocLineHit(
     string SectionPath,
     SourceProvenance Source);
 
-public sealed record LanguageDocSearchResult(
-    IReadOnlyList<LanguageDocLineHit> Hits,
+public sealed record DocSearchResult(
+    IReadOnlyList<DocLineHit> Hits,
     bool IsPartial,
     string? NextPageToken,
     IReadOnlyList<SourceProvenance> SearchedSources);
 
-public sealed record LanguageDocContentResult(
+public sealed record DocContentResult(
     string Path,
     SourceProvenance Source,
     string? Section,
@@ -26,19 +26,19 @@ public sealed record LanguageDocContentResult(
     bool IsPartial,
     string? NextPageToken);
 
-public sealed record LanguageDocOutlineEntry(int Level, string Text, string Path);
+public sealed record DocOutlineEntry(int Level, string Text, string Path);
 
-public sealed record LanguageDocOutlineResult(
+public sealed record DocOutlineResult(
     string Path,
     SourceProvenance Source,
-    IReadOnlyList<LanguageDocOutlineEntry> Entries,
+    IReadOnlyList<DocOutlineEntry> Entries,
     bool IsPartial,
     string? NextPageToken);
 
-public sealed class LanguageDocPathNotFoundException : Exception
+public sealed class DocPathNotFoundException : Exception
 {
-    public LanguageDocPathNotFoundException(string path, string sourceName)
-        : base($"'{path}' was not found in '{sourceName}'. Call search_language_docs, or list_sources for cacheDir.")
+    public DocPathNotFoundException(string path, string sourceName)
+        : base($"'{path}' was not found in '{sourceName}'. Call search_docs, or list_sources for cacheDir.")
     {
         Path = path;
         SourceName = sourceName;
@@ -48,11 +48,11 @@ public sealed class LanguageDocPathNotFoundException : Exception
     public string SourceName { get; }
 }
 
-public sealed class LanguageDocSectionNotFoundException : Exception
+public sealed class DocSectionNotFoundException : Exception
 {
-    public LanguageDocSectionNotFoundException(string section, string path, string sourceName)
+    public DocSectionNotFoundException(string section, string path, string sourceName)
         : base($"Section '{section}' was not found in '{path}' ({sourceName}). " +
-               "Call get_language_doc_outline to see valid section paths for this document.")
+               "Call get_doc_outline to see valid section paths for this document.")
     {
         Section = section;
         Path = path;

@@ -46,6 +46,7 @@ Windows, the per-user data directory (`~/.local/share`, `~/Library/Application S
 | `roslyn-api-docs` | `dotnet/roslyn-api-docs` |
 | `dotnet-api-docs` | `dotnet/dotnet-api-docs` |
 | `roslyn-wiki` | `dotnet/roslyn` |
+| `nuget-docs` | `NuGet/docs.microsoft.com-nuget` |
 
 Each remains under its own upstream license, in its own clone, on the machine that fetched it. This
 repository records a commit hash and a URL — it does not carry their content, so it makes no

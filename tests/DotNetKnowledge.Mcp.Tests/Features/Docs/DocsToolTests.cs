@@ -1,18 +1,18 @@
 using System.Diagnostics;
 using System.Text.Json;
-using DotNetKnowledge.Mcp.Features.LanguageDocs;
+using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
 
-namespace DotNetKnowledge.Mcp.Tests.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Tests.Features.Docs;
 
 [TestClass]
-public sealed class LanguageDocsToolTests
+public sealed class DocsToolTests
 {
     private const string ProposalA =
         "# Feature A\n\n## Motivation\n\nSome motivating prose.\n";
 
     [TestMethod]
-    public async Task GetLanguageDocOutlineNamesTheRequiredSyncWhenSourceIsMissing()
+    public async Task GetDocOutlineNamesTheRequiredSyncWhenSourceIsMissing()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
@@ -20,9 +20,9 @@ public sealed class LanguageDocsToolTests
             var catalog = new SourceCatalog();
             var cache = new SourceCache(root);
             var synchronizer = new SourceSynchronizer(catalog, cache);
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
-            var json = await LanguageDocsTool.GetLanguageDocOutline(
+            var json = await DocsTool.GetDocOutline(
                 "docs/proposal-a.md", "csharplang", service, CancellationToken.None);
 
             using var document = JsonDocument.Parse(json);
@@ -38,14 +38,14 @@ public sealed class LanguageDocsToolTests
     }
 
     [TestMethod]
-    public async Task GetLanguageDocOutlineReturnsPathNotFoundForAMissingFile()
+    public async Task GetDocOutlineReturnsPathNotFoundForAMissingFile()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
         {
             var service = await CreateServiceAsync(root);
 
-            var json = await LanguageDocsTool.GetLanguageDocOutline(
+            var json = await DocsTool.GetDocOutline(
                 "docs/missing.md", "csharplang", service, CancellationToken.None);
 
             using var document = JsonDocument.Parse(json);
@@ -59,14 +59,14 @@ public sealed class LanguageDocsToolTests
     }
 
     [TestMethod]
-    public async Task GetLanguageDocOutlineReturnsInvalidRequestForAnUnrecognizedSource()
+    public async Task GetDocOutlineReturnsInvalidRequestForAnUnrecognizedSource()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
         {
             var service = await CreateServiceAsync(root);
 
-            var json = await LanguageDocsTool.GetLanguageDocOutline(
+            var json = await DocsTool.GetDocOutline(
                 "docs/proposal-a.md", "not-a-real-source", service, CancellationToken.None);
 
             using var document = JsonDocument.Parse(json);
@@ -80,14 +80,14 @@ public sealed class LanguageDocsToolTests
     }
 
     [TestMethod]
-    public async Task SearchLanguageDocsReturnsInvalidRegexForAnUnsupportedConstruct()
+    public async Task SearchDocsReturnsInvalidRegexForAnUnsupportedConstruct()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
         {
             var service = await CreateServiceAsync(root);
 
-            var json = await LanguageDocsTool.SearchLanguageDocs(
+            var json = await DocsTool.SearchDocs(
                 @"(\w+)\s+\1", service, CancellationToken.None, regex: true);
 
             using var document = JsonDocument.Parse(json);
@@ -101,14 +101,14 @@ public sealed class LanguageDocsToolTests
     }
 
     [TestMethod]
-    public async Task SearchLanguageDocsReturnsInvalidRequestForAnUnrecognizedSource()
+    public async Task SearchDocsReturnsInvalidRequestForAnUnrecognizedSource()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
         {
             var service = await CreateServiceAsync(root);
 
-            var json = await LanguageDocsTool.SearchLanguageDocs(
+            var json = await DocsTool.SearchDocs(
                 "prose", service, CancellationToken.None, source: "not-a-real-source");
 
             using var document = JsonDocument.Parse(json);
@@ -122,19 +122,19 @@ public sealed class LanguageDocsToolTests
     }
 
     [TestMethod]
-    public async Task GetLanguageDocReturnsSectionNotFoundNamingTheOutlineTool()
+    public async Task GetDocReturnsSectionNotFoundNamingTheOutlineTool()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         try
         {
             var service = await CreateServiceAsync(root);
 
-            var json = await LanguageDocsTool.GetLanguageDoc(
+            var json = await DocsTool.GetDoc(
                 "docs/proposal-a.md", "csharplang", service, CancellationToken.None, section: "No Such Section");
 
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual("section_not_found", document.RootElement.GetProperty("error").GetString());
-            StringAssert.Contains(document.RootElement.GetProperty("message").GetString(), "get_language_doc_outline");
+            StringAssert.Contains(document.RootElement.GetProperty("message").GetString(), "get_doc_outline");
         }
         finally
         {
@@ -143,7 +143,7 @@ public sealed class LanguageDocsToolTests
         }
     }
 
-    private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
+    private static async Task<DocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");
         var docsDirectory = Path.Combine(repository, "docs");
@@ -161,7 +161,7 @@ public sealed class LanguageDocsToolTests
         var cache = new SourceCache(Path.Combine(root, "cache"));
         var synchronizer = new SourceSynchronizer(catalog, cache);
         await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
-        return new LanguageDocsQueryService(catalog, cache, synchronizer);
+        return new DocsQueryService(catalog, cache, synchronizer);
     }
 
     private static async Task WriteCatalogAsync(string path, string repository, string pin)

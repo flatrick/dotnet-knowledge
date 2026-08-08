@@ -106,8 +106,8 @@ find_api_references(symbol, kind?, exact?, source?, limit?, cursor?)
     → totals: per-kind counts over the WHOLE result set, not the page
     → limit: 1-100, default 20
 
-── language design docs ──────────────────────────────────────────────
-search_language_docs(query, regex?, source?, limit?, cursor?)
+── documentation ─────────────────────────────────────────────────────
+search_docs(query, regex?, source?, limit?, cursor?)
     query: a literal substring; regex: true switches to full .NET
       regex, evaluated with the non-backtracking engine so no
       caller-supplied pattern can stall the server
@@ -115,12 +115,12 @@ search_language_docs(query, regex?, source?, limit?, cursor?)
       isTruncated stating it, as everywhere else), and a
       server-issued section heading path — no file bodies
     → searches every markdown source the tool supports (csharplang,
-      vblang, and roslyn-wiki today; the supported set is configuration,
-      not code — see the "markdown" field in sources.json); source
-      restricts
+      nuget-docs, roslyn-wiki and vblang today; the supported set is
+      configuration, not code — see the "markdown" field in
+      sources.json); source restricts
     → limit: 1-100, default 20
 
-get_language_doc(path, source, section?, limit?, cursor?)
+get_doc(path, source, section?, limit?, cursor?)
     section: a heading path exactly as issued by a search hit or an
       outline entry ("Metadata > Ref fields", disambiguated when a
       heading text repeats) — callers round-trip it, never construct it
@@ -133,7 +133,7 @@ get_language_doc(path, source, section?, limit?, cursor?)
       default 8000, snapped to a line boundary and never splitting
       a fenced code block or a table
 
-get_language_doc_outline(path, source, limit?, cursor?)
+get_doc_outline(path, source, limit?, cursor?)
     → limit: 1-500, default 100
     → the document's heading tree with section IDs, no bodies — the
       map an agent reads before spending context on content
@@ -163,7 +163,7 @@ dedicated `MANIFEST.md` table supplies discovery metadata and must agree with th
 
 An agent pays for every token it receives. `search_api` returning fully-qualified names lets it
 narrow for almost nothing and then spend context on a single `lookup_api`. The same reasoning makes
-`search_language_docs` return `path:line` hits plus the single matched line rather than matched
+`search_docs` return `path:line` hits plus the single matched line rather than matched
 files: one line per hit is the triage budget, and the agent decides what is worth reading. A search
 tool that returns bodies turns one imprecise query into an unaffordable response.
 
@@ -238,7 +238,7 @@ or the attribute a rendered symbol name is built from — so a single token is a
 the whole phrase is not.
 
 **This is also why the tool takes a literal substring and not a regex**, unlike
-`search_language_docs`. No cheap prefilter is a sound superset of an arbitrary pattern, so regex
+`search_docs`. No cheap prefilter is a sound superset of an arbitrary pattern, so regex
 would mean parsing the entire corpus per query or silently missing matches, and a search tool that
 silently misses is the failure mode this server exists to avoid.
 

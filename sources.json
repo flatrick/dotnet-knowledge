@@ -59,6 +59,15 @@
       "sparse": ["docs/wiki"],
       "purpose": "Roslyn wiki pages: analyzer authoring, API changes, contributor docs.",
       "markdown": true
+    },
+    "nuget-docs": {
+      "repository": "NuGet/docs.microsoft.com-nuget",
+      "url": "https://github.com/NuGet/docs.microsoft.com-nuget.git",
+      "pin": "2b52d770c577cf48b902dc176bdd3941a811d9d2",
+      "head": "main",
+      "sparse": ["docs"],
+      "purpose": "NuGet package management: PackageReference, restore, packing, nuget.config, CLI and MSBuild reference, nuget.org.",
+      "markdown": true
     }
   }
 }

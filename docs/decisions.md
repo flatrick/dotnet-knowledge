@@ -24,6 +24,37 @@ and the entry links there.
 
 ---
 
+### 2026-08-08 · The document tools drop "language" from their names
+
+`search_language_docs`/`get_language_doc`/`get_language_doc_outline` become
+`search_docs`/`get_doc`/`get_doc_outline`, and `Features/LanguageDocs/` becomes `Features/Docs/`
+with its types renamed to match; error codes, JSON field names and cursor `kind` strings are
+unchanged, so no previously issued cursor is rejected.
+Rejected: keeping the names and broadening only the descriptions, which leaves a tool an agent
+cannot discover from its name — the capability then exists only for a caller who reads the
+description. Also rejected: a parallel `search_nuget_docs` family, which adds three tool definitions
+to every agent's context for no new capability and makes each future markdown source repeat the
+pattern; and deprecated aliases, which put six definitions in context to describe three capabilities
+with no forcing function to ever remove them.
+
+---
+
+### 2026-08-08 · NuGet guidance ranks below language proposals and above release notes
+
+`DocRanking.DocumentTypeRank` goes to four tiers: proposals and spec 0, current NuGet guidance 1,
+everything else 2, meeting notes and NuGet release-notes/archive 3.
+Rejected: a flat tier for NuGet. Equal ranks fall through to the path tiebreak, where `docs/` sorts
+ahead of `proposals/`, so an unfiltered language query would have been answered by packaging
+documents. Rejected: deferring the ordering to the backlog — of 1170 NuGet lines matching
+`restore`, 479 are release notes or archive, so against the default limit of 20 the source would
+have shipped measurably worse than it needed to be, and an agent holding twenty historical hits has
+no signal that better documents sit below the cut. The reverse direction costs nothing:
+`PackageReference`, `package restore`, `nuspec` and `central package management` each return 0 hits
+across csharplang, vblang and roslyn-wiki combined. Spec:
+[`docs/superpowers/specs/2026-08-08-nuget-docs-source-design.md`](superpowers/specs/2026-08-08-nuget-docs-source-design.md).
+
+---
+
 ### 2026-08-08 · The language-feature example corpus moves to its own repository
 
 `examples/language-features/`, `Corpus.slnx`, `tests/DotNetKnowledge.Corpus.Tests/`, the

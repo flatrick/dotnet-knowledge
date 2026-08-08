@@ -1,13 +1,14 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
-using DotNetKnowledge.Mcp.Features.LanguageDocs;
+using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
 
-namespace DotNetKnowledge.Mcp.Tests.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Tests.Features.Docs;
 
 [TestClass]
-public sealed class LanguageDocsQueryServiceTests
+public sealed class DocsQueryServiceTests
 {
     private const string ProposalA =
         "# Feature A\n" +
@@ -34,6 +35,25 @@ public sealed class LanguageDocsQueryServiceTests
         "## Summary\n" +
         "\n" +
         "Summary text mentioning FeatureA for cross-file search.\n";
+
+    // A Microsoft Learn article. Every NuGet document opens this way, and 408 of the 463 under
+    // docs/ do. Front matter must not become a heading, and the section path the outline issues
+    // must be the one get_doc accepts back.
+    private const string LearnArticle =
+        "---\n" +
+        "title: Sample article\n" +
+        "ms.author: someone\n" +
+        "ms.date: 02/12/2026\n" +
+        "ms.topic: concept-article\n" +
+        "---\n" +
+        "\n" +
+        "# PackageReference in project files\n" +
+        "\n" +
+        "Intro prose about package references.\n" +
+        "\n" +
+        "## Project type support\n" +
+        "\n" +
+        "Prose about which project types support it.\n";
 
     private static readonly string[] ExpectedRegexHitPaths = ["docs/proposal-a.md", "docs/proposal-b.md"];
 
@@ -127,9 +147,9 @@ public sealed class LanguageDocsQueryServiceTests
         {
             var service = await CreateServiceAsync(root);
 
-            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "../../etc/passwd", "csharplang", limit: 20, cursor: null, CancellationToken.None));
-            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "docs/does-not-exist.md", "csharplang", limit: 20, cursor: null, CancellationToken.None));
         }
         finally
@@ -151,7 +171,7 @@ public sealed class LanguageDocsQueryServiceTests
             var catalog = new SourceCatalog(catalogPath);
             var cache = new SourceCache(Path.Combine(root, "cache"));
             var synchronizer = new SourceSynchronizer(catalog, cache);
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
             var exception = await Assert.ThrowsExactlyAsync<SourceNotSyncedException>(() => service.GetOutlineAsync(
                 "docs/proposal-a.md", "csharplang", limit: 20, cursor: null, CancellationToken.None));
@@ -255,7 +275,7 @@ public sealed class LanguageDocsQueryServiceTests
             var synchronizer = new SourceSynchronizer(catalog, cache);
             await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
             await synchronizer.SyncAsync("vblang", requestedRef: null, CancellationToken.None);
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
             var result = await service.SearchAsync(
                 "SharedTopic", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
@@ -305,7 +325,7 @@ public sealed class LanguageDocsQueryServiceTests
             await synchronizer.SyncAsync("vblang", requestedRef: null, CancellationToken.None);
             // "roslyn-api-docs" is deliberately left unsynced: rejecting it as a non-markdown
             // source must happen at source validation, before sync state is ever consulted.
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
             var result = await service.SearchAsync(
                 "SharedTopic", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
@@ -335,8 +355,66 @@ public sealed class LanguageDocsQueryServiceTests
         {
             var service = await CreateServiceWithDocumentAsync(root, "notes.txt", "Not markdown at all.\n");
 
-            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "docs/notes.txt", "csharplang", limit: 20, cursor: null, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineOmitsYamlFrontMatterFromLearnArticles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "article.md", LearnArticle);
+
+            var outline = await service.GetOutlineAsync(
+                "docs/article.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(2, outline.Entries);
+            Assert.AreEqual("PackageReference in project files", outline.Entries[0].Path);
+            Assert.AreEqual(1, outline.Entries[0].Level);
+            Assert.AreEqual(
+                "PackageReference in project files > Project type support",
+                outline.Entries[1].Path);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAcceptsASectionPathIssuedForALearnArticle()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "article.md", LearnArticle);
+
+            var outline = await service.GetOutlineAsync(
+                "docs/article.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+            var section = outline.Entries[1].Path;
+
+            // Under the pre-front-matter parse this is "PackageReference in project files" — the
+            // phantom heading pushes the real H1 into the H2's place — so this is what makes the
+            // round trip a regression test rather than a smoke test.
+            Assert.AreEqual("PackageReference in project files > Project type support", section);
+
+            // The round trip is the contract: whatever the outline issued, get_doc takes verbatim.
+            var content = await service.GetDocAsync(
+                "docs/article.md", "csharplang", section, limit: 8000, cursor: null, CancellationToken.None);
+
+            StringAssert.Contains(content.Text, "## Project type support");
+            StringAssert.Contains(content.Text, "Prose about which project types support it.");
+            StringAssert.DoesNotMatch(content.Text, new Regex("ms\\.author"));
+            Assert.IsFalse(content.IsPartial);
         }
         finally
         {
@@ -362,10 +440,10 @@ public sealed class LanguageDocsQueryServiceTests
             Assert.IsFalse(section.Text.Contains("Detailed design"));
             Assert.IsFalse(section.IsPartial);
 
-            var exception = await Assert.ThrowsExactlyAsync<LanguageDocSectionNotFoundException>(() => service.GetDocAsync(
+            var exception = await Assert.ThrowsExactlyAsync<DocSectionNotFoundException>(() => service.GetDocAsync(
                 "docs/proposal-a.md", "csharplang", "No Such Section", limit: 8000, cursor: null,
                 CancellationToken.None));
-            StringAssert.Contains(exception.Message, "get_language_doc_outline");
+            StringAssert.Contains(exception.Message, "get_doc_outline");
         }
         finally
         {
@@ -451,7 +529,7 @@ public sealed class LanguageDocsQueryServiceTests
         }
     }
 
-    private static async Task<LanguageDocsQueryService> CreateServiceWithDocumentAsync(
+    private static async Task<DocsQueryService> CreateServiceWithDocumentAsync(
         string root, string fileName, string content)
     {
         var repository = Path.Combine(root, "origin");
@@ -462,10 +540,10 @@ public sealed class LanguageDocsQueryServiceTests
         var cache = new SourceCache(Path.Combine(root, "cache"));
         var synchronizer = new SourceSynchronizer(catalog, cache);
         await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
-        return new LanguageDocsQueryService(catalog, cache, synchronizer);
+        return new DocsQueryService(catalog, cache, synchronizer);
     }
 
-    private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
+    private static async Task<DocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");
         var docsDirectory = Path.Combine(repository, "docs");
@@ -484,7 +562,7 @@ public sealed class LanguageDocsQueryServiceTests
         var cache = new SourceCache(Path.Combine(root, "cache"));
         var synchronizer = new SourceSynchronizer(catalog, cache);
         await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
-        return new LanguageDocsQueryService(catalog, cache, synchronizer);
+        return new DocsQueryService(catalog, cache, synchronizer);
     }
 
     private static async Task WriteCatalogAsync(string path, string repository, string pin)

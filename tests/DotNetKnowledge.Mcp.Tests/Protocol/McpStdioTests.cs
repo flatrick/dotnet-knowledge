@@ -54,10 +54,17 @@ public sealed class McpStdioTests
             CollectionAssert.Contains(names, "sync_source");
             CollectionAssert.Contains(names, "lookup_api");
             CollectionAssert.Contains(names, "search_api");
+            CollectionAssert.Contains(names, "search_docs");
+            CollectionAssert.Contains(names, "get_doc");
+            CollectionAssert.Contains(names, "get_doc_outline");
             AssertOptional(tools, "sync_source", "ref");
             AssertOptional(tools, "lookup_api", "source");
             AssertOptional(tools, "search_api", "limit");
             AssertOptional(tools, "search_api", "cursor");
+            AssertOptional(tools, "search_docs", "regex");
+            AssertOptional(tools, "search_docs", "source");
+            AssertOptional(tools, "get_doc", "section");
+            AssertOptional(tools, "get_doc_outline", "cursor");
 
             await WriteMessageAsync(process, """
                 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_sources","arguments":{}}}

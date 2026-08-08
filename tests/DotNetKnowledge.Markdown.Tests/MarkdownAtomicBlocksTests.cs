@@ -64,4 +64,63 @@ public sealed class MarkdownAtomicBlocksTests
         var table = blocks.Single(b => b.StartLine == 3);
         Assert.AreEqual(5, table.EndLine);
     }
+
+    [TestMethod]
+    public void FindTreatsYamlFrontMatterAsAtomic()
+    {
+        const string document =
+            "---\n" +
+            "title: Sample\n" +
+            "ms.author: someone\n" +
+            "ms.date: 02/12/2026\n" +
+            "---\n" +
+            "\n" +
+            "# Heading One\n" +
+            "\n" +
+            "Body text.\n";
+
+        var blocks = MarkdownAtomicBlocks.Find(document);
+
+        // Opening "---" is line 1, content is lines 2-4, closing "---" is line 5, and EndLine is
+        // exclusive — so the range is [1, 6).
+        Assert.HasCount(1, blocks);
+        Assert.AreEqual(1, blocks[0].StartLine);
+        Assert.AreEqual(6, blocks[0].EndLine);
+    }
+
+    [TestMethod]
+    public void FindTreatsMinimalYamlFrontMatterAsAtomic()
+    {
+        // The smallest input Markdig 1.3.2 actually parses as front matter: one content line,
+        // even a blank one. This pins the arithmetic at its lower boundary.
+        const string document =
+            "---\n" +
+            "\n" +
+            "---\n" +
+            "\n" +
+            "# Heading One\n";
+
+        var blocks = MarkdownAtomicBlocks.Find(document);
+
+        Assert.HasCount(1, blocks);
+        Assert.AreEqual(1, blocks[0].StartLine);
+        Assert.AreEqual(4, blocks[0].EndLine);
+    }
+
+    [TestMethod]
+    public void FindDoesNotTreatAdjacentFencesAsFrontMatter()
+    {
+        // Measured against Markdig 1.3.2: "---" on adjacent lines is two thematic breaks, not an
+        // empty front-matter block. This is the boundary the zero-lines guard in Find defends, and
+        // it is why that guard is never reached today.
+        const string document =
+            "---\n" +
+            "---\n" +
+            "\n" +
+            "# Heading One\n";
+
+        var blocks = MarkdownAtomicBlocks.Find(document);
+
+        Assert.IsEmpty(blocks);
+    }
 }

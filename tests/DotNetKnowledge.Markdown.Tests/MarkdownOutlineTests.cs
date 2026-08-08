@@ -22,6 +22,57 @@ public sealed class MarkdownOutlineTests
         "\n" +
         "Repeated heading text.\n";
 
+    // A Microsoft Learn article's opening block. Without the YAML front-matter extension the
+    // closing "---" is a setext underline for the metadata paragraph above it, so the whole block
+    // parses as a level-2 heading and prefixes every section path in the document.
+    private const string FrontMatterDocument =
+        "---\n" +
+        "title: Sample\n" +
+        "ms.author: someone\n" +
+        "ms.date: 02/12/2026\n" +
+        "---\n" +
+        "\n" +
+        "# Heading One\n" +
+        "\n" +
+        "Body text.\n" +
+        "\n" +
+        "## Heading Two\n" +
+        "\n" +
+        "More body.\n";
+
+    // A genuine setext heading is one line away from the front-matter form above. A fix that
+    // silences front matter by also silencing this is a regression, so both are asserted.
+    private const string SetextDocument =
+        "Real Setext Heading\n" +
+        "---\n" +
+        "\n" +
+        "Body.\n";
+
+    [TestMethod]
+    public void ExtractIgnoresYamlFrontMatter()
+    {
+        var headings = MarkdownOutline.Extract(FrontMatterDocument);
+
+        Assert.HasCount(2, headings);
+        Assert.AreEqual(1, headings[0].Level);
+        Assert.AreEqual("Heading One", headings[0].Text);
+        Assert.AreEqual("Heading One", headings[0].Path);
+        Assert.AreEqual(7, headings[0].StartLine);
+        Assert.AreEqual("Heading One > Heading Two", headings[1].Path);
+        Assert.AreEqual(11, headings[1].StartLine);
+    }
+
+    [TestMethod]
+    public void ExtractStillRecognizesSetextHeadings()
+    {
+        var headings = MarkdownOutline.Extract(SetextDocument);
+
+        Assert.HasCount(1, headings);
+        Assert.AreEqual(2, headings[0].Level);
+        Assert.AreEqual("Real Setext Heading", headings[0].Text);
+        Assert.AreEqual(1, headings[0].StartLine);
+    }
+
     [TestMethod]
     public void ExtractBuildsAncestorPathsAndLineRanges()
     {
@@ -107,7 +158,7 @@ public sealed class MarkdownOutlineTests
         // A raw '\n'-only count and ReplaceLineEndings's normalized count disagree once a form feed
         // (or a bare '\r', or a Unicode NEL/LS/PS) occurs: normalization treats it as a line break,
         // naive '\n'-counting does not. Every consumer of StartLine/EndLine — MarkdownLineSearch and
-        // LanguageDocsQueryService.GetDocAsync — builds its line array via
+        // DocsQueryService.GetDocAsync — builds its line array via
         // markdown.ReplaceLineEndings("\n").Split('\n'), so headings must agree with that split or
         // section slicing silently returns the wrong lines.
         const string document =

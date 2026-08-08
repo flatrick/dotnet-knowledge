@@ -12,7 +12,7 @@ namespace DotNetKnowledge.Mcp.Sources;
 /// <param name="Sparse">Paths to sparse-checkout; the rest of the tree is never fetched.</param>
 /// <param name="Purpose">One line on what the source answers, surfaced by <c>list_sources</c>.</param>
 /// <param name="Markdown">
-/// Whether <c>search_language_docs</c>/<c>get_language_doc</c>/<c>get_language_doc_outline</c> can
+/// Whether <c>search_docs</c>/<c>get_doc</c>/<c>get_doc_outline</c> can
 /// search and fetch this source's content. Defaults to <c>false</c> so an XML-docs source such as
 /// <c>dotnet-api-docs</c> needs no entry to stay excluded.
 /// </param>
