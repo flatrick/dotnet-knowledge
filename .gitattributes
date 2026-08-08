@@ -1,10 +1,5 @@
 # ------------------------------------------------------------------------------
 # Line endings: normalize to LF.
-#
-# This matters more here than in most repositories: the net48 example projects are
-# DERIVED from their net10 counterparts, and `generate-net48-examples.cs --check`
-# compares the two byte-for-byte. Inconsistent normalization between source and
-# derived file would surface as drift that no edit explains.
 # ------------------------------------------------------------------------------
 * text=auto eol=lf
 

@@ -11,19 +11,19 @@ a web search risks an answer describing a different version than the one in the 
 
 This server provides all three locally and states which revision each answer came from.
 
-The source and API-doc tools are implemented; language-design and bundled-example tools below are
-the remaining surface. This document describes the intended surface throughout;
+The source and API-doc tools are implemented; language-design and example tools below are the
+remaining surface. This document describes the intended surface throughout;
 [`docs/backlog/`](../backlog/README.md) records deferred work against it.
 
-## Two classes of source, two lifecycles
+## One class of source
 
-| Class | What | Sync needed |
-|---|---|---|
-| **Bundled** | `examples/language-features/` — authored here, ships with the server | No |
-| **Fetched** | The five entries in `sources.json` — upstream Microsoft repositories | Yes, explicitly |
-
-The distinction matters for first-run experience: the corpus tools work immediately after install,
-and only the doc tools require a sync.
+Every source this server can query is fetched on demand into a per-user cache, per the entries in
+`sources.json` — upstream Microsoft repositories today. The example corpus this server's `examples`
+tools below are designed against — [flatrick/dotnet-code-examples](https://github.com/flatrick/dotnet-code-examples)
+— used to be authored in and bundled with this repository, needing no sync; it has since moved to
+its own repository and, if these tools are built, would be added to `sources.json` and fetched like
+any other source rather than bundled. The tool surface below still describes what querying it should
+look like; the sync model it now needs is the same as every other entry.
 
 ## Tool surface
 
@@ -138,7 +138,7 @@ get_language_doc_outline(path, source, limit?, cursor?)
     → the document's heading tree with section IDs, no bodies — the
       map an agent reads before spending context on content
 
-── examples (bundled) ────────────────────────────────────────────────
+── examples (fetched, from flatrick/dotnet-code-examples) ─────────────
 list_examples(kind?, language?, version?, feature?)
     kind: "project" | "script"
     → project manifest rows: version, feature, group folder, target projects,
@@ -379,7 +379,7 @@ it a structured search that falls short has no fallback.
 
 ## The provenance envelope
 
-Every payload — from every tool, including cached and bundled ones — carries:
+Every payload — from every tool, including cached ones — carries:
 
 ```json
 "source": {
@@ -390,8 +390,7 @@ Every payload — from every tool, including cached and bundled ones — carries
 }
 ```
 
-`ref` is `"pinned"`, `"head:<branch>"`, or `"bundled"` for the corpus. It is never absent and never
-inferred.
+`ref` is `"pinned"` or `"head:<branch>"`. It is never absent and never inferred.
 
 When one response contains matches from both API repositories, each match carries its own source
 envelope; provenance is never collapsed into one ambiguous top-level revision.

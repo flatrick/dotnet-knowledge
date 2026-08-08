@@ -24,6 +24,20 @@ and the entry links there.
 
 ---
 
+### 2026-08-08 · The language-feature example corpus moves to its own repository
+
+`examples/language-features/`, `Corpus.slnx`, `tests/DotNetKnowledge.Corpus.Tests/`, the
+floor/placement/namespace verification scripts, and the corpus-only docs moved to
+[flatrick/dotnet-code-examples](https://github.com/flatrick/dotnet-code-examples) with no shared
+git history, leaving this repository as the MCP server only. Rejected: keeping the corpus bundled
+and adding it to `sources.json` as a self-referential fetch, which would have made the server clone
+its own repository for no benefit. The corpus has no dependency on MCP tooling — it exists to be
+read directly and to give tools like Roslyn analyzers and other .NET tooling a realistic
+multi-project, multi-TFM target — and outgrew being scoped to one server's bundled content the
+moment a second, unrelated consumer needed it.
+
+---
+
 ### 2026-08-07 · Runtime cases gain net48 and VB execution instead of an exemption
 
 `ProbeProject` now writes `probe.vbproj` when the source is `.vb` and launches a built net48 `.exe`
