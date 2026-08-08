@@ -12,7 +12,7 @@ public static class MarkdownOutline
         // Parse the normalized string, not the raw one: Markdig's own span offsets and this
         // method's totalLines count must agree on what counts as a line break, or StartLine and
         // EndLine silently disagree with everyone else who reads them (MarkdownLineSearch and
-        // LanguageDocsQueryService both split lines via the same normalized convention).
+        // DocsQueryService both split lines via the same normalized convention).
         var normalized = MarkdownText.Normalize(markdown);
         var document = Markdig.Markdown.Parse(normalized, MarkdownPipelines.Default);
         var totalLines = MarkdownText.SplitLines(normalized).Length;

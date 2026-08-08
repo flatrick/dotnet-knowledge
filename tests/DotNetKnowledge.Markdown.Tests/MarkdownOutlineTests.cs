@@ -158,7 +158,7 @@ public sealed class MarkdownOutlineTests
         // A raw '\n'-only count and ReplaceLineEndings's normalized count disagree once a form feed
         // (or a bare '\r', or a Unicode NEL/LS/PS) occurs: normalization treats it as a line break,
         // naive '\n'-counting does not. Every consumer of StartLine/EndLine — MarkdownLineSearch and
-        // LanguageDocsQueryService.GetDocAsync — builds its line array via
+        // DocsQueryService.GetDocAsync — builds its line array via
         // markdown.ReplaceLineEndings("\n").Split('\n'), so headings must agree with that split or
         // section slicing silently returns the wrong lines.
         const string document =
