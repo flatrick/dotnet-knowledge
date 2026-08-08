@@ -67,7 +67,7 @@ dotnet test DotNetKnowledge.slnx
 
 The server's source, API-doc, and language-doc tools are implemented and work under an MCP client:
 `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
-`find_api_references`, `search_language_docs`, `get_language_doc`, and `get_language_doc_outline`
+`find_api_references`, `search_docs`, `get_doc`, and `get_doc_outline`
 all answer correctly over stdio, including a first sync of a large upstream repository.
 
 Bundled-example queries remain future work; their intended surface is recorded in

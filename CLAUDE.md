@@ -68,7 +68,7 @@ serves every clone and worktree on the machine, and it is deliberately not the X
 directory: a synced pin must survive cache cleaners (`docs/decisions.md`).
 
 Implemented: `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
-`find_api_references`, `search_language_docs`, `get_language_doc` and `get_language_doc_outline`.
+`find_api_references`, `search_docs`, `get_doc` and `get_doc_outline`.
 Bundled-example queries are future work. The intended surface for all of them is in `docs/design/mcp-tool-surface.md`; known
 defects are one file each in `docs/backlog/`.
 
@@ -96,8 +96,8 @@ These are correctness obligations, not preferences:
 - **`list_sources` keeps returning `cacheDir`.** Structured lookup will not cover everything, and an
   agent has no other way to find them.
 - **Search tools return names and locations, never bodies.** `search_api` returns fully-qualified
-  names; `search_language_docs` returns `path:line` hits. The agent then spends context on a single
-  `lookup_api` or `get_language_doc`. `search_api_text` carries the matched prose because the match
+  names; `search_docs` returns `path:line` hits. The agent then spends context on a single
+  `lookup_api` or `get_doc`. `search_api_text` carries the matched prose because the match
   *is* the location — there is no line number inside an XML element to point at — but it is capped
   at 300 characters and names the owning symbol, so the follow-up call is still the way to read the
   entry.
