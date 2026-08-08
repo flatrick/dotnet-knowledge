@@ -19,6 +19,9 @@ public sealed class DocRankingTests
         "meetings/2020/LDM-2020-01-08.md",
     ];
 
+    private static readonly string[] GuidanceThenWiki =
+        ["docs/reference/nuspec.md", "docs/wiki/Roslyn-Overview.md"];
+
     private static DocLineHit Hit(string path, int line, string text) =>
         new(path, line, text, IsTruncated: false, SectionPath: text, Source);
 
@@ -105,5 +108,31 @@ public sealed class DocRankingTests
             Hit("proposals/csharp-9.0/records.md", 3, "records proposal"));
 
         CollectionAssert.AreEqual(ExistingSourcesExpectedOrder, ordered);
+    }
+
+    [TestMethod]
+    public void NuGetGuidanceOutranksRoslynWiki()
+    {
+        // roslyn-wiki moved from tier 1 to tier 2 when the NuGet guidance tier was inserted between
+        // proposals and "everything else"; this is the one boundary where an existing source moved.
+        var ordered = OrderedPaths(
+            "nuspec",
+            Hit("docs/wiki/Roslyn-Overview.md", 12, "nuspec overview"),
+            Hit("docs/reference/nuspec.md", 3, "nuspec reference"));
+
+        CollectionAssert.AreEqual(GuidanceThenWiki, ordered);
+    }
+
+    [TestMethod]
+    public void PathSegmentMerelyEndingInSpecIsNotTierZero()
+    {
+        // "docs/reference/nuspec/format.md" ends in "spec" but is not the "spec/" tree; it must not
+        // rank above an actual "proposals/" hit the way an unanchored Contains("spec/") would.
+        var ordered = OrderedPaths(
+            "format",
+            Hit("docs/reference/nuspec/format.md", 3, "nuspec format"),
+            Hit("proposals/csharp-9.0/records.md", 5, "format proposal"));
+
+        Assert.AreEqual("proposals/csharp-9.0/records.md", ordered[0]);
     }
 }

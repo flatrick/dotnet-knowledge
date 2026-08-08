@@ -34,6 +34,9 @@ var catalog = new Dictionary<string, (string Url, string Pin, string[] Sparse)>(
     ["roslyn-wiki"] = ("https://github.com/dotnet/roslyn.git",
         "fca0128889ed81ab7a8754586be0ed18aadb4b14",
         ["docs/wiki"]),
+    ["nuget-docs"] = ("https://github.com/NuGet/docs.microsoft.com-nuget.git",
+        "2b52d770c577cf48b902dc176bdd3941a811d9d2",
+        ["docs"]),
 };
 
 var quick = TimeSpan.FromSeconds(10);

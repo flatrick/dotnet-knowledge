@@ -40,8 +40,8 @@ The existing sources already carry the same kind of ballast (roslyn-wiki checks 
 
 ### Licensing
 
-The repository is MIT (.NET Foundation).
-Nothing about the licensing invariant changes: the content is fetched into the per-user cache outside the working tree, never vendored, submoduled, or pasted into a document.
+The repository carries both a `LICENSE` and a `LICENSE-CODE` file, the conventional split for Microsoft documentation repositories; this design makes no claim about what either says.
+Nothing about the licensing invariant changes: the content is fetched into the per-user cache outside the working tree, never vendored, submoduled, or pasted into a document, so no license claim is made or needed.
 
 `scripts/verify-no-vendored-content.cs` gains a sixth shape rule so a pasted Learn article is caught the way a pasted csharplang proposal already is.
 Learn articles are recognizable by their frontmatter — an opening `---` fence containing both `ms.author:` and `ms.date:`.

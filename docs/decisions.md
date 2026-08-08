@@ -37,6 +37,8 @@ to every agent's context for no new capability and makes each future markdown so
 pattern; and deprecated aliases, which put six definitions in context to describe three capabilities
 with no forcing function to ever remove them.
 
+---
+
 ### 2026-08-08 · NuGet guidance ranks below language proposals and above release notes
 
 `DocRanking.DocumentTypeRank` goes to four tiers: proposals and spec 0, current NuGet guidance 1,

@@ -67,8 +67,7 @@ public static class DocRanking
     // proposals tree.
     private static int DocumentTypeRank(string path)
     {
-        if (path.Contains("proposals/", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("spec/", StringComparison.OrdinalIgnoreCase))
+        if (HasPathSegment(path, "proposals/") || HasPathSegment(path, "spec/"))
             return 0;
         if (HistoricalPaths.Any(segment => path.Contains(segment, StringComparison.OrdinalIgnoreCase)))
             return 3;
@@ -76,6 +75,13 @@ public static class DocRanking
             return 1;
         return 2;
     }
+
+    // Matches a slash-terminated segment at the start of the path or immediately after a "/", so
+    // "nuspec/" or "openspec/" does not read as the "spec/" tree the way an unanchored
+    // Contains("spec/") would.
+    private static bool HasPathSegment(string path, string segment) =>
+        path.StartsWith(segment, StringComparison.OrdinalIgnoreCase)
+        || path.Contains('/' + segment, StringComparison.OrdinalIgnoreCase);
 
     // A match on a heading names the section the reader wants; a match in prose is one mention inside
     // it. ATX headings are the leading '#' run markdown uses.
