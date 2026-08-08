@@ -39,7 +39,8 @@ public static class MarkdownAtomicBlocks
         // Front matter is a single semantic unit like a fence or a table: a page boundary inside it
         // splits a key from its value. Same arithmetic as the fenced case — Line is the 0-based
         // opening "---", the last content line plus three is the exclusive end past the closing one.
-        // An empty block ("---\n---") has no content lines, so it falls back to its own start.
+        // The zero-lines guard mirrors the fenced-code guard above and is never taken today:
+        // Markdig 1.3.2 reads "---" on adjacent lines as two thematic breaks, not an empty block.
         foreach (var frontMatter in document.Descendants<YamlFrontMatterBlock>())
         {
             var lastContentLine = frontMatter.Lines.Count > 0
