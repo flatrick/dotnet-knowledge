@@ -424,6 +424,32 @@ public sealed class DocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task GetDocOmitsFrontMatterFromAWholeDocumentFetch()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "article.md", LearnArticle);
+
+            var content = await service.GetDocAsync(
+                "docs/article.md", "csharplang", section: null, limit: 8000, cursor: null, CancellationToken.None);
+
+            // The payload begins at the real heading, and StartLine names the line it came from -
+            // so a returned line number still points at the same line in the file on disk.
+            StringAssert.StartsWith(content.Text, "# PackageReference in project files");
+            Assert.AreEqual(8, content.StartLine);
+            StringAssert.DoesNotMatch(content.Text, new Regex("ms\\.author"));
+            StringAssert.DoesNotMatch(content.Text, new Regex("ms\\.date"));
+            Assert.IsFalse(content.IsPartial);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetDocAsyncReturnsAWholeSectionAndRejectsAnUnknownSection()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

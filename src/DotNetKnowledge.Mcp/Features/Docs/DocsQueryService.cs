@@ -147,7 +147,9 @@ public sealed class DocsQueryService
         }
         else
         {
-            rangeStart = 1;
+            // Front matter is metadata about the document, not part of it, and search does not
+            // return hits inside it either.
+            rangeStart = MarkdownFrontMatter.BodyStartLine(text);
             rangeEndExclusive = lines.Length + 1;
         }
 
@@ -165,7 +167,10 @@ public sealed class DocsQueryService
         // instead, and 0 is never a valid line. So a null cursor takes the range's own start line
         // here rather than trusting the decoded 0 sentinel.
         var startLine = cursor is null ? rangeStart : decodedStartLine;
-        if (startLine < rangeStart || startLine >= rangeEndExclusive)
+        // Only a supplied cursor can fall outside the range; with none, startLine is the range's own
+        // start. A document that is entirely front matter has an empty range, and must page to empty
+        // text rather than report a cursor error to a caller who sent no cursor.
+        if (cursor is not null && (startLine < rangeStart || startLine >= rangeEndExclusive))
             throw new ArgumentException("cursor points outside the requested section.", nameof(cursor));
 
         var (endLineExclusive, isPartial) = MarkdownPager.Page(
