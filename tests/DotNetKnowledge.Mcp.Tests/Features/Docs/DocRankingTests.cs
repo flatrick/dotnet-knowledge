@@ -12,6 +12,13 @@ public sealed class DocRankingTests
     private static readonly string[] ByPathThenRepo =
         ["docs/proposal-a.md", "docs/proposal-b.md", "docs/proposal-c.md"];
 
+    private static readonly string[] ExistingSourcesExpectedOrder =
+    [
+        "proposals/csharp-9.0/records.md",
+        "docs/wiki/Roslyn-Overview.md",
+        "meetings/2020/LDM-2020-01-08.md",
+    ];
+
     private static DocLineHit Hit(string path, int line, string text) =>
         new(path, line, text, IsTruncated: false, SectionPath: text, Source);
 
@@ -58,5 +65,45 @@ public sealed class DocRankingTests
             Hit("docs/proposal-b.md", 3, "feature B"));
 
         CollectionAssert.AreEqual(ByPathThenRepo, ordered);
+    }
+
+    [TestMethod]
+    public void CurrentNuGetGuidanceOutranksReleaseNotesAndArchive()
+    {
+        var ordered = OrderedPaths(
+            "restore",
+            Hit("docs/archive/NuGet-2.x-release-notes.md", 88, "restore behavior changed"),
+            Hit("docs/release-notes/NuGet-6.0.md", 14, "restore behavior changed"),
+            Hit("docs/consume-packages/Package-Restore.md", 30, "restore behavior changed"));
+
+        Assert.AreEqual("docs/consume-packages/Package-Restore.md", ordered[0]);
+    }
+
+    [TestMethod]
+    public void LanguageProposalsOutrankNuGetGuidance()
+    {
+        // Equal tiers fall through to the path tiebreak, where "docs/" sorts before "proposals/".
+        // Tiering NuGet below proposals is what keeps an unfiltered language query answering with
+        // language documents.
+        var ordered = OrderedPaths(
+            "records",
+            Hit("docs/reference/nuspec.md", 10, "records are listed here"),
+            Hit("proposals/csharp-9.0/records.md", 3, "records are declared like this"));
+
+        Assert.AreEqual("proposals/csharp-9.0/records.md", ordered[0]);
+    }
+
+    [TestMethod]
+    public void ExistingSourcesKeepTheirRelativeOrder()
+    {
+        // The change inserts a tier and splits "historical" out of the middle. It must not reorder
+        // anything that already existed: proposal, then wiki, then meeting notes.
+        var ordered = OrderedPaths(
+            "records",
+            Hit("meetings/2020/LDM-2020-01-08.md", 5, "records discussion"),
+            Hit("docs/wiki/Roslyn-Overview.md", 12, "records overview"),
+            Hit("proposals/csharp-9.0/records.md", 3, "records proposal"));
+
+        CollectionAssert.AreEqual(ExistingSourcesExpectedOrder, ordered);
     }
 }
