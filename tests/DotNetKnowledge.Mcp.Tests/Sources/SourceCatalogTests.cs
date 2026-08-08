@@ -110,5 +110,7 @@ public sealed class SourceCatalogTests
         Assert.AreEqual("dotnet/roslyn-api-docs", catalog.Sources["roslyn-api-docs"].Repository);
         Assert.AreEqual("dotnet/dotnet-api-docs", catalog.Sources["dotnet-api-docs"].Repository);
         Assert.AreEqual("dotnet/roslyn", catalog.Sources["roslyn-wiki"].Repository);
+        Assert.AreEqual("NuGet/docs.microsoft.com-nuget", catalog.Sources["nuget-docs"].Repository);
+        Assert.IsTrue(catalog.Sources["nuget-docs"].Markdown);
     }
 }

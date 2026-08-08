@@ -227,7 +227,7 @@ public sealed class SourcesToolTests
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual(root, document.RootElement.GetProperty("cacheRoot").GetString());
             var sources = document.RootElement.GetProperty("sources");
-            Assert.AreEqual(5, sources.GetArrayLength());
+            Assert.AreEqual(6, sources.GetArrayLength());
             foreach (var source in sources.EnumerateArray())
                 Assert.IsFalse(source.GetProperty("synced").GetBoolean());
             Assert.AreEqual(
