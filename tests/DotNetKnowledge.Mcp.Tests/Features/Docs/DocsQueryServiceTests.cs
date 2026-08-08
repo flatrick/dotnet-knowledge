@@ -402,6 +402,11 @@ public sealed class DocsQueryServiceTests
                 "docs/article.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
             var section = outline.Entries[1].Path;
 
+            // Under the pre-front-matter parse this is "PackageReference in project files" — the
+            // phantom heading pushes the real H1 into the H2's place — so this is what makes the
+            // round trip a regression test rather than a smoke test.
+            Assert.AreEqual("PackageReference in project files > Project type support", section);
+
             // The round trip is the contract: whatever the outline issued, get_doc takes verbatim.
             var content = await service.GetDocAsync(
                 "docs/article.md", "csharplang", section, limit: 8000, cursor: null, CancellationToken.None);
