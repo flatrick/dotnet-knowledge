@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
@@ -34,6 +35,25 @@ public sealed class DocsQueryServiceTests
         "## Summary\n" +
         "\n" +
         "Summary text mentioning FeatureA for cross-file search.\n";
+
+    // A Microsoft Learn article. Every NuGet document opens this way, and 408 of the 463 under
+    // docs/ do. Front matter must not become a heading, and the section path the outline issues
+    // must be the one get_doc accepts back.
+    private const string LearnArticle =
+        "---\n" +
+        "title: Sample article\n" +
+        "ms.author: someone\n" +
+        "ms.date: 02/12/2026\n" +
+        "ms.topic: concept-article\n" +
+        "---\n" +
+        "\n" +
+        "# PackageReference in project files\n" +
+        "\n" +
+        "Intro prose about package references.\n" +
+        "\n" +
+        "## Project type support\n" +
+        "\n" +
+        "Prose about which project types support it.\n";
 
     private static readonly string[] ExpectedRegexHitPaths = ["docs/proposal-a.md", "docs/proposal-b.md"];
 
@@ -337,6 +357,59 @@ public sealed class DocsQueryServiceTests
 
             await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "docs/notes.txt", "csharplang", limit: 20, cursor: null, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineOmitsYamlFrontMatterFromLearnArticles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "article.md", LearnArticle);
+
+            var outline = await service.GetOutlineAsync(
+                "docs/article.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(2, outline.Entries);
+            Assert.AreEqual("PackageReference in project files", outline.Entries[0].Path);
+            Assert.AreEqual(1, outline.Entries[0].Level);
+            Assert.AreEqual(
+                "PackageReference in project files > Project type support",
+                outline.Entries[1].Path);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAcceptsASectionPathIssuedForALearnArticle()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "article.md", LearnArticle);
+
+            var outline = await service.GetOutlineAsync(
+                "docs/article.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+            var section = outline.Entries[1].Path;
+
+            // The round trip is the contract: whatever the outline issued, get_doc takes verbatim.
+            var content = await service.GetDocAsync(
+                "docs/article.md", "csharplang", section, limit: 8000, cursor: null, CancellationToken.None);
+
+            StringAssert.Contains(content.Text, "## Project type support");
+            StringAssert.Contains(content.Text, "Prose about which project types support it.");
+            StringAssert.DoesNotMatch(content.Text, new Regex("ms\\.author"));
+            Assert.IsFalse(content.IsPartial);
         }
         finally
         {
