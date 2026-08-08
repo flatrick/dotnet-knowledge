@@ -25,7 +25,9 @@ public sealed class DocsTool
         "engine. Returns path:line hits with the matched line and a server-issued section heading " +
         "path, never file bodies; call get_doc for content. A long matched line is capped at 300 " +
         "characters with isTruncated saying so; the text carries no marker, so any ellipsis in it " +
-        "is the source's own. Fetch the document for the full text.")]
+        "is the source's own. Fetch the document for the full text. YAML front matter, which " +
+        "Microsoft Learn articles carry, is metadata about a document rather than part of it and " +
+        "is not searched.")]
     public static async Task<string> SearchDocs(
         string query,
         DocsQueryService service,
@@ -83,7 +85,9 @@ public sealed class DocsTool
         "Pages by an approximate character budget (limit) that never splits a fenced code block " +
         "or a table. Text is returned exactly as authored: Microsoft Learn syntax such as " +
         "[!INCLUDE [x](../includes/x.md)], > [!NOTE] alerts and :::image blocks is not resolved, " +
-        "and an include token names a real path this tool can fetch.")]
+        "and an include token names a real path this tool can fetch. A whole-document fetch begins " +
+        "at the document's first content line: YAML front matter is metadata and is not returned, " +
+        "and startLine names the line the text actually came from.")]
     public static async Task<string> GetDoc(
         string path,
         string source,

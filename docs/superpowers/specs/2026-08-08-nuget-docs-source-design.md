@@ -69,7 +69,7 @@ No deprecated aliases.
 The server is user-global and personal, MCP clients discover tools at connect time, and nothing outside this repository depends on the old names.
 Six tool definitions describing three capabilities is the context tax this server exists to avoid, and a deprecated alias with no forcing function is permanent.
 
-Prose that moves with the rename: `CLAUDE.md`, `README.md`, `docs/design/mcp-tool-surface.md`, `docs/domain/csharplang-map.md`, `docs/domain/vblang-map.md`.
+Prose that moves with the rename: `CLAUDE.md`, `README.md`, `docs/design/mcp-tool-surface.md`.
 
 Prose that does **not** move: `docs/decisions.md` and `docs/superpowers/{plans,specs}/2026-08-05-language-doc-tools*`.
 Those are append-only history and exempt from convention 2; the rename gets a new decisions entry instead of an edit to an old one.
@@ -108,7 +108,7 @@ Four properties of the fix:
 
 - **Line numbers do not move.** `MarkdownOutline` derives `StartLine` from character spans over the normalized text, and `totalLines` from `MarkdownText.SplitLines`. Neither depends on how the leading block is classified. Search hits, `get_doc` paging, and previously issued cursors are unaffected.
 - **Zero regression for existing sources.** 0 of 893 csharplang files, 0 of 60 vblang files and 0 of 71 roslyn-wiki files begin with `---`. The extension is inert on every source in the catalog today.
-- **Frontmatter stays searchable.** It is real text at real line numbers; a query for an `ms.author` handle or an `ms.date` still returns a hit. Suppressing it would manufacture a silent absence.
+- **Front matter is not content.** It is metadata about the document, so neither `search_docs` nor `get_doc` returns it. See [`2026-08-08-front-matter-is-not-content-design.md`](2026-08-08-front-matter-is-not-content-design.md).
 - **The frontmatter block joins the atomic set** in `MarkdownAtomicBlocks`, so a page boundary cannot land mid-key — the same reasoning that already protects fenced blocks and tables.
 
 ### Learn authoring syntax is returned verbatim

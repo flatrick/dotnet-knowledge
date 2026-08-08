@@ -24,6 +24,23 @@ and the entry links there.
 
 ---
 
+### 2026-08-08 · Front matter is metadata, excluded from both search and fetch
+
+`MarkdownFrontMatter.BodyStartLine` is the one rule; `MarkdownLineSearch` skips lines before it and
+`GetDocAsync` starts a whole-document range there. Supersedes the "frontmatter stays searchable"
+property of
+[`docs/superpowers/specs/2026-08-08-nuget-docs-source-design.md`](superpowers/specs/2026-08-08-nuget-docs-source-design.md).
+Rejected: keeping it searchable, whose stated reason was that suppressing it would manufacture a
+silent absence. Measured over `nuget-docs` at the pin, front-matter keys are 451 of 545 lines
+matching `description`, 451 of 485 matching `title` and 451 of 1131 matching `author` — against a
+page capped at 20 — and once `get_doc` starts after the front matter those hits carry an empty
+section path and name lines no call returns, which is a worse failure than the absence.
+Also rejected: excluding it from `get_doc` only, which leaves search and fetch disagreeing about
+what exists; and returning the parsed keys as a structured field, which no client wants.
+Spec: [`docs/superpowers/specs/2026-08-08-front-matter-is-not-content-design.md`](superpowers/specs/2026-08-08-front-matter-is-not-content-design.md).
+
+---
+
 ### 2026-08-08 · The document tools drop "language" from their names
 
 `search_language_docs`/`get_language_doc`/`get_language_doc_outline` become
