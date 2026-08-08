@@ -1,14 +1,14 @@
-namespace DotNetKnowledge.Mcp.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Features.Docs;
 
 /// <summary>
-/// Orders <see cref="LanguageDocLineHit"/> matches by how authoritative the containing document is,
+/// Orders <see cref="DocLineHit"/> matches by how authoritative the containing document is,
 /// then by whether the match landed on a heading. A query like "collection expressions" otherwise
 /// drowns under LDM meeting-note agenda lines that merely name the feature, while the proposal that
 /// defines it sits pages down. Document weight comes from the repo-relative path; the ordering ends
 /// in the same path/line/repo ordinal tiebreak the service used before, so paging stays
 /// deterministic.
 /// </summary>
-public static class LanguageDocRanking
+public static class DocRanking
 {
     /// <summary>
     /// Returns <paramref name="hits"/> ordered most-authoritative first for <paramref name="query"/>.
@@ -17,7 +17,7 @@ public static class LanguageDocRanking
     /// <paramref name="query"/> is accepted for symmetry with the other rankers and to leave room for
     /// query-dependent weighting; today the ordering is driven by the hit's path and text alone.
     /// </remarks>
-    public static IReadOnlyList<LanguageDocLineHit> Order(IEnumerable<LanguageDocLineHit> hits, string query)
+    public static IReadOnlyList<DocLineHit> Order(IEnumerable<DocLineHit> hits, string query)
     {
         ArgumentNullException.ThrowIfNull(hits);
         ArgumentNullException.ThrowIfNull(query);

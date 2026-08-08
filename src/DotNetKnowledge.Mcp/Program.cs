@@ -1,5 +1,5 @@
 using DotNetKnowledge.Mcp.Features.ApiDocs;
-using DotNetKnowledge.Mcp.Features.LanguageDocs;
+using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -17,7 +17,7 @@ builder.Services.AddSingleton<SourceCatalog>();
 builder.Services.AddSingleton<SourceCache>();
 builder.Services.AddSingleton<SourceSynchronizer>();
 builder.Services.AddSingleton<ApiDocsQueryService>();
-builder.Services.AddSingleton<LanguageDocsQueryService>();
+builder.Services.AddSingleton<DocsQueryService>();
 
 builder.Services
     .AddMcpServer()

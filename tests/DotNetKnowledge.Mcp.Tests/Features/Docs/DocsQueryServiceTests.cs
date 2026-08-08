@@ -1,13 +1,13 @@
 using System.Diagnostics;
 using System.Text.Json;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
-using DotNetKnowledge.Mcp.Features.LanguageDocs;
+using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
 
-namespace DotNetKnowledge.Mcp.Tests.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Tests.Features.Docs;
 
 [TestClass]
-public sealed class LanguageDocsQueryServiceTests
+public sealed class DocsQueryServiceTests
 {
     private const string ProposalA =
         "# Feature A\n" +
@@ -127,9 +127,9 @@ public sealed class LanguageDocsQueryServiceTests
         {
             var service = await CreateServiceAsync(root);
 
-            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "../../etc/passwd", "csharplang", limit: 20, cursor: null, CancellationToken.None));
-            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "docs/does-not-exist.md", "csharplang", limit: 20, cursor: null, CancellationToken.None));
         }
         finally
@@ -151,7 +151,7 @@ public sealed class LanguageDocsQueryServiceTests
             var catalog = new SourceCatalog(catalogPath);
             var cache = new SourceCache(Path.Combine(root, "cache"));
             var synchronizer = new SourceSynchronizer(catalog, cache);
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
             var exception = await Assert.ThrowsExactlyAsync<SourceNotSyncedException>(() => service.GetOutlineAsync(
                 "docs/proposal-a.md", "csharplang", limit: 20, cursor: null, CancellationToken.None));
@@ -255,7 +255,7 @@ public sealed class LanguageDocsQueryServiceTests
             var synchronizer = new SourceSynchronizer(catalog, cache);
             await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
             await synchronizer.SyncAsync("vblang", requestedRef: null, CancellationToken.None);
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
             var result = await service.SearchAsync(
                 "SharedTopic", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
@@ -305,7 +305,7 @@ public sealed class LanguageDocsQueryServiceTests
             await synchronizer.SyncAsync("vblang", requestedRef: null, CancellationToken.None);
             // "roslyn-api-docs" is deliberately left unsynced: rejecting it as a non-markdown
             // source must happen at source validation, before sync state is ever consulted.
-            var service = new LanguageDocsQueryService(catalog, cache, synchronizer);
+            var service = new DocsQueryService(catalog, cache, synchronizer);
 
             var result = await service.SearchAsync(
                 "SharedTopic", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
@@ -335,7 +335,7 @@ public sealed class LanguageDocsQueryServiceTests
         {
             var service = await CreateServiceWithDocumentAsync(root, "notes.txt", "Not markdown at all.\n");
 
-            await Assert.ThrowsExactlyAsync<LanguageDocPathNotFoundException>(() => service.GetOutlineAsync(
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetOutlineAsync(
                 "docs/notes.txt", "csharplang", limit: 20, cursor: null, CancellationToken.None));
         }
         finally
@@ -362,10 +362,10 @@ public sealed class LanguageDocsQueryServiceTests
             Assert.IsFalse(section.Text.Contains("Detailed design"));
             Assert.IsFalse(section.IsPartial);
 
-            var exception = await Assert.ThrowsExactlyAsync<LanguageDocSectionNotFoundException>(() => service.GetDocAsync(
+            var exception = await Assert.ThrowsExactlyAsync<DocSectionNotFoundException>(() => service.GetDocAsync(
                 "docs/proposal-a.md", "csharplang", "No Such Section", limit: 8000, cursor: null,
                 CancellationToken.None));
-            StringAssert.Contains(exception.Message, "get_language_doc_outline");
+            StringAssert.Contains(exception.Message, "get_doc_outline");
         }
         finally
         {
@@ -451,7 +451,7 @@ public sealed class LanguageDocsQueryServiceTests
         }
     }
 
-    private static async Task<LanguageDocsQueryService> CreateServiceWithDocumentAsync(
+    private static async Task<DocsQueryService> CreateServiceWithDocumentAsync(
         string root, string fileName, string content)
     {
         var repository = Path.Combine(root, "origin");
@@ -462,10 +462,10 @@ public sealed class LanguageDocsQueryServiceTests
         var cache = new SourceCache(Path.Combine(root, "cache"));
         var synchronizer = new SourceSynchronizer(catalog, cache);
         await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
-        return new LanguageDocsQueryService(catalog, cache, synchronizer);
+        return new DocsQueryService(catalog, cache, synchronizer);
     }
 
-    private static async Task<LanguageDocsQueryService> CreateServiceAsync(string root)
+    private static async Task<DocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");
         var docsDirectory = Path.Combine(repository, "docs");
@@ -484,7 +484,7 @@ public sealed class LanguageDocsQueryServiceTests
         var cache = new SourceCache(Path.Combine(root, "cache"));
         var synchronizer = new SourceSynchronizer(catalog, cache);
         await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
-        return new LanguageDocsQueryService(catalog, cache, synchronizer);
+        return new DocsQueryService(catalog, cache, synchronizer);
     }
 
     private static async Task WriteCatalogAsync(string path, string repository, string pin)

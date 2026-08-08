@@ -1,10 +1,10 @@
 using DotNetKnowledge.Mcp.Features.ApiDocs;
-using DotNetKnowledge.Mcp.Features.LanguageDocs;
+using DotNetKnowledge.Mcp.Features.Docs;
 
-namespace DotNetKnowledge.Mcp.Tests.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Tests.Features.Docs;
 
 [TestClass]
-public sealed class LanguageDocRankingTests
+public sealed class DocRankingTests
 {
     private static readonly SourceProvenance Source =
         new("dotnet/csharplang", "pinned", "0000000000000000000000000000000000000000", DateTimeOffset.UnixEpoch);
@@ -12,11 +12,11 @@ public sealed class LanguageDocRankingTests
     private static readonly string[] ByPathThenRepo =
         ["docs/proposal-a.md", "docs/proposal-b.md", "docs/proposal-c.md"];
 
-    private static LanguageDocLineHit Hit(string path, int line, string text) =>
+    private static DocLineHit Hit(string path, int line, string text) =>
         new(path, line, text, IsTruncated: false, SectionPath: text, Source);
 
-    private static string[] OrderedPaths(string query, params LanguageDocLineHit[] hits) =>
-        LanguageDocRanking.Order(hits, query).Select(hit => hit.Path).ToArray();
+    private static string[] OrderedPaths(string query, params DocLineHit[] hits) =>
+        DocRanking.Order(hits, query).Select(hit => hit.Path).ToArray();
 
     [TestMethod]
     public void ProposalOutranksMeetingNotes()
@@ -39,7 +39,7 @@ public sealed class LanguageDocRankingTests
             Hit("proposals/patterns.md", 90, "## List patterns"));
 
         // The heading hit wins despite its later line number.
-        Assert.AreEqual(90, LanguageDocRanking.Order(
+        Assert.AreEqual(90, DocRanking.Order(
             [
                 Hit("proposals/patterns.md", 30, "See the section on patterns below."),
                 Hit("proposals/patterns.md", 90, "## List patterns"),

@@ -6,9 +6,9 @@ using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
 using DotNetKnowledge.Mcp.Text;
 
-namespace DotNetKnowledge.Mcp.Features.LanguageDocs;
+namespace DotNetKnowledge.Mcp.Features.Docs;
 
-public sealed class LanguageDocsQueryService
+public sealed class DocsQueryService
 {
     /// <summary>
     /// Characters of a matched line a search hit carries — the same budget the API search uses, so
@@ -19,14 +19,14 @@ public sealed class LanguageDocsQueryService
     private readonly SourceCatalog _catalog;
     private readonly SourceSynchronizer _synchronizer;
 
-    public LanguageDocsQueryService(SourceCatalog catalog, SourceCache cache, SourceSynchronizer synchronizer)
+    public DocsQueryService(SourceCatalog catalog, SourceCache cache, SourceSynchronizer synchronizer)
     {
         _catalog = catalog;
         ArgumentNullException.ThrowIfNull(cache);
         _synchronizer = synchronizer;
     }
 
-    public async Task<LanguageDocOutlineResult> GetOutlineAsync(
+    public async Task<DocOutlineResult> GetOutlineAsync(
         string path,
         string source,
         int limit,
@@ -50,15 +50,15 @@ public sealed class LanguageDocsQueryService
         var nextOffset = offset + page.Length;
         var isPartial = nextOffset < headings.Count;
 
-        return new LanguageDocOutlineResult(
+        return new DocOutlineResult(
             path,
             provenance,
-            page.Select(heading => new LanguageDocOutlineEntry(heading.Level, heading.Text, heading.Path)).ToArray(),
+            page.Select(heading => new DocOutlineEntry(heading.Level, heading.Text, heading.Path)).ToArray(),
             isPartial,
             isPartial ? EncodeCursor("lang-outline", scope, nextOffset, revisions) : null);
     }
 
-    public async Task<LanguageDocSearchResult> SearchAsync(
+    public async Task<DocSearchResult> SearchAsync(
         string query,
         bool regex,
         string? source,
@@ -76,7 +76,7 @@ public sealed class LanguageDocsQueryService
         var compiledPattern = regex ? new Regex(query, RegexOptions.NonBacktracking) : null;
 
         var sourceNames = ResolveSourceNames(source);
-        var hits = new List<LanguageDocLineHit>();
+        var hits = new List<DocLineHit>();
         var searchedSources = new List<SourceProvenance>();
 
         foreach (var sourceName in sourceNames)
@@ -100,7 +100,7 @@ public sealed class LanguageDocsQueryService
             hits.AddRange(read.Hits);
         }
 
-        var ordered = LanguageDocRanking.Order(hits, query);
+        var ordered = DocRanking.Order(hits, query);
 
         var revisions = searchedSources.Select(RevisionKey).ToArray();
         var scope = EncodeScope(query, regex, source ?? string.Empty);
@@ -112,14 +112,14 @@ public sealed class LanguageDocsQueryService
         var nextOffset = offset + page.Length;
         var isPartial = nextOffset < ordered.Count;
 
-        return new LanguageDocSearchResult(
+        return new DocSearchResult(
             page,
             isPartial,
             isPartial ? EncodeCursor("lang-search", scope, nextOffset, revisions) : null,
             searchedSources);
     }
 
-    public async Task<LanguageDocContentResult> GetDocAsync(
+    public async Task<DocContentResult> GetDocAsync(
         string path,
         string source,
         string? section,
@@ -141,7 +141,7 @@ public sealed class LanguageDocsQueryService
             var heading = MarkdownOutline.Extract(text)
                 .FirstOrDefault(candidate => string.Equals(candidate.Path, section, StringComparison.Ordinal));
             if (heading is null)
-                throw new LanguageDocSectionNotFoundException(section, path, source);
+                throw new DocSectionNotFoundException(section, path, source);
             rangeStart = heading.StartLine;
             rangeEndExclusive = heading.EndLine;
         }
@@ -172,7 +172,7 @@ public sealed class LanguageDocsQueryService
             lines, atomicBlocks, startLine, rangeEndExclusive, limit);
         var pageText = string.Join('\n', lines[(startLine - 1)..(endLineExclusive - 1)]);
 
-        return new LanguageDocContentResult(
+        return new DocContentResult(
             path,
             provenance,
             section,
@@ -211,7 +211,7 @@ public sealed class LanguageDocsQueryService
         return new DocumentRead(File.ReadAllText(fullPath), ToProvenance(definition, state));
     }
 
-    private sealed record SourceSearchRead(SourceProvenance Provenance, IReadOnlyList<LanguageDocLineHit> Hits);
+    private sealed record SourceSearchRead(SourceProvenance Provenance, IReadOnlyList<DocLineHit> Hits);
 
     private static SourceSearchRead ReadSearchSource(
         string directory,
@@ -223,7 +223,7 @@ public sealed class LanguageDocsQueryService
     {
         var provenance = ToProvenance(definition, state);
         var fullRoot = Path.GetFullPath(directory);
-        var hits = new List<LanguageDocLineHit>();
+        var hits = new List<DocLineHit>();
 
         foreach (var file in Directory.EnumerateFiles(fullRoot, "*.md", SearchOption.AllDirectories))
         {
@@ -250,7 +250,7 @@ public sealed class LanguageDocsQueryService
             foreach (var hit in MarkdownLineSearch.Search(text, outline, query, compiledPattern))
             {
                 var (matchedText, isTruncated) = DocumentationText.Budget(hit.Text, MatchTextBudget);
-                hits.Add(new LanguageDocLineHit(
+                hits.Add(new DocLineHit(
                     relativePath, hit.Line, matchedText, isTruncated, hit.SectionPath, provenance));
             }
         }
@@ -271,7 +271,7 @@ public sealed class LanguageDocsQueryService
             || !candidate.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
             || !File.Exists(candidate))
         {
-            throw new LanguageDocPathNotFoundException(path, source);
+            throw new DocPathNotFoundException(path, source);
         }
 
         return candidate;
