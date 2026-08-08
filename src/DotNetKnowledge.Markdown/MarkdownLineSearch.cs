@@ -34,15 +34,23 @@ public static class MarkdownLineSearch
         var lines = MarkdownText.SplitLines(MarkdownText.Normalize(markdown));
         var hits = new List<MarkdownLineHit>();
 
+        // Front matter is metadata about the document, not part of it. Matching it would return
+        // hits with no enclosing section, at lines get_doc does not return - a location the caller
+        // cannot follow. This costs one extra parse for a file that reached this far, which the
+        // caller's own prefilter has already narrowed to files that can match.
+        var bodyStartLine = MarkdownFrontMatter.BodyStartLine(markdown);
+
         for (var i = 0; i < lines.Length; i++)
         {
+            var lineNumber = i + 1;
+            if (lineNumber < bodyStartLine)
+                continue;
+
             var matched = compiledPattern is not null
                 ? compiledPattern.IsMatch(lines[i])
                 : lines[i].Contains(pattern, StringComparison.Ordinal);
             if (!matched)
                 continue;
-
-            var lineNumber = i + 1;
             var section = outline.LastOrDefault(
                 heading => heading.StartLine <= lineNumber && lineNumber < heading.EndLine);
             hits.Add(new MarkdownLineHit(lineNumber, lines[i], section?.Path ?? string.Empty));
