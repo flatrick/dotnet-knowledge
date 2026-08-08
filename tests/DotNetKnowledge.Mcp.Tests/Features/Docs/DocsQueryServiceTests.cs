@@ -36,7 +36,7 @@ public sealed class DocsQueryServiceTests
         "\n" +
         "Summary text mentioning FeatureA for cross-file search.\n";
 
-    // A Microsoft Learn article. Every NuGet document opens this way, and 408 of the 463 under
+    // A Microsoft Learn article. Every NuGet document opens this way, and 451 of the 463 under
     // docs/ do. Front matter must not become a heading, and the section path the outline issues
     // must be the one get_doc accepts back.
     private const string LearnArticle =
@@ -441,6 +441,36 @@ public sealed class DocsQueryServiceTests
             StringAssert.DoesNotMatch(content.Text, new Regex("ms\\.author"));
             StringAssert.DoesNotMatch(content.Text, new Regex("ms\\.date"));
             Assert.IsFalse(content.IsPartial);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchReturnsNoHitInsideFrontMatterButStillFindsTheBody()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(root, "article.md", LearnArticle);
+
+            // "ms.author" appears only as a front-matter key. The file passes ReadSearchSource's
+            // prefilter, so this also proves the per-line skip runs after that prefilter admits it.
+            var metadata = await service.SearchAsync(
+                "ms.author", regex: false, "csharplang", limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsEmpty(metadata.Hits);
+
+            // A body term still matches, at its real file line.
+            var body = await service.SearchAsync(
+                "PackageReference", regex: false, "csharplang", limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(1, body.Hits);
+            Assert.AreEqual(8, body.Hits[0].Line);
+            Assert.AreEqual("docs/article.md", body.Hits[0].Path);
         }
         finally
         {

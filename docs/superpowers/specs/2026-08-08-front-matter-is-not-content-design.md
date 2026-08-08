@@ -5,7 +5,7 @@
 Stop `search_docs` matching inside YAML front matter and stop `get_doc` returning it.
 
 Microsoft Learn articles open with a YAML block carrying `title`, `description`, `author`,
-`ms.author`, `ms.date` and `ms.topic`. 408 of the 463 documents under `nuget-docs`' `docs/` tree have
+`ms.author`, `ms.date` and `ms.topic`. 451 of the 463 documents under `nuget-docs`' `docs/` tree have
 one. None of it is documentation an agent asked for, and it is currently both searched and returned.
 
 This supersedes the "frontmatter stays searchable" property in
@@ -21,9 +21,9 @@ the other way.
 |---|---|---|
 | `description` | 521 | 451 (87%) |
 | `title` | 482 | 451 (94%) |
-| `author` | 1105 | 868 (79%) |
+| `author` | 1105 | 872 (79%) |
 
-408 files times six keys is roughly 2,400 metadata lines competing with real prose for a result page
+451 files times six keys is roughly 2,700 metadata lines competing with real prose for a result page
 capped at 20.
 
 **A front-matter hit is one an agent cannot follow.** Those hits carry an empty `sectionPath`,

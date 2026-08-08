@@ -126,7 +126,8 @@ get_doc(path, source, section?, limit?, cursor?)
       heading text repeats) — callers round-trip it, never construct it
     → with section: that complete heading section, paged only when it
       is genuinely large
-    → without: the whole document, paged from the top
+    → without: the whole document from its first content line — YAML
+      front matter is metadata and is not returned
     → no size cap and no refusal; every page states whether more
       remains and carries the cursor for the next one
     → limit is a character budget, not an item count: 1000-50000,

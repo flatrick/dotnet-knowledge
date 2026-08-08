@@ -40,7 +40,7 @@
 
 ### Task 1: `MarkdownFrontMatter.BodyStartLine`
 
-Microsoft Learn articles open with a YAML block. 408 of the 463 documents under `nuget-docs`' `docs/` tree have one; the three language sources have none. Both `search_docs` and `get_doc` need to agree on where such a document's content begins, so the rule lives in one function rather than being written twice.
+Microsoft Learn articles open with a YAML block. 451 of the 463 documents under `nuget-docs`' `docs/` tree have one; the three language sources have none. Both `search_docs` and `get_doc` need to agree on where such a document's content begins, so the rule lives in one function rather than being written twice.
 
 **Files:**
 - Create: `src/DotNetKnowledge.Markdown/MarkdownFrontMatter.cs`
@@ -221,7 +221,7 @@ git commit -m "Add MarkdownFrontMatter.BodyStartLine"
 
 ### Task 2: `search_docs` stops matching front matter
 
-Measured over `nuget-docs` at the pinned commit, front-matter keys are 451 of 521 lines matching `description` (87%), 451 of 482 matching `title` (94%), and 868 of 1105 matching `author` (79%). Against a result page capped at 20, that metadata crowds out prose. The three language sources have zero files beginning with `---`, so this is inert on them.
+Measured over `nuget-docs` at the pinned commit, front-matter keys are 451 of 521 lines matching `description` (87%), 451 of 482 matching `title` (94%), and 872 of 1105 matching `author` (79%). Against a result page capped at 20, that metadata crowds out prose. The three language sources have zero files beginning with `---`, so this is inert on them.
 
 **Files:**
 - Modify: `src/DotNetKnowledge.Markdown/MarkdownLineSearch.cs` — the `Search` overload taking `Regex? compiledPattern`, which the other overload delegates to
@@ -514,10 +514,10 @@ property of
 [`docs/superpowers/specs/2026-08-08-nuget-docs-source-design.md`](superpowers/specs/2026-08-08-nuget-docs-source-design.md).
 Rejected: keeping it searchable, whose stated reason was that suppressing it would manufacture a
 silent absence. Measured over `nuget-docs` at the pin, front-matter keys are 451 of 521 lines
-matching `description` (87%), 451 of 482 matching `title` (94%) and 868 of 1105 matching `author`
-(79%, higher because `ms.author:` also contains the word) — against a
-page capped at 20 — and once `get_doc` starts after the front matter those hits carry an empty
-section path and name lines no call returns, which is a worse failure than the absence.
+matching `description` (87%), 451 of 482 matching `title` (94%) and 872 of 1105 matching `author`
+(79%; the count is larger than the other rows' 451 because `ms.author:` also contains the word) —
+against a page capped at 20 — and once `get_doc` starts after the front matter those hits carry an
+empty section path and name lines no call returns, which is a worse failure than the absence.
 Also rejected: excluding it from `get_doc` only, which leaves search and fetch disagreeing about
 what exists; and returning the parsed keys as a structured field, which no client wants.
 Spec: [`docs/superpowers/specs/2026-08-08-front-matter-is-not-content-design.md`](superpowers/specs/2026-08-08-front-matter-is-not-content-design.md).

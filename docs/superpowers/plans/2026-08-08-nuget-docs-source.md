@@ -485,7 +485,7 @@ Task 1 fixed the parse and asserted it against `MarkdownOutline` directly. That 
 Add the fixture constant near the other document constants in `DocsQueryServiceTests`:
 
 ```csharp
-    // A Microsoft Learn article. Every NuGet document opens this way, and 408 of the 463 under
+    // A Microsoft Learn article. Every NuGet document opens this way, and 451 of the 463 under
     // docs/ do. Front matter must not become a heading, and the section path the outline issues
     // must be the one get_doc accepts back.
     private const string LearnArticle =

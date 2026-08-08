@@ -87,7 +87,7 @@ internal static MarkdownPipeline Default { get; } =
 
 ### Why the frontmatter extension is required, not cosmetic
 
-408 of the 463 documents under `docs/` open with YAML frontmatter.
+451 of the 463 documents under `docs/` open with YAML frontmatter.
 Without `UseYamlFrontMatter()`, the opening `---` parses as a thematic break, the metadata keys parse as a paragraph, and the closing `---` parses as that paragraph's **setext underline** — a level-2 heading whose text is the entire frontmatter block.
 
 That single phantom heading corrupts the whole document:
