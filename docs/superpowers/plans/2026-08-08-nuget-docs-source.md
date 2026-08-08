@@ -44,7 +44,7 @@
 | `tests/…/Features/LanguageDocs/LanguageDocsQueryServiceTests.cs` | `tests/…/Features/Docs/DocsQueryServiceTests.cs` |
 | `tests/…/Features/LanguageDocs/LanguageDocRankingTests.cs` | `tests/…/Features/Docs/DocRankingTests.cs` |
 
-**Modified:** `MarkdownOutline.cs`, `MarkdownAtomicBlocks.cs`, `Program.cs`, `SourceCatalog.cs` (doc comment only), `sources.json`, `scripts/verify-no-vendored-content.cs`, `tests/…/Sources/SourceCatalogTests.cs`, `tests/…/Protocol/McpStdioTests.cs`, `tests/DotNetKnowledge.Markdown.Tests/MarkdownOutlineTests.cs`, `tests/DotNetKnowledge.Markdown.Tests/MarkdownAtomicBlocksTests.cs`, `CLAUDE.md`, `README.md`, `docs/design/mcp-tool-surface.md`, `docs/domain/csharplang-map.md`, `docs/domain/vblang-map.md`, `docs/decisions.md`.
+**Modified:** `MarkdownOutline.cs`, `MarkdownAtomicBlocks.cs`, `Program.cs`, `SourceCatalog.cs` (doc comment only), `sources.json`, `scripts/verify-no-vendored-content.cs`, `tests/…/Sources/SourceCatalogTests.cs`, `tests/…/Protocol/McpStdioTests.cs`, `tests/DotNetKnowledge.Markdown.Tests/MarkdownOutlineTests.cs`, `tests/DotNetKnowledge.Markdown.Tests/MarkdownAtomicBlocksTests.cs`, `CLAUDE.md`, `README.md`, `docs/design/mcp-tool-surface.md`, `docs/decisions.md`.
 
 **Deliberately not modified:** `docs/superpowers/plans/2026-08-05-language-doc-tools.md` and `docs/superpowers/specs/2026-08-05-language-doc-tools-design.md` are historical records of completed work. `docs/decisions.md` is append-only — add an entry, never edit one.
 
@@ -973,12 +973,10 @@ Expected: exit 0, and `git status --short` shows no leftover probe file.
 
 The rename and the new source change what several standing documents say. `docs/decisions.md` records what was chosen over what, so reopening the question costs nothing; the backlog records gaps this design does not close, because a silent absence is the failure mode these tools are built to avoid.
 
-**Files:**
-- Modify: `CLAUDE.md:295`, `:324-325`
-- Modify: `README.md:107`
-- Modify: `docs/design/mcp-tool-surface.md:110`, `:123`, `:136`, `:166`, `:241`
-- Modify: `docs/domain/csharplang-map.md:13-14`, `:63-64`, `:67-69`
-- Modify: `docs/domain/vblang-map.md:13-14`, `:73-74`, `:77-78`
+**Files** (line numbers are against the tree after `main`'s corpus-extraction commit was merged into this branch):
+- Modify: `CLAUDE.md:71`, `:99-100`
+- Modify: `README.md:70`
+- Modify: `docs/design/mcp-tool-surface.md:110`, `:118`, `:123`, `:136`, `:166`, `:241`
 - Modify: `docs/decisions.md` (prepend two entries, below the preamble and above the newest existing entry)
 - Create: `docs/backlog/yaml-source-content-is-unsearchable.md`
 - Create: `docs/backlog/cross-source-search-has-no-relevance-signal.md`
@@ -991,23 +989,28 @@ The rename and the new source change what several standing documents say. `docs/
 
 - [ ] **Step 1: Rename the tools throughout the prose**
 
-Apply `search_language_docs` → `search_docs`, `get_language_doc_outline` → `get_doc_outline`, `get_language_doc` → `get_doc` (longest first) across `CLAUDE.md`, `README.md`, `docs/design/mcp-tool-surface.md`, `docs/domain/csharplang-map.md` and `docs/domain/vblang-map.md`.
+Apply `search_language_docs` → `search_docs`, `get_language_doc_outline` → `get_doc_outline`, `get_language_doc` → `get_doc` (longest first) across `CLAUDE.md`, `README.md` and `docs/design/mcp-tool-surface.md`.
+
+`docs/domain/csharplang-map.md` and `docs/domain/vblang-map.md` were deleted by `main`'s corpus-extraction commit and are no longer in scope.
 
 Do **not** touch `docs/superpowers/plans/2026-08-05-language-doc-tools.md`, `docs/superpowers/specs/2026-08-05-language-doc-tools-design.md`, or any existing entry in `docs/decisions.md`. Those are historical records of completed work; convention 2 exempts them, and rewriting them destroys the record that the question was already asked.
 
 Verify:
 
 ```bash
-rg --hidden -n "search_language_docs|get_language_doc" CLAUDE.md README.md AGENTS.md docs/design/ docs/domain/
+rg --hidden -n "search_language_docs|get_language_doc" CLAUDE.md README.md AGENTS.md docs/design/
 ```
 
 Expected: no output.
 
 - [ ] **Step 2: Update the tool inventories and the source list**
 
-In `CLAUDE.md`, the "Implemented:" list on line 295 keeps the same nine tools; only the three document ones change name. `CLAUDE.md`'s "The MCP server" section and `README.md`'s status summary must also stop saying the catalog holds five sources — it holds six.
+The "Implemented:" tool lists in `CLAUDE.md` and `README.md` keep the same nine tools; only the three document ones change name.
 
-In `docs/design/mcp-tool-surface.md`, retitle the `── language design docs ──` band to `── documentation ──`, update the three signatures, and correct the sentence at line 114-116 that enumerates the searchable sources — it currently reads "csharplang, vblang, and roslyn-wiki today" and must now read "csharplang, vblang, nuget-docs and roslyn-wiki today". Also update the "Two classes of source" table, which says "The five entries in `sources.json`".
+`docs/design/mcp-tool-surface.md` needs three further edits beyond the renames:
+- Retitle the `── language design docs ──` band to `── documentation ──`.
+- Line 118 enumerates the searchable sources as "csharplang, vblang, and roslyn-wiki today". It must now read "csharplang, nuget-docs, roslyn-wiki and vblang today" — that list is the one an agent reads to learn what the tool covers.
+- Anywhere the document states how many sources `sources.json` declares, it now declares six.
 
 - [ ] **Step 3: Append the decisions entries**
 
@@ -1159,7 +1162,7 @@ Then add three rows to the table in `docs/backlog/README.md`, matching the exist
 ```bash
 dotnet scripts/verify-no-vendored-content.cs &> .scratch/t8-guard-$(date +%Y%m%d-%H%M).log
 echo "exit=$?"
-rg --hidden -n "five entries|search_language_docs|get_language_doc" CLAUDE.md README.md AGENTS.md docs/design/ docs/domain/
+rg --hidden -n "search_language_docs|get_language_doc" CLAUDE.md README.md AGENTS.md docs/design/
 ```
 
 Expected: guard exit 0; no output from `rg`.
@@ -1187,6 +1190,6 @@ git commit -m "Document the NuGet source, the tool rename and the ranking tiers"
 - `dotnet build DotNetKnowledge.slnx` — 0 errors, 0 warnings.
 - `dotnet test DotNetKnowledge.slnx` — the only failures are the three baseline `GitCommandRunnerTests`.
 - `dotnet scripts/verify-no-vendored-content.cs` — exit 0.
-- `rg --hidden -n "LanguageDoc|search_language_docs|get_language_doc" src/ tests/ CLAUDE.md README.md AGENTS.md docs/design/ docs/domain/ --glob '!**/obj/**'` — no output.
+- `rg --hidden -n "LanguageDoc|search_language_docs|get_language_doc" src/ tests/ CLAUDE.md README.md AGENTS.md docs/design/ --glob '!**/obj/**'` — no output.
 - `Markdown.Tests` 24 passed; `Mcp.Tests` 105 passed.
 - Eight commits on `nuget-docs-source`, one per task.
