@@ -122,7 +122,8 @@ It answers whether `/preferreduilang` support is a property of the generation, o
 of the individual binary.
 The measured answer is the binary: `v4.0.30319` ships a `csc` that honors the switch beside a `vbc`
 that warns `BC2007` and ignores it, from the same directory.
-That is the fact behind `verify-feature-floors.cs`'s per-compiler `HonorsPreferredUiLanguage` flag,
+That is the fact behind the corpus's per-compiler `HonorsPreferredUiLanguage` flag (in
+`verify-feature-floors.cs`, now in [flatrick/dotnet-code-examples](https://github.com/flatrick/dotnet-code-examples)),
 and `docs/gotchas.md` carries the full table.
 
 **It cannot separate "the compiler honored the switch" from "this machine has no satellite for the
@@ -130,9 +131,9 @@ current UI language."**
 A compiler that already prints English says nothing either way; the printed baseline line is what
 shows which case a row is, and that is a fact about the machine rather than the binary.
 
-The `Microsoft.Net.Compilers` 1.3.2 pair comes from `.artifacts/period-compilers/`, which
-`dotnet scripts/verify-feature-floors.cs` downloads; the modern pair is found with the same
-`vswhere` query that script uses.
+The `Microsoft.Net.Compilers` 1.3.2 pair comes from `.artifacts/period-compilers/`, which the
+corpus's `verify-feature-floors.cs` downloads; the modern pair is found with the same `vswhere`
+query that script uses.
 Missing binaries are reported, not guessed at. Windows only.
 
 ```bash

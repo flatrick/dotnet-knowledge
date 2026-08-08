@@ -18,9 +18,9 @@
 // fact about the machine, not the binary, and the printed baseline line is what shows which case a
 // given row is.
 //
-// The Microsoft.Net.Compilers 1.3.2 pair comes from `.artifacts/period-compilers/`, which
-// `dotnet scripts/verify-feature-floors.cs` downloads; the modern pair is found with the same
-// `vswhere` query that script uses. Missing binaries are reported, not guessed at.
+// The Microsoft.Net.Compilers 1.3.2 pair comes from `.artifacts/period-compilers/`, which the
+// dotnet-code-examples corpus's verify-feature-floors.cs downloads; the modern pair is found with
+// the same `vswhere` query that script uses. Missing binaries are reported, not guessed at.
 //
 // Windows only.
 //
