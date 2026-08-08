@@ -4,13 +4,12 @@ obj/
 *.user
 TestResults/
 
-# MSBuild diagnostics. The net48 corpus projects are built with Visual Studio's MSBuild.exe, and
-# `-bl` is the usual way to work out why one of them resolved a reference the way it did.
+# MSBuild diagnostics.
 *.binlog
 msbuild.log
 
-# NuGet's per-solution package directory. The corpus uses PackageReference, which restores to the
-# global packages folder instead — this covers a packages.config project being added later.
+# NuGet's per-solution package directory. This repository uses PackageReference, which restores to
+# the global packages folder instead — this covers a packages.config project being added later.
 packages/
 
 # Local scratch. `.scratch/` takes any throwaway working file — build and test logs, diagnostic
@@ -49,8 +48,7 @@ node_modules/
 # on a generated file continuing to exist, and it covers siblings of `sdd/` that carry no such file.
 .superpowers/
 
-# Visual Studio's per-solution local state. Every corpus project carries a .slnx, so opening
-# any of them writes a .vs/ tree — design-time build caches, file-content and Copilot indices,
-# window layout, and the binary .suo. All of it is machine-local and none of it is content.
+# Visual Studio's per-solution local state — design-time build caches, file-content and Copilot
+# indices, window layout, and the binary .suo. All of it is machine-local and none of it is content.
 .vs/
 *.rsuser

@@ -58,24 +58,6 @@ is commonly under a Creative Commons license rather than MIT, which matters most
 repository's `LICENSE` at the pinned commit and record what it actually says. Do not copy the table
 above into a claim about licenses; it deliberately does not make one.
 
-## The example corpus is original work
-
-`examples/language-features/` is the one part of this repository that could be mistaken for derived
-content, so it is worth being explicit.
-
-**What comes from Microsoft's documents:** the *checklist*. Which features exist, which language
-version introduced each one, and what each is called — taken from `Language-Version-History.md` in
-`dotnet/csharplang` and the VB.NET what's-new pages. `MANIFEST.md` cites the section each row came
-from, so the sourcing is auditable rather than implied.
-
-**What does not:** the code. Every example is written here to demonstrate the feature named in its
-row. None is copied or adapted from an upstream sample, a specification listing, or a documentation
-page. Several carry comments recording hazards found by *running* the code — findings that exist
-nowhere upstream because they were produced here.
-
-A feature's name and the version that shipped it are facts. The examples that demonstrate them are
-this project's expression, and are MIT-licensed along with everything else in the tree.
-
 ## If third-party content is ever added
 
 The order matters — the notice goes in with the content, not after it:

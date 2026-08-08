@@ -1,15 +1,7 @@
 # Continuous integration
 
-One workflow, `.github/workflows/corpus-tests.yml`, running one job, `corpus-tests`, whose steps
-cover the corpus suite, the MCP server suite, the vendored-content guard, and the project-namespace
-guard.
-
-The two suites are separate concerns and run as separate steps, because they need **different .NET
-hosts**: the corpus matrix runs under the repository-private host that carries SDK 5.0.408 and
-7.0.410, the server suite under the machine SDK. That is also why they have separate solutions —
-`Corpus.slnx` and `DotNetKnowledge.slnx`. The server step names the solution rather than a single
-project, so every server-side suite is covered by construction; the corpus step names its project
-explicitly, because a solution file cannot select a host.
+One workflow, `.github/workflows/server-tests.yml`, running one job, `server-tests`, whose steps
+cover the MCP server suite and the vendored-content guard.
 
 **Nothing here currently executes.** Actions is disabled for this repository, so no trigger below
 fires and verification is whatever is run locally. Minutes cost money on a private repository, and
@@ -46,7 +38,7 @@ this file takes effect on the pull request that introduces it.
 
 `pull_request` defaults to the `opened`, `synchronize`, and `reopened` activity types. Retargeting
 an existing pull request's base branch fires `edited`, which is none of those, so a pull request
-opened against some other base and later retargeted to `main` reaches merge with no `corpus-tests`
+opened against some other base and later retargeted to `main` reaches merge with no `server-tests`
 run at all. Adding `edited` to `types:` is not the fix — it would also fire on every title and body
 edit. Once the merge gate is active this gap closes itself: the required check is simply absent, so
 the merge blocks. Before activation it is a real gap with no trigger-level guard.
@@ -75,38 +67,25 @@ pushes to `main`.
 
 ## Version pinning
 
-Every external reference is an exact coordinate. No floating major tags, no `-latest` runner label.
+Every external reference is an exact coordinate. No floating major tags, no `-latest` runner label
+for the actions themselves.
 
 ```yaml
-runs-on: windows-2025-vs2026
+runs-on: ubuntu-latest
 
 - uses: actions/checkout@v7.0.1
 - uses: actions/setup-dotnet@v6.0.0
 - uses: actions/upload-artifact@v7.0.1
 ```
 
-`windows-2025-vs2026` names both the operating system and the Visual Studio version. That second
-half is the part this repository actually depends on: the legacy net48 corpus builds through Visual
-Studio's `MSBuild.exe`, and `scripts/verify-feature-floors.cs` locates compilers through `vswhere`
-and through the in-box `%WINDIR%\Microsoft.NET\Framework64` compilers. `CorpusProjectBuildTests`
-depends on it too and reports those eleven projects inconclusive without it, so an image that
-dropped Visual Studio would turn a gate into eleven skips rather than a failure. GitHub migrates
-`-latest` labels to a new image gradually, so under `windows-latest` an image migration would
-surface as a corpus failure with no corresponding commit — indistinguishable, at first reading, from
-a corpus regression.
+The server suite needs SDK 10 and Git only, with no network access and no platform-specific
+toolchain — unlike the language-feature example corpus this repository used to bundle, which needed
+Visual Studio's `MSBuild.exe` and is now [flatrick/dotnet-code-examples](https://github.com/flatrick/dotnet-code-examples).
+`ubuntu-latest` is acceptable here specifically because nothing in this repository depends on the
+image beyond a current .NET 10 SDK and Git.
 
 Exact action tags trade automatic patch adoption for one reviewable commit per version change.
-`.github/dependabot.yml` supplies the adoption, weekly, scoped to `github-actions`. NuGet is
-deliberately excluded: corpus package versions are pinned to historical releases as part of the
-corpus contract, so that ecosystem would only produce pull requests that must be rejected.
-
-The C# script showcase has a paired Roslyn coordinate: the net10 embedding host references
-`Microsoft.CodeAnalysis.CSharp.Scripting` exactly at 5.6.0, and the corpus test project references
-`Microsoft.Net.Compilers.Toolset` exactly at 5.6.0 with `PrivateAssets=all`. On Windows the test
-build copies the restored toolset's top-level `tasks/net472` assets into its output and runs that
-exact `csi.exe` for the five descriptors that declare `csi`. Those files are package restore/build
-output, are never tracked or bundled as corpus content, and the net472 executable is a Windows-only
-verification host. All eight embedding-API cases remain mandatory independently of `csi`.
+`.github/dependabot.yml` supplies the adoption, weekly, scoped to `github-actions`.
 
 ### When an action cannot move
 
@@ -115,7 +94,7 @@ blocks it. For example, if `setup-dotnet` v6 could not install the pinned SDK, t
 
 ```yaml
 # Pinned to v4: v5.0.0 rewrote the installer scripts and dropped older .NET
-# versions, and cannot install the 10.0.302 SDK this corpus requires.
+# versions, and cannot install the 10.0.302 SDK this repository requires.
 # Re-test against a newer major before changing this.
 - uses: actions/setup-dotnet@v4.3.1
 ```
@@ -154,7 +133,7 @@ precondition.
 Run once, after the repository becomes public. No workflow change is needed — the check already
 reports under the name the ruleset asks for.
 
-**Prerequisites.** The repository is public. The `corpus-tests` check has reported at least once;
+**Prerequisites.** The repository is public. The `server-tests` check has reported at least once;
 any run on `main` satisfies this. The account running these commands has admin permission on the
 repository.
 
@@ -166,8 +145,9 @@ gh api "repos/flatrick/dotnet-knowledge/commits/$sha/check-runs" \
   --jq '.check_runs[] | {name: .name, app_id: .app.id}'
 ```
 
-Expected: `corpus-tests` and `15368`. The check name is the job ID, because the job declares no
-`name:` — renaming that job changes the required check and silently disables the gate.
+Expected: `server-tests` and the app ID for GitHub Actions checks. The check name is the job ID,
+because the job declares no `name:` — renaming that job changes the required check and silently
+disables the gate.
 
 **Step 1 — create the ruleset.**
 
@@ -200,7 +180,7 @@ gh api repos/flatrick/dotnet-knowledge/rulesets \
       "parameters": {
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
-          { "context": "corpus-tests", "integration_id": 15368 }
+          { "context": "server-tests" }
         ]
       }
     }
@@ -232,10 +212,8 @@ one minute to rule out.
   gate advisory again, which is the state it exists to leave. Editing or deleting the ruleset
   remains possible and is the appropriate escape hatch: deliberate, and it leaves a trail.
 - **`strict_required_status_checks_policy: true`** — a branch must be up to date with `main` before
-  merging. This is what makes the result mean something. Given the corpus's cross-project
-  invariants — namespace-to-`RootNamespace` agreement, MANIFEST completeness, zero warnings across
-  every project — a green run against a stale base is precisely the result that misleads. The cost
-  is a rebase when `main` moves during review.
+  merging. This is what makes the result mean something; the cost is a rebase when `main` moves
+  during review.
 - **`deletion` and `non_fast_forward`** — they close the two ways `main`'s history can be destroyed
   without a pull request.
 

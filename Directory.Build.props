@@ -1,11 +1,8 @@
 <Project>
   <PropertyGroup>
     <!--
-      Load-bearing for the example corpus, not a style preference. The corpus's completion gate is
-      "0 errors AND 0 warnings" (see examples/language-features/MANIFEST.md), and inheriting this
-      makes the gate mechanical — a warning fails the build — rather than a matter of discipline a
-      silent warning could slip past. examples/language-features/Directory.Build.props deliberately
-      does not override it, and depends on finding it here.
+      A warning fails the build, rather than a matter of discipline a silent warning could slip
+      past.
     -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 
@@ -18,8 +15,6 @@
     -->
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
 
-    <!-- Baseline for real projects; the corpus turns analyzers off for itself, since its examples
-         are deliberately minimal and illustrative rather than exemplary. -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <AnalysisLevelGlobalization>latest-none</AnalysisLevelGlobalization>
     <AnalysisLevelDocumentation>latest-none</AnalysisLevelDocumentation>

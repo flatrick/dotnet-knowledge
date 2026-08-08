@@ -1,0 +1,49 @@
+# This workflow does not run. Actions is disabled for this repository, because
+# minutes cost money on a private repo and buy nothing a local run does not.
+# It is kept current so that enabling Actions is a settings change, not a
+# project — but no test here is invoked by anything until then. Run the suites
+# locally; CLAUDE.md lists the commands.
+#
+# Even with Actions enabled, a result would not block a merge: required status
+# checks need a ruleset, and the API refuses to create one while this
+# repository is private on the Free plan. The check context to require, once
+# that changes, is `server-tests` — the job ID below, so renaming that job
+# disables the future gate.
+# Activation runbook and the reasoning for every pin: docs/design/ci.md
+name: Server verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Test the MCP server
+        run: dotnet test DotNetKnowledge.slnx --configuration Release --nologo --logger "trx;LogFileName=mcp-tests.trx"
+
+      - name: Verify no vendored content
+        run: dotnet scripts/verify-no-vendored-content.cs
+
+      - name: Upload server test results
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: server-test-results
+          path: tests/**/TestResults/*.trx

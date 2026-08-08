@@ -2,8 +2,8 @@
   "$comment": [
     "Upstream reference sources this server can query. Each is FETCHED on demand into a",
     "per-user cache directory — none of them is vendored into this repository and none is a",
-    "git submodule. The examples corpus under examples/ is different: it is authored here and",
-    "ships with the server, so it needs no entry in this file and no sync step.",
+    "git submodule. The bundled language-feature example corpus formerly under examples/ has",
+    "moved to flatrick/dotnet-code-examples; it is not a source in this file today.",
     "",
     "'pin' is the commit this repository vouches for. A caller may instead request the ref in",
     "'head', which opts into upstream drift; every response states which of the two it came",
