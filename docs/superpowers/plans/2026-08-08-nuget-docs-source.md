@@ -240,10 +240,13 @@ Add to `tests/DotNetKnowledge.Markdown.Tests/MarkdownAtomicBlocksTests.cs`:
     }
 
     [TestMethod]
-    public void FindTreatsEmptyYamlFrontMatterAsAtomic()
+    public void FindTreatsMinimalYamlFrontMatterAsAtomic()
     {
+        // The smallest input Markdig 1.3.2 actually parses as front matter: one content line,
+        // even a blank one. This pins the arithmetic at its lower boundary.
         const string document =
             "---\n" +
+            "\n" +
             "---\n" +
             "\n" +
             "# Heading One\n";
@@ -252,7 +255,24 @@ Add to `tests/DotNetKnowledge.Markdown.Tests/MarkdownAtomicBlocksTests.cs`:
 
         Assert.HasCount(1, blocks);
         Assert.AreEqual(1, blocks[0].StartLine);
-        Assert.AreEqual(3, blocks[0].EndLine);
+        Assert.AreEqual(4, blocks[0].EndLine);
+    }
+
+    [TestMethod]
+    public void FindDoesNotTreatAdjacentFencesAsFrontMatter()
+    {
+        // Measured against Markdig 1.3.2: "---" on adjacent lines is two thematic breaks, not an
+        // empty front-matter block. This is the boundary the zero-lines guard in Find defends, and
+        // it is why that guard is never reached today.
+        const string document =
+            "---\n" +
+            "---\n" +
+            "\n" +
+            "# Heading One\n";
+
+        var blocks = MarkdownAtomicBlocks.Find(document);
+
+        Assert.IsEmpty(blocks);
     }
 ```
 
