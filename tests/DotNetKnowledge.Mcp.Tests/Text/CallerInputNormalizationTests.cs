@@ -1,4 +1,4 @@
-﻿using DotNetKnowledge.Mcp.Text;
+using DotNetKnowledge.Mcp.Text;
 
 namespace DotNetKnowledge.Mcp.Tests.Text;
 
