@@ -83,7 +83,9 @@ public sealed class DocsQueryService
 
         var effectiveQuery = query;
         DocNormalizationNote? note = null;
-        if (hits.Count == 0 && !regex && CallerInputNormalization.TryNormalize(query, out var normalizedQuery))
+        if (hits.Count == 0 && !regex
+            && CallerInputNormalization.TryNormalize(query, out var normalizedQuery)
+            && !string.IsNullOrWhiteSpace(normalizedQuery))
         {
             var (normalizedHits, normalizedSearchedSources) = await CollectHitsAsync(
                 normalizedQuery, compiledPattern: null, sourceNames, cancellationToken).ConfigureAwait(false);
@@ -264,12 +266,14 @@ public sealed class DocsQueryService
                     "typographic characters in the path.");
                 return (text, provenance, resolvedPath, note);
             }
-            catch (DocPathNotFoundException)
+            catch (Exception retryFailure) when (retryFailure is DocPathNotFoundException or ArgumentException)
             {
-                // The retry failed too. Report the exception for what the caller actually sent, not
-                // the internally-decoded guess that also missed - matching how
-                // DocSectionNotFoundException below reports the caller's raw `section`, not
-                // `normalizedSection`, on a failed section resolution.
+                // The retry failed too - either the normalized path still doesn't resolve
+                // (DocPathNotFoundException), or normalization produced something Path.GetFullPath
+                // itself rejects, e.g. a NUL character decoded from "&#0;" (ArgumentException).
+                // Either way, report the exception for what the caller actually sent, not the
+                // internally-decoded guess that also failed - matching how DocSectionNotFoundException
+                // below reports the caller's raw `section`, not `normalizedSection`.
                 throw new DocPathNotFoundException(path, source);
             }
         }

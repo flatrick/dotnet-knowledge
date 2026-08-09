@@ -699,6 +699,26 @@ public sealed class DocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task GetOutlineAsyncDoesNotReportNormalizationWhenTheLiteralPathAlreadyMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.GetOutlineAsync(
+                "docs/proposal-a.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetDocAsyncStillThrowsPathNotFoundWhenNormalizationDoesNotResolveIt()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -718,6 +738,32 @@ public sealed class DocsQueryServiceTests
             Assert.AreEqual("docs/does&amp;not-exist.md", exception.Path);
             StringAssert.Contains(exception.Message, "docs/does&amp;not-exist.md");
             Assert.IsFalse(exception.Message.Contains("does&not-exist.md"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncStillThrowsPathNotFoundWhenNormalizationDecodesToARejectedPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            // "&#0;" decodes to a literal NUL character, which Path.GetFullPath rejects with
+            // ArgumentException rather than the DocPathNotFoundException the retry's inner catch was
+            // written to expect. The propagated exception must still be a DocPathNotFoundException
+            // naming exactly what the caller sent - never the ArgumentException, and never the
+            // internally-decoded guess that also failed.
+            var exception = await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetDocAsync(
+                "docs/x&#0;.md", "csharplang", section: null, limit: 8000, cursor: null,
+                CancellationToken.None));
+
+            Assert.AreEqual("docs/x&#0;.md", exception.Path);
         }
         finally
         {
@@ -811,6 +857,31 @@ public sealed class DocsQueryServiceTests
             var result = await service.SearchAsync(
                 "FeatureA", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
 
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncDoesNotRetryWithABlankNormalizedQuery()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            // "&#32;" is a numeric HTML entity for a plain space: it is not whitespace as written, so
+            // it passes ArgumentException.ThrowIfNullOrWhiteSpace, misses literally, and normalizes to
+            // " " - which the retry must refuse to search with, rather than scanning every markdown
+            // file in every configured source for a bare space.
+            var result = await service.SearchAsync(
+                "&#32;", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsEmpty(result.Hits);
             Assert.IsNull(result.NormalizationNote);
         }
         finally
