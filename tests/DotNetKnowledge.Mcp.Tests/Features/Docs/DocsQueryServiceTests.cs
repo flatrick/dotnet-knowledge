@@ -509,6 +509,72 @@ public sealed class DocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task GetDocAsyncAcceptsAnHtmlEncodedSectionSeparatorAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "Feature A &gt; Motivation", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.AreEqual("Feature A > Motivation", result.Section);
+            StringAssert.Contains(result.Text, "Some motivating prose about feature A.");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "Feature A &gt; Motivation");
+            StringAssert.Contains(result.NormalizationNote!.Message, "Feature A > Motivation");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncDoesNotReportNormalizationWhenTheLiteralSectionAlreadyMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "Feature A > Motivation", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncStillThrowsWhenNormalizationDoesNotProduceAMatch()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var exception = await Assert.ThrowsExactlyAsync<DocSectionNotFoundException>(() => service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "No Such Section &gt; At All", limit: 8000, cursor: null,
+                CancellationToken.None));
+            StringAssert.Contains(exception.Message, "get_doc_outline");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetDocAsyncPagesByCharacterBudgetWithoutSplittingAFencedCodeBlock()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

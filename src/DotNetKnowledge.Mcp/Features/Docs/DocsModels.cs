@@ -10,6 +10,8 @@ public sealed record DocLineHit(
     string SectionPath,
     SourceProvenance Source);
 
+public sealed record DocNormalizationNote(string Message);
+
 public sealed record DocSearchResult(
     IReadOnlyList<DocLineHit> Hits,
     bool IsPartial,
@@ -24,7 +26,8 @@ public sealed record DocContentResult(
     int StartLine,
     int EndLine,
     bool IsPartial,
-    string? NextPageToken);
+    string? NextPageToken,
+    DocNormalizationNote? NormalizationNote = null);
 
 public sealed record DocOutlineEntry(int Level, string Text, string Path);
 

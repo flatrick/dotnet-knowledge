@@ -136,12 +136,29 @@ public sealed class DocsQueryService
 
         int rangeStart;
         int rangeEndExclusive;
+        string? resolvedSection = section;
+        DocNormalizationNote? normalizationNote = null;
         if (section is not null)
         {
-            var heading = MarkdownOutline.Extract(text)
-                .FirstOrDefault(candidate => string.Equals(candidate.Path, section, StringComparison.Ordinal));
+            var headings = MarkdownOutline.Extract(text);
+            var heading = headings.FirstOrDefault(
+                candidate => string.Equals(candidate.Path, section, StringComparison.Ordinal));
+            if (heading is null && CallerInputNormalization.TryNormalize(section, out var normalizedSection))
+            {
+                heading = headings.FirstOrDefault(
+                    candidate => string.Equals(candidate.Path, normalizedSection, StringComparison.Ordinal));
+                if (heading is not null)
+                {
+                    normalizationNote = new DocNormalizationNote(
+                        $"No section matched '{section}' exactly; resolved to '{heading.Path}' after " +
+                        "decoding HTML entities and typographic characters in the section path.");
+                }
+            }
+
             if (heading is null)
                 throw new DocSectionNotFoundException(section, path, source);
+
+            resolvedSection = heading.Path;
             rangeStart = heading.StartLine;
             rangeEndExclusive = heading.EndLine;
         }
@@ -160,7 +177,7 @@ public sealed class DocsQueryService
         // (docs/decisions.md); left as a follow-up rather than done in this fix wave.
         var atomicBlocks = MarkdownAtomicBlocks.Find(text);
         var revisions = new[] { RevisionKey(provenance) };
-        var scope = EncodeScope(source, path, section ?? string.Empty);
+        var scope = EncodeScope(source, path, resolvedSection ?? string.Empty);
         var decodedStartLine = DecodeCursor(cursor, "lang-doc", scope, revisions);
         // DecodeCursor's own "no cursor" sentinel is 0, an item-count offset that only makes sense
         // for "lang-outline"/"lang-search" cursors; for "lang-doc", Offset is a 1-based line number
@@ -180,12 +197,13 @@ public sealed class DocsQueryService
         return new DocContentResult(
             path,
             provenance,
-            section,
+            resolvedSection,
             pageText,
             startLine,
             endLineExclusive - 1,
             isPartial,
-            isPartial ? EncodeCursor("lang-doc", scope, endLineExclusive, revisions) : null);
+            isPartial ? EncodeCursor("lang-doc", scope, endLineExclusive, revisions) : null,
+            normalizationNote);
     }
 
     private async Task<(string Text, SourceProvenance Provenance)> ReadDocumentAsync(
