@@ -706,9 +706,18 @@ public sealed class DocsQueryServiceTests
         {
             var service = await CreateServiceAsync(root);
 
-            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetDocAsync(
+            // Both the literal path and its decoded form ("docs/does&not-exist.md") are misses, so
+            // the retry inside ReadDocumentAsync also fails. The propagated exception must still
+            // name exactly what the caller sent - the internally-decoded guess that also missed is
+            // an implementation detail, not something to surface - mirroring how
+            // DocSectionNotFoundException reports the caller's raw `section`, not `normalizedSection`.
+            var exception = await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetDocAsync(
                 "docs/does&amp;not-exist.md", "csharplang", section: null, limit: 8000, cursor: null,
                 CancellationToken.None));
+
+            Assert.AreEqual("docs/does&amp;not-exist.md", exception.Path);
+            StringAssert.Contains(exception.Message, "docs/does&amp;not-exist.md");
+            Assert.IsFalse(exception.Message.Contains("does&not-exist.md"));
         }
         finally
         {

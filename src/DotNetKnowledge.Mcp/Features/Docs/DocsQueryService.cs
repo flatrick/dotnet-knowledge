@@ -228,12 +228,23 @@ public sealed class DocsQueryService
         }
         catch (DocPathNotFoundException) when (CallerInputNormalization.TryNormalize(path, out var normalizedPath))
         {
-            var (text, provenance, resolvedPath, _) =
-                await ReadDocumentAttemptAsync(source, normalizedPath, cancellationToken).ConfigureAwait(false);
-            var note = new DocNormalizationNote(
-                $"'{path}' was not found; resolved to '{resolvedPath}' after decoding HTML entities and " +
-                "typographic characters in the path.");
-            return (text, provenance, resolvedPath, note);
+            try
+            {
+                var (text, provenance, resolvedPath, _) =
+                    await ReadDocumentAttemptAsync(source, normalizedPath, cancellationToken).ConfigureAwait(false);
+                var note = new DocNormalizationNote(
+                    $"'{path}' was not found; resolved to '{resolvedPath}' after decoding HTML entities and " +
+                    "typographic characters in the path.");
+                return (text, provenance, resolvedPath, note);
+            }
+            catch (DocPathNotFoundException)
+            {
+                // The retry failed too. Report the exception for what the caller actually sent, not
+                // the internally-decoded guess that also missed - matching how
+                // DocSectionNotFoundException below reports the caller's raw `section`, not
+                // `normalizedSection`, on a failed section resolution.
+                throw new DocPathNotFoundException(path, source);
+            }
         }
     }
 
