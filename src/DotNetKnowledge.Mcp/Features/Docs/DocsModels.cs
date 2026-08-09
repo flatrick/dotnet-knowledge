@@ -16,7 +16,8 @@ public sealed record DocSearchResult(
     IReadOnlyList<DocLineHit> Hits,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<SourceProvenance> SearchedSources,
+    DocNormalizationNote? NormalizationNote = null);
 
 public sealed record DocContentResult(
     string Path,

@@ -78,6 +78,49 @@ public sealed class DocsQueryService
         var compiledPattern = regex ? new Regex(query, RegexOptions.NonBacktracking) : null;
 
         var sourceNames = ResolveSourceNames(source);
+        var (hits, searchedSources) = await CollectHitsAsync(query, compiledPattern, sourceNames, cancellationToken)
+            .ConfigureAwait(false);
+
+        var effectiveQuery = query;
+        DocNormalizationNote? note = null;
+        if (hits.Count == 0 && !regex && CallerInputNormalization.TryNormalize(query, out var normalizedQuery))
+        {
+            var (normalizedHits, normalizedSearchedSources) = await CollectHitsAsync(
+                normalizedQuery, compiledPattern: null, sourceNames, cancellationToken).ConfigureAwait(false);
+            if (normalizedHits.Count > 0)
+            {
+                hits = normalizedHits;
+                searchedSources = normalizedSearchedSources;
+                effectiveQuery = normalizedQuery;
+                note = new DocNormalizationNote(
+                    $"No literal match for '{query}'; results reflect the HTML-entity/typography-" +
+                    $"normalized form '{normalizedQuery}'.");
+            }
+        }
+
+        var ordered = DocRanking.Order(hits, effectiveQuery);
+
+        var revisions = searchedSources.Select(RevisionKey).ToArray();
+        var scope = EncodeScope(effectiveQuery, regex, source ?? string.Empty);
+        var offset = DecodeCursor(cursor, "lang-search", scope, revisions);
+        if (offset > ordered.Count)
+            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
+
+        var page = ordered.Skip(offset).Take(limit).ToArray();
+        var nextOffset = offset + page.Length;
+        var isPartial = nextOffset < ordered.Count;
+
+        return new DocSearchResult(
+            page,
+            isPartial,
+            isPartial ? EncodeCursor("lang-search", scope, nextOffset, revisions) : null,
+            searchedSources,
+            note);
+    }
+
+    private async Task<(List<DocLineHit> Hits, List<SourceProvenance> SearchedSources)> CollectHitsAsync(
+        string query, Regex? compiledPattern, string[] sourceNames, CancellationToken cancellationToken)
+    {
         var hits = new List<DocLineHit>();
         var searchedSources = new List<SourceProvenance>();
 
@@ -102,23 +145,7 @@ public sealed class DocsQueryService
             hits.AddRange(read.Hits);
         }
 
-        var ordered = DocRanking.Order(hits, query);
-
-        var revisions = searchedSources.Select(RevisionKey).ToArray();
-        var scope = EncodeScope(query, regex, source ?? string.Empty);
-        var offset = DecodeCursor(cursor, "lang-search", scope, revisions);
-        if (offset > ordered.Count)
-            throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
-
-        var page = ordered.Skip(offset).Take(limit).ToArray();
-        var nextOffset = offset + page.Length;
-        var isPartial = nextOffset < ordered.Count;
-
-        return new DocSearchResult(
-            page,
-            isPartial,
-            isPartial ? EncodeCursor("lang-search", scope, nextOffset, revisions) : null,
-            searchedSources);
+        return (hits, searchedSources);
     }
 
     public async Task<DocContentResult> GetDocAsync(

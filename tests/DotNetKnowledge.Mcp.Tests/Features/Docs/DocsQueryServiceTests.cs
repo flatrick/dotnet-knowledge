@@ -753,6 +753,73 @@ public sealed class DocsQueryServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task SearchAsyncAcceptsAnHtmlEncodedQueryAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "proposal-f.md", "# Feature F\n\nA constraint written as T > U compares the two.\n");
+
+            var result = await service.SearchAsync(
+                "T &gt; U", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(1, result.Hits);
+            StringAssert.Contains(result.Hits[0].Text, "T > U");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "T &gt; U");
+            StringAssert.Contains(result.NormalizationNote!.Message, "T > U");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncDoesNotNormalizeARegexQuery()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "proposal-f.md", "# Feature F\n\nA constraint written as T > U compares the two.\n");
+
+            var result = await service.SearchAsync(
+                "T &gt; U", regex: true, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsEmpty(result.Hits);
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncDoesNotReportNormalizationWhenTheLiteralQueryAlreadyMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.SearchAsync(
+                "FeatureA", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<DocsQueryService> CreateServiceWithDocumentAsync(
         string root, string fileName, string content)
     {
