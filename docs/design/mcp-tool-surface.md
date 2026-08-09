@@ -119,6 +119,9 @@ search_docs(query, regex?, source?, limit?, cursor?)
       configuration, not code — see the "markdown" field in
       sources.json); source restricts
     → limit: 1-100, default 20
+    → a literal query matching nothing retries once against an HTML-entity/
+      typography-decoded form; a hit set from that retry carries
+      normalizationNote (not attempted when regex: true)
 
 get_doc(path, source, section?, limit?, cursor?)
     section: a heading path exactly as issued by a search hit or an
@@ -133,11 +136,17 @@ get_doc(path, source, section?, limit?, cursor?)
     → limit is a character budget, not an item count: 1000-50000,
       default 8000, snapped to a line boundary and never splitting
       a fenced code block or a table
+    → a "path" or "section" that doesn't match exactly retries once against
+      an HTML-entity/typography-decoded form; a response from that retry
+      carries normalizationNote and reports the resolved value, not the
+      request's own spelling
 
 get_doc_outline(path, source, limit?, cursor?)
     → limit: 1-500, default 100
     → the document's heading tree with section IDs, no bodies — the
       map an agent reads before spending context on content
+    → a "path" that doesn't match exactly gets the same one-shot decoded
+      retry, carrying normalizationNote
 
 ── examples (fetched, from flatrick/dotnet-code-examples) ─────────────
 list_examples(kind?, language?, version?, feature?)
