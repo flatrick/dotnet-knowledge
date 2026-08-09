@@ -509,6 +509,72 @@ public sealed class DocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task GetDocAsyncAcceptsAnHtmlEncodedSectionSeparatorAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "Feature A &gt; Motivation", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.AreEqual("Feature A > Motivation", result.Section);
+            StringAssert.Contains(result.Text, "Some motivating prose about feature A.");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "Feature A &gt; Motivation");
+            StringAssert.Contains(result.NormalizationNote!.Message, "Feature A > Motivation");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncDoesNotReportNormalizationWhenTheLiteralSectionAlreadyMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "Feature A > Motivation", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncStillThrowsWhenNormalizationDoesNotProduceAMatch()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var exception = await Assert.ThrowsExactlyAsync<DocSectionNotFoundException>(() => service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", "No Such Section &gt; At All", limit: 8000, cursor: null,
+                CancellationToken.None));
+            StringAssert.Contains(exception.Message, "get_doc_outline");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task GetDocAsyncPagesByCharacterBudgetWithoutSplittingAFencedCodeBlock()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -577,6 +643,246 @@ public sealed class DocsQueryServiceTests
 
             Assert.AreEqual(first.EndLine + 1, second.StartLine);
             Assert.AreEqual(full.Text, first.Text + "\n" + second.Text);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncAcceptsAnHtmlEncodedPathAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "a&b.md", "# A and B\n\nProse about A and B.\n");
+
+            var result = await service.GetDocAsync(
+                "docs/a&amp;b.md", "csharplang", section: null, limit: 8000, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual("docs/a&b.md", result.Path);
+            StringAssert.Contains(result.Text, "Prose about A and B.");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "docs/a&amp;b.md");
+            StringAssert.Contains(result.NormalizationNote!.Message, "docs/a&b.md");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineAsyncAcceptsAnHtmlEncodedPathAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "a&b.md", "# A and B\n\n## Detail\n\nMore prose.\n");
+
+            var result = await service.GetOutlineAsync(
+                "docs/a&amp;b.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual("docs/a&b.md", result.Path);
+            Assert.IsNotNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineAsyncDoesNotReportNormalizationWhenTheLiteralPathAlreadyMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.GetOutlineAsync(
+                "docs/proposal-a.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncStillThrowsPathNotFoundWhenNormalizationDoesNotResolveIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            // Both the literal path and its decoded form ("docs/does&not-exist.md") are misses, so
+            // the retry inside ReadDocumentAsync also fails. The propagated exception must still
+            // name exactly what the caller sent - the internally-decoded guess that also missed is
+            // an implementation detail, not something to surface - mirroring how
+            // DocSectionNotFoundException reports the caller's raw `section`, not `normalizedSection`.
+            var exception = await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetDocAsync(
+                "docs/does&amp;not-exist.md", "csharplang", section: null, limit: 8000, cursor: null,
+                CancellationToken.None));
+
+            Assert.AreEqual("docs/does&amp;not-exist.md", exception.Path);
+            StringAssert.Contains(exception.Message, "docs/does&amp;not-exist.md");
+            Assert.IsFalse(exception.Message.Contains("does&not-exist.md"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncStillThrowsPathNotFoundWhenNormalizationDecodesToARejectedPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            // "&#0;" decodes to a literal NUL character, which Path.GetFullPath rejects with
+            // ArgumentException rather than the DocPathNotFoundException the retry's inner catch was
+            // written to expect. The propagated exception must still be a DocPathNotFoundException
+            // naming exactly what the caller sent - never the ArgumentException, and never the
+            // internally-decoded guess that also failed.
+            var exception = await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetDocAsync(
+                "docs/x&#0;.md", "csharplang", section: null, limit: 8000, cursor: null,
+                CancellationToken.None));
+
+            Assert.AreEqual("docs/x&#0;.md", exception.Path);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncCombinesPathAndSectionNormalizationNotesWhenBothFire()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "a&b.md", "# A and B\n\n## Detail\n\nMore prose.\n");
+
+            var result = await service.GetDocAsync(
+                "docs/a&amp;b.md", "csharplang", "A and B &gt; Detail", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.AreEqual("docs/a&b.md", result.Path);
+            Assert.AreEqual("A and B > Detail", result.Section);
+            StringAssert.Contains(result.Text, "More prose.");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "docs/a&amp;b.md");
+            StringAssert.Contains(result.NormalizationNote!.Message, "A and B &gt; Detail");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncAcceptsAnHtmlEncodedQueryAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "proposal-f.md", "# Feature F\n\nA constraint written as T > U compares the two.\n");
+
+            var result = await service.SearchAsync(
+                "T &gt; U", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.HasCount(1, result.Hits);
+            StringAssert.Contains(result.Hits[0].Text, "T > U");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "T &gt; U");
+            StringAssert.Contains(result.NormalizationNote!.Message, "T > U");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncDoesNotNormalizeARegexQuery()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "proposal-f.md", "# Feature F\n\nA constraint written as T > U compares the two.\n");
+
+            var result = await service.SearchAsync(
+                "T &gt; U", regex: true, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsEmpty(result.Hits);
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncDoesNotReportNormalizationWhenTheLiteralQueryAlreadyMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var result = await service.SearchAsync(
+                "FeatureA", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncDoesNotRetryWithABlankNormalizedQuery()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            // "&#32;" is a numeric HTML entity for a plain space: it is not whitespace as written, so
+            // it passes ArgumentException.ThrowIfNullOrWhiteSpace, misses literally, and normalizes to
+            // " " - which the retry must refuse to search with, rather than scanning every markdown
+            // file in every configured source for a bare space.
+            var result = await service.SearchAsync(
+                "&#32;", regex: false, source: null, limit: 20, cursor: null, CancellationToken.None);
+
+            Assert.IsEmpty(result.Hits);
+            Assert.IsNull(result.NormalizationNote);
         }
         finally
         {

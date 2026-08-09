@@ -143,6 +143,32 @@ public sealed class DocsToolTests
         }
     }
 
+    [TestMethod]
+    public async Task GetDocReturnsNormalizationNoteAsCamelCaseJsonWhenTheFallbackFires()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var json = await DocsTool.GetDoc(
+                "docs/proposal-a.md", "csharplang", service, CancellationToken.None,
+                section: "Feature A &gt; Motivation");
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual(
+                "Feature A > Motivation", document.RootElement.GetProperty("section").GetString());
+            StringAssert.Contains(
+                document.RootElement.GetProperty("normalizationNote").GetProperty("message").GetString(),
+                "Feature A > Motivation");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<DocsQueryService> CreateServiceAsync(string root)
     {
         var repository = Path.Combine(root, "origin");

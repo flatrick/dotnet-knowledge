@@ -27,7 +27,9 @@ public sealed class DocsTool
         "characters with isTruncated saying so; the text carries no marker, so any ellipsis in it " +
         "is the source's own. Fetch the document for the full text. YAML front matter, which " +
         "Microsoft Learn articles carry, is metadata about a document rather than part of it and " +
-        "is not searched.")]
+        "is not searched. A literal, non-regex query that matches nothing is retried once against " +
+        "an HTML-entity/typography-decoded form; a hit set produced this way carries " +
+        "normalizationNote naming the form actually matched.")]
     public static async Task<string> SearchDocs(
         string query,
         DocsQueryService service,
@@ -87,7 +89,10 @@ public sealed class DocsTool
         "[!INCLUDE [x](../includes/x.md)], > [!NOTE] alerts and :::image blocks is not resolved, " +
         "and an include token names a real path this tool can fetch. A whole-document fetch begins " +
         "at the document's first content line: YAML front matter is metadata and is not returned, " +
-        "and startLine names the line the text actually came from.")]
+        "and startLine names the line the text actually came from. If \"path\" or \"section\" " +
+        "doesn't match exactly, one retry is attempted against an HTML-entity/typography-decoded " +
+        "form of the same value; a response produced this way carries normalizationNote and " +
+        "reports the resolved path/section, never the request's own spelling.")]
     public static async Task<string> GetDoc(
         string path,
         string source,
@@ -139,7 +144,9 @@ public sealed class DocsTool
         "Return a synchronized documentation file's heading tree, no bodies: " +
         "each entry's level, text, and section path - the path get_doc's section " +
         "parameter accepts verbatim. YAML front matter, which Microsoft Learn articles carry, is " +
-        "not a heading and does not appear. Paginated like the other tools.")]
+        "not a heading and does not appear. Paginated like the other tools. If \"path\" doesn't " +
+        "match exactly, one retry is attempted against an HTML-entity/typography-decoded form; a " +
+        "response produced this way carries normalizationNote and reports the resolved path.")]
     public static async Task<string> GetDocOutline(
         string path,
         string source,

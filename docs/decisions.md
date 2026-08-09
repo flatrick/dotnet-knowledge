@@ -24,6 +24,22 @@ and the entry links there.
 
 ---
 
+### 2026-08-09 · A caller-input encoding miss gets one normalized retry, not a global filter
+
+`get_doc`'s `section` and `path`, `get_doc_outline`'s `path`, and `search_docs`'s non-regex `query`,
+retry once against an HTML-entity/typography-decoded form of the caller's input, and only after the
+literal value has already failed to match — never before. A response produced this way reports the
+resolved value, not the caller's spelling, and carries `normalizationNote` naming the substitution.
+When the retry fails too, the error names what the caller actually sent, never the internally-decoded
+guess — including when the guess fails a different way than the caller's own input would have (a
+decoded NUL character rejected by `Path.GetFullPath`, for instance). Rejected: normalizing every
+string parameter unconditionally at the tool boundary, which would make a legitimately-authored
+`&gt;` in real heading text unreachable and would leave nothing to compare once the raw form is gone,
+so nothing to report. See
+[`docs/superpowers/specs/2026-08-09-caller-input-normalization-design.md`](superpowers/specs/2026-08-09-caller-input-normalization-design.md).
+
+---
+
 ### 2026-08-08 · Front matter is metadata, excluded from both search and fetch
 
 `MarkdownFrontMatter.BodyStartLine` is the one rule; `MarkdownLineSearch` skips lines before it and
