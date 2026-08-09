@@ -651,6 +651,99 @@ public sealed class DocsQueryServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task GetDocAsyncAcceptsAnHtmlEncodedPathAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "a&b.md", "# A and B\n\nProse about A and B.\n");
+
+            var result = await service.GetDocAsync(
+                "docs/a&amp;b.md", "csharplang", section: null, limit: 8000, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual("docs/a&b.md", result.Path);
+            StringAssert.Contains(result.Text, "Prose about A and B.");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "docs/a&amp;b.md");
+            StringAssert.Contains(result.NormalizationNote!.Message, "docs/a&b.md");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineAsyncAcceptsAnHtmlEncodedPathAndReportsNormalization()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "a&b.md", "# A and B\n\n## Detail\n\nMore prose.\n");
+
+            var result = await service.GetOutlineAsync(
+                "docs/a&amp;b.md", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual("docs/a&b.md", result.Path);
+            Assert.IsNotNull(result.NormalizationNote);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncStillThrowsPathNotFoundWhenNormalizationDoesNotResolveIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(() => service.GetDocAsync(
+                "docs/does&amp;not-exist.md", "csharplang", section: null, limit: 8000, cursor: null,
+                CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncCombinesPathAndSectionNormalizationNotesWhenBothFire()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var service = await CreateServiceWithDocumentAsync(
+                root, "a&b.md", "# A and B\n\n## Detail\n\nMore prose.\n");
+
+            var result = await service.GetDocAsync(
+                "docs/a&amp;b.md", "csharplang", "A and B &gt; Detail", limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.AreEqual("docs/a&b.md", result.Path);
+            Assert.AreEqual("A and B > Detail", result.Section);
+            StringAssert.Contains(result.Text, "More prose.");
+            Assert.IsNotNull(result.NormalizationNote);
+            StringAssert.Contains(result.NormalizationNote!.Message, "docs/a&amp;b.md");
+            StringAssert.Contains(result.NormalizationNote!.Message, "A and B &gt; Detail");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     private static async Task<DocsQueryService> CreateServiceWithDocumentAsync(
         string root, string fileName, string content)
     {

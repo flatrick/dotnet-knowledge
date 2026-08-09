@@ -36,7 +36,8 @@ public sealed record DocOutlineResult(
     SourceProvenance Source,
     IReadOnlyList<DocOutlineEntry> Entries,
     bool IsPartial,
-    string? NextPageToken);
+    string? NextPageToken,
+    DocNormalizationNote? NormalizationNote = null);
 
 public sealed class DocPathNotFoundException : Exception
 {

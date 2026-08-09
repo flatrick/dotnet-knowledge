@@ -37,11 +37,12 @@ public sealed class DocsQueryService
         if (limit is < 1 or > 500)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 500.");
 
-        var (text, provenance) = await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
+        var (text, provenance, resolvedPath, note) =
+            await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
         var headings = MarkdownOutline.Extract(text);
 
         var revisions = new[] { RevisionKey(provenance) };
-        var scope = EncodeScope(source, path);
+        var scope = EncodeScope(source, resolvedPath);
         var offset = DecodeCursor(cursor, "lang-outline", scope, revisions);
         if (offset > headings.Count)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
@@ -51,11 +52,12 @@ public sealed class DocsQueryService
         var isPartial = nextOffset < headings.Count;
 
         return new DocOutlineResult(
-            path,
+            resolvedPath,
             provenance,
             page.Select(heading => new DocOutlineEntry(heading.Level, heading.Text, heading.Path)).ToArray(),
             isPartial,
-            isPartial ? EncodeCursor("lang-outline", scope, nextOffset, revisions) : null);
+            isPartial ? EncodeCursor("lang-outline", scope, nextOffset, revisions) : null,
+            note);
     }
 
     public async Task<DocSearchResult> SearchAsync(
@@ -131,13 +133,14 @@ public sealed class DocsQueryService
         if (limit is < 1000 or > 50000)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1000 and 50000.");
 
-        var (text, provenance) = await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
+        var (text, provenance, resolvedPath, pathNote) =
+            await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
         var lines = text.ReplaceLineEndings("\n").Split('\n');
 
         int rangeStart;
         int rangeEndExclusive;
         string? resolvedSection = section;
-        DocNormalizationNote? normalizationNote = null;
+        DocNormalizationNote? sectionNote = null;
         if (section is not null)
         {
             var headings = MarkdownOutline.Extract(text);
@@ -149,14 +152,14 @@ public sealed class DocsQueryService
                     candidate => string.Equals(candidate.Path, normalizedSection, StringComparison.Ordinal));
                 if (heading is not null)
                 {
-                    normalizationNote = new DocNormalizationNote(
+                    sectionNote = new DocNormalizationNote(
                         $"No section matched '{section}' exactly; resolved to '{heading.Path}' after " +
                         "decoding HTML entities and typographic characters in the section path.");
                 }
             }
 
             if (heading is null)
-                throw new DocSectionNotFoundException(section, path, source);
+                throw new DocSectionNotFoundException(section, resolvedPath, source);
 
             resolvedSection = heading.Path;
             rangeStart = heading.StartLine;
@@ -177,7 +180,7 @@ public sealed class DocsQueryService
         // (docs/decisions.md); left as a follow-up rather than done in this fix wave.
         var atomicBlocks = MarkdownAtomicBlocks.Find(text);
         var revisions = new[] { RevisionKey(provenance) };
-        var scope = EncodeScope(source, path, resolvedSection ?? string.Empty);
+        var scope = EncodeScope(source, resolvedPath, resolvedSection ?? string.Empty);
         var decodedStartLine = DecodeCursor(cursor, "lang-doc", scope, revisions);
         // DecodeCursor's own "no cursor" sentinel is 0, an item-count offset that only makes sense
         // for "lang-outline"/"lang-search" cursors; for "lang-doc", Offset is a 1-based line number
@@ -195,7 +198,7 @@ public sealed class DocsQueryService
         var pageText = string.Join('\n', lines[(startLine - 1)..(endLineExclusive - 1)]);
 
         return new DocContentResult(
-            path,
+            resolvedPath,
             provenance,
             resolvedSection,
             pageText,
@@ -203,11 +206,39 @@ public sealed class DocsQueryService
             endLineExclusive - 1,
             isPartial,
             isPartial ? EncodeCursor("lang-doc", scope, endLineExclusive, revisions) : null,
-            normalizationNote);
+            CombineNotes(pathNote, sectionNote));
     }
 
-    private async Task<(string Text, SourceProvenance Provenance)> ReadDocumentAsync(
-        string source, string path, CancellationToken cancellationToken)
+    private static DocNormalizationNote? CombineNotes(DocNormalizationNote? first, DocNormalizationNote? second)
+    {
+        if (first is null)
+            return second;
+        if (second is null)
+            return first;
+
+        return new DocNormalizationNote(first.Message + " " + second.Message);
+    }
+
+    private async Task<(string Text, SourceProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+        ReadDocumentAsync(string source, string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ReadDocumentAttemptAsync(source, path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DocPathNotFoundException) when (CallerInputNormalization.TryNormalize(path, out var normalizedPath))
+        {
+            var (text, provenance, resolvedPath, _) =
+                await ReadDocumentAttemptAsync(source, normalizedPath, cancellationToken).ConfigureAwait(false);
+            var note = new DocNormalizationNote(
+                $"'{path}' was not found; resolved to '{resolvedPath}' after decoding HTML entities and " +
+                "typographic characters in the path.");
+            return (text, provenance, resolvedPath, note);
+        }
+    }
+
+    private async Task<(string Text, SourceProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+        ReadDocumentAttemptAsync(string source, string path, CancellationToken cancellationToken)
     {
         DocumentRead read;
         try
@@ -222,7 +253,7 @@ public sealed class DocsQueryService
             throw new SourceNotSyncedException(source, exception);
         }
 
-        return (read.Text, read.Provenance);
+        return (read.Text, read.Provenance, path, null);
     }
 
     private sealed record DocumentRead(string Text, SourceProvenance Provenance);
