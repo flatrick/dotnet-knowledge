@@ -15,6 +15,11 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 
 builder.Services.AddSingleton<SourceCatalog>();
 builder.Services.AddSingleton<SourceCache>();
+builder.Services.AddSingleton(static _ => new HttpClient(new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+}));
+builder.Services.AddSingleton<INuGetPackageClient, NuGetPackageClient>();
 builder.Services.AddSingleton<SourceSynchronizer>();
 builder.Services.AddSingleton<ApiDocsQueryService>();
 builder.Services.AddSingleton<DocsQueryService>();
