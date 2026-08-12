@@ -44,7 +44,16 @@ public sealed class SourcesToolTests
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual("sync_failed", document.RootElement.GetProperty("error").GetString());
             Assert.IsFalse(cache.IsSynced("local"));
-            Assert.IsFalse(Directory.Exists(cache.GenerationsDirectoryFor("local")));
+            var generationsDirectory = cache.GenerationsDirectoryFor("local");
+            Assert.AreEqual(
+                1,
+                Directory.EnumerateDirectories(generationsDirectory, ".*.tmp").Count(),
+                "A failed operation must remain unpublished but retain its in-progress generation.");
+            Assert.AreEqual(
+                0,
+                Directory.EnumerateDirectories(generationsDirectory)
+                    .Count(path => !Path.GetFileName(path).StartsWith('.')),
+                "A failed operation published a completed generation.");
         }
         finally
         {

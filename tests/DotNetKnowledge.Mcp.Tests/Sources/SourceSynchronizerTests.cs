@@ -167,10 +167,9 @@ public sealed class SourceSynchronizerTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
         var generationsDirectory = Path.Combine(root, ".generations", "local");
-        var generationStaging = Path.Combine(generationsDirectory, ".generation.tmp");
+        var generationStaging = Path.Combine(generationsDirectory, ".generation.resume");
         var generationDirectory = Path.Combine(generationsDirectory, "generation");
         var repositoryDirectory = Path.Combine(generationStaging, "repository");
-        var staging = Path.Combine(root, ".local-resumed.tmp");
         Directory.CreateDirectory(repositoryDirectory);
         File.WriteAllText(Path.Combine(repositoryDirectory, "downloaded-object"), "suspect");
 
@@ -180,20 +179,128 @@ public sealed class SourceSynchronizerTests
                 generationStaging,
                 generationDirectory,
                 generationsDirectory,
-                staging,
                 resumed: true,
                 repositoryValidated: false,
-                path =>
+                _ => throw new IOException("fixture generation cleanup failure"));
+
+            Assert.IsTrue(Directory.Exists(generationStaging));
+            StringAssert.EndsWith(generationStaging, ".resume");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GenerationClaimRetriesOnlyTheFailedRenameUntilTheRepositoryIsMovable()
+    {
+        var attempts = 0;
+        var delays = 0;
+
+        await SourceSynchronizer.MoveDirectoryWhenReadyAsync(
+            "source",
+            "destination",
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None,
+            (source, destination) =>
+            {
+                Assert.AreEqual("source", source);
+                Assert.AreEqual("destination", destination);
+                attempts++;
+                if (attempts == 1)
+                    throw new IOException("fixture repository handle");
+            },
+            (_, _) =>
+            {
+                delays++;
+                return Task.CompletedTask;
+            });
+
+        Assert.AreEqual(2, attempts);
+        Assert.AreEqual(1, delays);
+    }
+
+    [TestMethod]
+    public async Task GenerationClaimHonorsCancellationWhileWaitingForRepositoryReadiness()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var attempts = 0;
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            SourceSynchronizer.MoveDirectoryWhenReadyAsync(
+                "source",
+                "destination",
+                TimeSpan.FromSeconds(1),
+                cancellation.Token,
+                (_, _) =>
                 {
-                    if (string.Equals(path, generationStaging, StringComparison.Ordinal))
-                        throw new IOException("fixture generation cleanup failure");
+                    attempts++;
+                    throw new IOException("fixture repository handle");
+                },
+                (_, _) =>
+                {
+                    cancellation.Cancel();
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    return Task.CompletedTask;
+                }));
 
-                    DeleteDirectory(path);
-                });
+        Assert.AreEqual(1, attempts);
+    }
 
+    [TestMethod]
+    public async Task GenerationClaimReportsWhenRepositoryReadinessExceedsItsBound()
+    {
+        var delayCalled = false;
+
+        var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+            SourceSynchronizer.MoveDirectoryWhenReadyAsync(
+                "source",
+                "destination",
+                TimeSpan.Zero,
+                CancellationToken.None,
+                (_, _) => throw new IOException("fixture repository handle"),
+                (_, _) =>
+                {
+                    delayCalled = true;
+                    return Task.CompletedTask;
+                }));
+
+        StringAssert.Contains(exception.Message, "repository did not become movable");
+        Assert.IsFalse(delayCalled);
+    }
+
+    [TestMethod]
+    public void FailedFreshSyncRetainsTheUnpublishedGenerationInPlace()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var generationsDirectory = Path.Combine(root, ".generations", "local");
+        var generationStaging = Path.Combine(generationsDirectory, ".generation.tmp");
+        var generationDirectory = Path.Combine(generationsDirectory, "generation");
+        var repositoryDirectory = Path.Combine(generationStaging, "repository");
+        var oldStagingLocation = Path.Combine(root, ".local-download.tmp");
+        Directory.CreateDirectory(repositoryDirectory);
+        File.WriteAllText(Path.Combine(repositoryDirectory, "downloaded-object"), "resumable");
+
+        try
+        {
+            SourceSynchronizer.CleanupFailedPublication(
+                generationStaging,
+                generationDirectory,
+                generationsDirectory,
+                resumed: false,
+                repositoryValidated: false,
+                DeleteDirectory);
+
+            Assert.IsTrue(
+                File.Exists(Path.Combine(repositoryDirectory, "downloaded-object")),
+                "Failure cleanup moved the repository while the terminated Git process could "
+                    + "still hold a Windows handle inside it.");
             Assert.IsFalse(
-                Directory.Exists(staging),
-                "Suspect resumed Git staging survived because generation cleanup failed first.");
+                Directory.Exists(oldStagingLocation),
+                "A failed generation must remain recoverable in place until a later sync proves "
+                    + "the repository is movable.");
         }
         finally
         {
@@ -476,7 +583,31 @@ public sealed class SourceSynchronizerTests
             // Every tier here is generous except Walk. If `git status` were still Quick this sync
             // would succeed, and the ten-second ceiling that killed a real 13,485-file checkout
             // would be back.
-            StringAssert.Contains(exception.Message, "git status");
+            StringAssert.Contains(exception.Message, "git --no-optional-locks status");
+            StringAssert.Contains(exception.Message, "Walk timeout");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SnapshotValidationStatusDoesNotTakeOptionalGitLocks()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            await new SourceSynchronizer(catalog, cache, GitTimeouts.Default)
+                .SyncAsync("local", null, CancellationToken.None);
+
+            var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+                new SourceSynchronizer(catalog, cache, WalkExpiresImmediately)
+                    .TryGetCurrentSnapshotAsync("local", CancellationToken.None));
+
+            StringAssert.Contains(exception.Message, "git --no-optional-locks status");
             StringAssert.Contains(exception.Message, "Walk timeout");
         }
         finally
@@ -498,16 +629,109 @@ public sealed class SourceSynchronizerTests
             await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
                 synchronizer.SyncAsync("local", null, CancellationToken.None));
 
-            var staging = Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").ToList();
+            var staging = Directory
+                .EnumerateDirectories(cache.GenerationsDirectoryFor("local"), ".*.tmp")
+                .ToList();
             Assert.AreEqual(
                 1,
                 staging.Count,
                 "A failure discarded the download. For dotnet-api-docs that is 773 MB and about a "
                     + "minute of work thrown away every retry.");
-            Assert.IsTrue(Directory.Exists(Path.Combine(staging[0], ".git")));
+            Assert.IsTrue(Directory.Exists(Path.Combine(staging[0], "repository", ".git")));
+            Assert.IsFalse(
+                File.Exists(Path.Combine(staging[0], "repository", ".git", "index.lock")),
+                "Validation-only status left an index lock that makes the next Git command fail.");
+            Assert.AreEqual(0, Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").Count());
         }
         finally
         {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task DiscardedUnpublishedGenerationIsNeverResumed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+                new SourceSynchronizer(catalog, cache, WalkExpiresImmediately)
+                    .SyncAsync("local", null, CancellationToken.None));
+            var abandoned = Directory
+                .EnumerateDirectories(cache.GenerationsDirectoryFor("local"), ".*.tmp")
+                .Single();
+            var discarded = Path.Combine(
+                cache.GenerationsDirectoryFor("local"),
+                $".{Guid.NewGuid():N}.resume");
+            await SourceSynchronizer.MoveDirectoryWhenReadyAsync(
+                abandoned,
+                discarded,
+                TimeSpan.FromSeconds(10),
+                CancellationToken.None);
+            await File.WriteAllTextAsync(
+                Path.Combine(discarded, "repository", ".git", "resume-marker"),
+                "must-not-survive");
+            var progress = new RecordingProgress();
+
+            var result = await new SourceSynchronizer(catalog, cache, GitTimeouts.Default)
+                .SyncAsync("local", null, CancellationToken.None, progress);
+
+            Assert.AreEqual("clone", progress.Values[0]);
+            Assert.IsFalse(File.Exists(Path.Combine(result.CacheDir, ".git", "resume-marker")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FailedResumeThatCannotBeDeletedRemainsDiscardedByItsDirectoryName()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Open files prevent directory deletion only on Windows.");
+
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        FileStream? heldFile = null;
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+                new SourceSynchronizer(catalog, cache, WalkExpiresImmediately)
+                    .SyncAsync("local", null, CancellationToken.None));
+            var progress = new CallbackProgress(value =>
+            {
+                if (!string.Equals(value, "resume", StringComparison.Ordinal))
+                    return;
+
+                var claimed = Directory
+                    .EnumerateDirectories(cache.GenerationsDirectoryFor("local"))
+                    .Single();
+                heldFile = new FileStream(
+                    Path.Combine(claimed, "repository", ".git", "config"),
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.None);
+            });
+
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                new SourceSynchronizer(catalog, cache, GitTimeouts.Default)
+                    .SyncAsync("local", null, CancellationToken.None, progress));
+            heldFile!.Dispose();
+            heldFile = null;
+
+            var surviving = Directory
+                .EnumerateDirectories(cache.GenerationsDirectoryFor("local"))
+                .Single();
+            StringAssert.EndsWith(surviving, ".resume");
+        }
+        finally
+        {
+            heldFile?.Dispose();
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
@@ -523,23 +747,44 @@ public sealed class SourceSynchronizerTests
             await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
                 new SourceSynchronizer(catalog, cache, WalkExpiresImmediately)
                     .SyncAsync("local", null, CancellationToken.None));
-            var staging = Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").Single();
+            var staging = Directory
+                .EnumerateDirectories(cache.GenerationsDirectoryFor("local"), ".*.tmp")
+                .Single();
+            var stagedRepository = Path.Combine(staging, "repository");
 
             // Planted inside .git so it is invisible to `git status`, which the resumed attempt
             // must still find clean. Its survival into the cache directory is what proves the
             // download was reused rather than fetched again.
-            await File.WriteAllTextAsync(Path.Combine(staging, ".git", "resume-marker"), "resumed");
+            await File.WriteAllTextAsync(
+                Path.Combine(stagedRepository, ".git", "resume-marker"),
+                "resumed");
+
+            var origin = catalog.Sources.Single().Value.Url;
+            await File.WriteAllTextAsync(Path.Combine(origin, "docs", "included.md"), "head");
+            await RunGitAsync(origin, "add", ".");
+            await RunGitAsync(origin, "commit", "-m", "head");
+            var head = (await RunGitAsync(origin, "rev-parse", "HEAD")).Trim();
+            var progress = new RecordingProgress();
 
             var result = await new SourceSynchronizer(catalog, cache, GitTimeouts.Default)
-                .SyncAsync("local", null, CancellationToken.None);
+                .SyncAsync("local", "head", CancellationToken.None, progress);
 
+            Assert.AreEqual(head, result.Commit);
+            Assert.AreEqual(
+                "head",
+                await File.ReadAllTextAsync(Path.Combine(result.CacheDir, "docs", "included.md")));
             Assert.IsTrue(
                 File.Exists(Path.Combine(result.CacheDir, ".git", "resume-marker")),
                 "The retained staging directory was discarded and re-cloned instead of resumed.");
+            Assert.AreSequenceEqual(
+                ["resume", "sparse-checkout", "fetch", "checkout", "validate"],
+                progress.Values,
+                "A claimed download was published without rerunning the complete synchronization.");
+            Assert.AreEqual(0, Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").Count());
             Assert.AreEqual(
                 0,
-                Directory.EnumerateDirectories(cache.Root, ".local-*.tmp").Count(),
-                "A successful sync must leave no staging directory behind.");
+                Directory.EnumerateDirectories(cache.GenerationsDirectoryFor("local"), ".*.tmp").Count(),
+                "A successful sync must leave no unpublished generation behind.");
         }
         finally
         {
@@ -701,5 +946,17 @@ public sealed class SourceSynchronizerTests
                 cancellationToken);
             return [];
         }
+    }
+
+    private sealed class RecordingProgress : IProgress<string>
+    {
+        public List<string> Values { get; } = [];
+
+        public void Report(string value) => Values.Add(value);
+    }
+
+    private sealed class CallbackProgress(Action<string> callback) : IProgress<string>
+    {
+        public void Report(string value) => callback(value);
     }
 }
