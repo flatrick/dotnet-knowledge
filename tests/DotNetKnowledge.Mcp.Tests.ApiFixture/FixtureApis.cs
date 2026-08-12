@@ -1,5 +1,33 @@
 namespace Fixtures;
 
+#nullable enable
+
+public class NullableContextSource
+{
+    public string? Value => null;
+}
+
+#nullable disable
+
+public class DeclaringContextProbe
+{
+    public class Nested
+    {
+        public string Value = string.Empty;
+    }
+}
+
+public class ModuleContextProbe
+{
+    public string Value = string.Empty;
+}
+
+public class AccessorProbeType;
+
+public class AccessorSourceType;
+
+#nullable restore
+
 public class GalleryBase;
 
 public interface IMarker;
@@ -12,6 +40,80 @@ public class NullableBase<T>;
 
 public interface INullableMarker<T>;
 
+public class GenericOuter<TOuter>
+{
+    public class GenericInner<TInner>;
+}
+
+public class ConstraintGallery<TStruct, TUnmanaged, TClass, TNew>
+    where TStruct : struct
+    where TUnmanaged : unmanaged
+    where TClass : class
+    where TNew : class, new();
+
+public abstract class AccessorBase
+{
+    public abstract int AbstractProperty { get; }
+
+    public virtual int VirtualProperty { get; set; }
+
+    public abstract event EventHandler? AbstractEvent;
+
+    public virtual event EventHandler? VirtualEvent
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action? OtherEvent
+    {
+        add { }
+        remove { }
+    }
+}
+
+public class AccessorOverride : AccessorBase
+{
+    public override int AbstractProperty => 0;
+
+    public sealed override int VirtualProperty { get; set; }
+
+    public override event EventHandler? AbstractEvent
+    {
+        add { }
+        remove { }
+    }
+
+    public sealed override event EventHandler? VirtualEvent
+    {
+        add { }
+        remove { }
+    }
+}
+
+public interface IStaticAccessors
+{
+    static abstract int AbstractProperty { get; }
+
+    static virtual int VirtualProperty => 0;
+
+    static abstract event EventHandler? AbstractEvent;
+
+    static virtual event EventHandler? VirtualEvent
+    {
+        add { }
+        remove { }
+    }
+}
+
+public sealed class ConstructorProbe(System.Text.Encoding source)
+{
+    private readonly System.Text.Encoding source = source;
+
+    public int ConstructorReturnSource(System.Text.Encoding value) =>
+        ReferenceEquals(source, value) ? 1 : 0;
+}
+
 public sealed class NullableShape<T> : NullableBase<string?>, INullableMarker<Uri?>
     where T : INullableMarker<string?>;
 
@@ -23,12 +125,33 @@ public sealed class GalleryAttribute(Type markerType) : Attribute
     public Type? NamedType { get; set; }
 }
 
+[Flags]
+public enum FixtureOptions
+{
+    None = 0,
+    First = 1,
+    Second = 2,
+}
+
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class OptionsAttribute(FixtureOptions options) : Attribute
+{
+    public FixtureOptions Options { get; } = options;
+}
+
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class GenericTagAttribute<T> : Attribute;
+
 /// <summary>Exercises metadata signature decoding.</summary>
 /// <typeparam name="T">The gallery value type.</typeparam>
 [Gallery(typeof(Marker), NamedType = typeof(Uri))]
+[Options(FixtureOptions.First | FixtureOptions.Second)]
+[GenericTag<int>]
 public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
     where T : GalleryBase, IMarker, new()
 {
+    static SignatureGallery() { }
+
     private (string Name, T Value)? borrowed;
 
     /// <summary>Creates a gallery.</summary>
@@ -60,6 +183,10 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
 
     /// <summary>Occurs when the gallery changes.</summary>
     public event EventHandler? Changed;
+
+    public AccessorProbeType AccessorProbe => null!;
+
+    public AccessorSourceType AccessorSource => null!;
 
     /// <summary>Borrows a tuple containing the value.</summary>
     /// <param name="value">The value to borrow.</param>
@@ -108,6 +235,85 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
 
     public void Collect(params string[] values) => _ = values;
 
+    public int[] ArrayShapeProbe(int[] values, string marker)
+    {
+        _ = marker;
+        return values;
+    }
+
+    public int[] NestedByRefProbe(int[] values, string marker)
+    {
+        _ = marker;
+        return values;
+    }
+
+    public ((string First, string Second) Pair, string Tail) NestedTuple(
+        ((string First, string Second) Pair, string Tail) value) => value;
+
+    public List<string?> NullableTransformProbe(List<string> value)
+    {
+        _ = value;
+        return [];
+    }
+
+    public string? NullableTransformSource(List<string> value)
+    {
+        _ = value;
+        return null;
+    }
+
+    public int DuplicateA(int value) => value;
+
+    public int DuplicateB(int value) => value;
+
+    public static void Xctor() { }
+
+    public void Xcctor() { }
+
+    public static void Ycctor(int value) => _ = value;
+
+    public void Zctor<TValue>() { }
+
+    public int BogusApi(int value) => value;
+
+    public SignatureGallery<T> IncrementApi(SignatureGallery<T> value) => value;
+
+    public static SignatureGallery<T> AdditionApi(SignatureGallery<T> value) => value;
+
+    public static byte ExplicitApi() => 0;
+
+    public static int IncrementReturnSource(SignatureGallery<T> value)
+    {
+        _ = value;
+        return 0;
+    }
+
+    public static SignatureGallery<T> WrappedOperatorSource(
+        List<SignatureGallery<T>> left,
+        int right)
+    {
+        _ = left;
+        _ = right;
+        return null!;
+    }
+
+    public static SignatureGallery<T> RefOperatorSource(
+        ref SignatureGallery<T> left,
+        int right)
+    {
+        _ = right;
+        return left;
+    }
+
+    public static SignatureGallery<Marker> WrongConstructedOperatorSource(
+        SignatureGallery<Marker> value) => value;
+
+    /// <summary>Exercises constructed nested generic identities.</summary>
+    /// <param name="value">The nested value.</param>
+    /// <returns>A differently constructed nested value.</returns>
+    public GenericOuter<string>.GenericInner<int> UseNested(
+        GenericOuter<Uri>.GenericInner<long> value) => new();
+
     [Obsolete]
     public string PublicOnly() => string.Empty;
 
@@ -128,6 +334,35 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
     public static SignatureGallery<T> operator +(
         SignatureGallery<T> left,
         SignatureGallery<T> right) => left;
+
+    /// <summary>Converts a gallery to its count.</summary>
+    public static implicit operator int(SignatureGallery<T> value) => value.Count;
+
+    /// <summary>Converts a count to a gallery.</summary>
+    public static explicit operator SignatureGallery<T>(int value) => new(value);
+
+    /// <summary>Converts a gallery to a byte.</summary>
+    public static explicit operator byte(SignatureGallery<T> value) => (byte)value.Count;
+
+    /// <summary>Converts a gallery to a checked byte.</summary>
+    public static explicit operator checked byte(SignatureGallery<T> value) =>
+        checked((byte)value.Count);
+
+    /// <summary>Increments a gallery.</summary>
+    public static SignatureGallery<T> operator ++(SignatureGallery<T> value) => value;
+
+    /// <summary>Increments a gallery in a checked context.</summary>
+    public static SignatureGallery<T> operator checked ++(SignatureGallery<T> value) => value;
+
+    /// <summary>Decrements a gallery.</summary>
+    public static SignatureGallery<T> operator --(SignatureGallery<T> value) => value;
+
+    /// <summary>Decrements a gallery in a checked context.</summary>
+    public static SignatureGallery<T> operator checked --(SignatureGallery<T> value) => value;
+
+    public static bool operator true(SignatureGallery<T> value) => value is not null;
+
+    public static bool operator false(SignatureGallery<T> value) => value is null;
 
     /// <summary>A nested generic API.</summary>
     /// <typeparam name="TNested">The nested unmanaged type.</typeparam>

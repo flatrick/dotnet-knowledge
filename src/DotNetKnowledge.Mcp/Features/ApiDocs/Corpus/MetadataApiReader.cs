@@ -65,6 +65,8 @@ public static class MetadataApiReader
             ["op_CheckedMultiply"] = "operator checked *",
             ["op_CheckedDivision"] = "operator checked /",
             ["op_CheckedUnaryNegation"] = "operator checked -",
+            ["op_CheckedIncrement"] = "operator checked ++",
+            ["op_CheckedDecrement"] = "operator checked --",
             ["op_CheckedExplicit"] = "explicit operator checked",
         };
 
@@ -146,13 +148,28 @@ public static class MetadataApiReader
                 types.Add(ReadType(handle, definition));
             }
 
-            return types.OrderBy(item => item.EcmaId, StringComparer.Ordinal).ToArray();
+            var ordered = types.OrderBy(item => item.EcmaId, StringComparer.Ordinal).ToArray();
+            RejectDuplicateIds(ordered.Select(item => item.EcmaId), "type");
+            RejectDuplicateIds(
+                ordered.SelectMany(item => item.Members).Select(item => item.EcmaId),
+                "member");
+            return ordered;
+        }
+
+        private static void RejectDuplicateIds(IEnumerable<string> ids, string kind)
+        {
+            var duplicate = ids.GroupBy(item => item, StringComparer.Ordinal)
+                .FirstOrDefault(group => group.Skip(1).Any());
+            if (duplicate is not null)
+                throw new InvalidDataException($"Duplicate {kind} ECMA documentation ID '{duplicate.Key}'.");
         }
 
         private ApiCorpusType ReadType(TypeDefinitionHandle handle, TypeDefinition definition)
         {
             var context = CreateTypeContext(definition);
-            var nullableContext = ReadNullableContext(definition.GetCustomAttributes(), null);
+            var nullableContext = ReadNullableContext(
+                definition.GetCustomAttributes(),
+                GetInheritedNullableContext(handle));
             var baseType = definition.BaseType.IsNil
                 ? null
                 : DecodeStructuralType(
@@ -235,6 +252,9 @@ public static class MetadataApiReader
             foreach (var handle in definition.GetProperties())
             {
                 var property = reader.GetPropertyDefinition(handle);
+                RejectVisibleOtherAccessors(
+                    property.GetAccessors().Others,
+                    $"property '{reader.GetString(property.Name)}'");
                 if (TryGetPropertyAccessibility(property, out var accessibility))
                     yield return ReadProperty(typeHandle, property, accessibility, typeContext, nullableContext);
             }
@@ -242,6 +262,10 @@ public static class MetadataApiReader
             foreach (var handle in definition.GetEvents())
             {
                 var eventDefinition = reader.GetEventDefinition(handle);
+                var eventAccessors = eventDefinition.GetAccessors();
+                RejectVisibleOtherAccessors(
+                    [eventAccessors.Raiser, .. eventAccessors.Others],
+                    $"event '{reader.GetString(eventDefinition.Name)}'");
                 if (TryGetEventAccessibility(eventDefinition, out var accessibility))
                     yield return ReadEvent(typeHandle, eventDefinition, accessibility, typeContext, nullableContext);
             }
@@ -267,6 +291,12 @@ public static class MetadataApiReader
                 .ToImmutableArray();
             var context = typeContext with { MethodParameters = methodParameters };
             var signature = method.DecodeSignature(typeProvider, context);
+            var rawName = reader.GetString(method.Name);
+            var isConstructor = rawName is ".ctor" or ".cctor";
+            if (isConstructor)
+                ValidateConstructor(typeHandle, method, signature, methodParameters.Length, rawName);
+            else if (rawName.StartsWith("op_", StringComparison.Ordinal))
+                ValidateOperator(typeHandle, method, signature, methodParameters.Length, rawName);
             var parametersBySequence = method.GetParameters()
                 .ToDictionary(item => (int)reader.GetParameter(item).SequenceNumber);
             var nullableContext = ReadNullableContext(method.GetCustomAttributes(), containingNullableContext);
@@ -325,9 +355,8 @@ public static class MetadataApiReader
                 $"return type of '{reader.GetString(method.Name)}'",
                 requireByReference: true);
             var returnTupleNames = ReadTupleNames(returnAttributes);
-            var rawName = reader.GetString(method.Name);
-            var isConstructor = rawName is ".ctor" or ".cctor";
             var isOperator = rawName.StartsWith("op_", StringComparison.Ordinal);
+            var isConversion = IsConversionOperator(rawName);
             var kind = isConstructor ? "constructor" : isOperator ? "operator" : "method";
             var displayName = isConstructor
                 ? StripArity(reader.GetString(reader.GetTypeDefinition(typeHandle).Name))
@@ -337,7 +366,7 @@ public static class MetadataApiReader
 
             var modifiers = GetMethodModifiers(method.Attributes);
             var returnPrefix = GetReturnPrefix(returnType, returnParameterAttributes);
-            var returnText = isConstructor
+            var returnText = isConstructor || isConversion
                 ? string.Empty
                 : returnPrefix
                     + RenderCSharp(UnwrapByReference(returnType), returnTupleNames)
@@ -384,6 +413,8 @@ public static class MetadataApiReader
                 nullableContext);
             var tupleNames = ReadTupleNames(property.GetCustomAttributes());
             var accessors = property.GetAccessors();
+            var name = reader.GetString(property.Name);
+            ValidatePropertyAccessors(name, accessors, signature, context);
             var parameterDefinitions = GetPropertyParameterDefinitions(accessors);
             var parameterUses = new List<ApiTypeUse>();
             var parameterTexts = new List<string>();
@@ -412,9 +443,11 @@ public static class MetadataApiReader
             }
 
             var isIndexer = signature.ParameterTypes.Length > 0;
-            var name = reader.GetString(property.Name);
             var displayName = isIndexer ? $"this[{string.Join(", ", parameterTexts)}]" : name;
-            var staticText = IsStaticAccessor(accessors.Getter, accessors.Setter) ? "static " : string.Empty;
+            var declarationModifiers = GetAccessorDeclarationModifiers(
+                typeHandle,
+                [accessors.Getter, accessors.Setter],
+                $"property '{name}'");
             var accessorText = RenderPropertyAccessors(accessors, accessibility, context);
             ValidateModifiers(
                 returnType,
@@ -423,7 +456,7 @@ public static class MetadataApiReader
                 requireByReference: true);
             var returnPrefix = GetReturnPrefix(returnType, 0);
             var returnDisplay = RenderCSharp(UnwrapByReference(returnType), tupleNames);
-            var csharpSignature = $"{accessibility} {staticText}{returnPrefix}{returnDisplay} {displayName} {{ {accessorText} }}";
+            var csharpSignature = $"{accessibility} {declarationModifiers}{returnPrefix}{returnDisplay} {displayName} {{ {accessorText} }}";
             var ecmaParameters = signature.ParameterTypes.Length == 0
                 ? string.Empty
                 : $"({string.Join(",", signature.ParameterTypes.Select(RenderEcmaType))})";
@@ -453,15 +486,19 @@ public static class MetadataApiReader
                 ReadNullableContext(eventDefinition.GetCustomAttributes(), containingNullableContext));
             ValidateModifiers(eventType, NoModifierTypes, $"event '{reader.GetString(eventDefinition.Name)}'");
             var accessors = eventDefinition.GetAccessors();
-            var staticText = IsStaticAccessor(accessors.Adder, accessors.Remover) ? "static " : string.Empty;
             var name = reader.GetString(eventDefinition.Name);
+            ValidateEventAccessors(name, accessors, eventType, context);
+            var declarationModifiers = GetAccessorDeclarationModifiers(
+                typeHandle,
+                [accessors.Adder, accessors.Remover],
+                $"event '{name}'");
             var display = RenderCSharp(eventType, ReadTupleNames(eventDefinition.GetCustomAttributes()));
 
             return new ApiCorpusMember(
                 $"E:{GetEcmaTypeName(typeHandle)}.{EscapeMemberName(name)}",
                 name,
                 "event",
-                $"{accessibility} {staticText}event {display} {name};",
+                $"{accessibility} {declarationModifiers}event {display} {name};",
                 Array.Empty<ApiTypeUse>(),
                 new ApiTypeUse(null, display, CollectTypeNames(eventType)),
                 Array.Empty<ApiTypeUse>(),
@@ -521,6 +558,24 @@ public static class MetadataApiReader
                 var isUnmanaged = HasAttribute(
                     parameter.GetCustomAttributes(),
                     "System.Runtime.CompilerServices.IsUnmanagedAttribute");
+                var parameterAttributes = parameter.Attributes;
+                var isValueType = (parameterAttributes
+                    & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0;
+                if (isValueType)
+                {
+                    result.Add(new ApiTypeUse(
+                        parameterName,
+                        isUnmanaged ? "unmanaged" : "struct",
+                        Array.Empty<string>()));
+                }
+                else if ((parameterAttributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
+                {
+                    var parameterNullable = ReadNullableFlags(parameter.GetCustomAttributes());
+                    result.Add(new ApiTypeUse(
+                        parameterName,
+                        IsNullableClassConstraint(parameterNullable, parameterName) ? "class?" : "class",
+                        Array.Empty<string>()));
+                }
                 foreach (var constraintHandle in parameter.GetConstraints())
                 {
                     var constraint = reader.GetGenericParameterConstraint(constraintHandle);
@@ -552,6 +607,14 @@ public static class MetadataApiReader
                         RenderCSharp(type, null),
                         CollectTypeNames(type)));
                 }
+                if (!isValueType
+                    && (parameterAttributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
+                {
+                    result.Add(new ApiTypeUse(
+                        parameterName,
+                        "new()",
+                        Array.Empty<string>()));
+                }
             }
 
             return result;
@@ -560,7 +623,7 @@ public static class MetadataApiReader
         private string DecodeStructuralType(
             EntityHandle handle,
             SignatureContext context,
-            byte[]? nullableFlags,
+            NullableTransform? nullableFlags,
             byte? nullableContext,
             string position)
         {
@@ -596,7 +659,9 @@ public static class MetadataApiReader
                 else if ((attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
                 {
                     var parameterNullable = ReadNullableFlags(parameter.GetCustomAttributes());
-                    parts.Add(parameterNullable is [2, ..] ? "class?" : "class");
+                    parts.Add(IsNullableClassConstraint(
+                        parameterNullable,
+                        reader.GetString(parameter.Name)) ? "class?" : "class");
                 }
 
                 foreach (var constraintHandle in parameter.GetConstraints())
@@ -668,9 +733,7 @@ public static class MetadataApiReader
                     arguments.Add($"{argument.Name} = {RenderAttributeArgument(argument.Type, argument.Value, argumentTypeNames)}");
                 }
 
-                var applicationType = attributeType.EndsWith("Attribute", StringComparison.Ordinal)
-                    ? attributeType[..^"Attribute".Length]
-                    : attributeType;
+                var applicationType = RemoveAttributeSuffix(GetAttributeDisplayType(attribute));
                 var application = arguments.Count == 0
                     ? $"[{applicationType}]"
                     : $"[{applicationType}({string.Join(", ", arguments)})]";
@@ -686,7 +749,7 @@ public static class MetadataApiReader
                 .ToArray();
         }
 
-        private static string RenderAttributeArgument(
+        private string RenderAttributeArgument(
             DecodedType argumentType,
             object? argumentValue,
             ISet<string> argumentTypeNames)
@@ -706,6 +769,12 @@ public static class MetadataApiReader
                 foreach (var name in CollectTypeNames(type))
                     argumentTypeNames.Add(name);
                 return $"typeof({RenderCSharp(type, null)})";
+            }
+
+            if (TryGetLocalEnum(argumentType, out var enumDefinition))
+            {
+                argumentTypeNames.Add(argumentType.CanonicalName!);
+                return RenderLocalEnum(argumentType, enumDefinition, argumentValue);
             }
 
             if (argumentValue is ImmutableArray<CustomAttributeTypedArgument<DecodedType>> elements)
@@ -728,6 +797,104 @@ public static class MetadataApiReader
                     $"Attribute argument type '{argumentValue.GetType().FullName}' is unsupported."),
             };
         }
+
+        private static string RemoveAttributeSuffix(string attributeType)
+        {
+            var genericArguments = attributeType.IndexOf('<');
+            var suffixEnd = genericArguments < 0 ? attributeType.Length : genericArguments;
+            const string suffix = "Attribute";
+            return suffixEnd >= suffix.Length
+                && attributeType.AsSpan(suffixEnd - suffix.Length, suffix.Length)
+                    .SequenceEqual(suffix)
+                    ? attributeType.Remove(suffixEnd - suffix.Length, suffix.Length)
+                    : attributeType;
+        }
+
+        private bool TryGetLocalEnum(DecodedType type, out TypeDefinition definition)
+        {
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                if (GetDefinitionTypeName(handle) != type.CanonicalName)
+                    continue;
+                definition = reader.GetTypeDefinition(handle);
+                return GetEntityTypeName(definition.BaseType) == "System.Enum";
+            }
+            definition = default;
+            return false;
+        }
+
+        private string RenderLocalEnum(
+            DecodedType enumType,
+            TypeDefinition definition,
+            object? value)
+        {
+            if (value is null)
+                throw new InvalidDataException($"Enum '{enumType.CanonicalName}' cannot be null.");
+            var numericValue = GetIntegralBits(value);
+            var constants = definition.GetFields()
+                .Select(handle => reader.GetFieldDefinition(handle))
+                .Where(field => (field.Attributes & FieldAttributes.Literal) != 0)
+                .Select(field => (
+                    Name: reader.GetString(field.Name),
+                    Value: ReadIntegralConstant(field.GetDefaultValue())))
+                .OrderBy(item => item.Value)
+                .ToArray();
+            var exact = constants.FirstOrDefault(item => item.Value == numericValue);
+            if (exact.Name is not null)
+                return $"{enumType.CanonicalName}.{exact.Name}";
+
+            if (HasAttribute(definition.GetCustomAttributes(), "System.FlagsAttribute"))
+            {
+                var remaining = numericValue;
+                var parts = new List<string>();
+                foreach (var constant in constants.Where(item => item.Value != 0))
+                {
+                    if ((remaining & constant.Value) != constant.Value)
+                        continue;
+                    parts.Add($"{enumType.CanonicalName}.{constant.Name}");
+                    remaining &= ~constant.Value;
+                }
+                if (remaining == 0 && parts.Count > 0)
+                    return string.Join(" | ", parts);
+            }
+
+            return $"({enumType.CanonicalName}){Convert.ToString(value, CultureInfo.InvariantCulture)}";
+        }
+
+        private ulong ReadIntegralConstant(ConstantHandle handle)
+        {
+            if (handle.IsNil)
+                throw new InvalidDataException("An enum literal has no constant value.");
+            var constant = reader.GetConstant(handle);
+            var blob = reader.GetBlobReader(constant.Value);
+            return constant.TypeCode switch
+            {
+                ConstantTypeCode.SByte => unchecked((ulong)blob.ReadSByte()),
+                ConstantTypeCode.Byte => blob.ReadByte(),
+                ConstantTypeCode.Int16 => unchecked((ulong)blob.ReadInt16()),
+                ConstantTypeCode.UInt16 => blob.ReadUInt16(),
+                ConstantTypeCode.Int32 => unchecked((ulong)blob.ReadInt32()),
+                ConstantTypeCode.UInt32 => blob.ReadUInt32(),
+                ConstantTypeCode.Int64 => unchecked((ulong)blob.ReadInt64()),
+                ConstantTypeCode.UInt64 => blob.ReadUInt64(),
+                _ => throw new InvalidDataException(
+                    $"Enum constant type '{constant.TypeCode}' is unsupported."),
+            };
+        }
+
+        private static ulong GetIntegralBits(object value) => value switch
+        {
+            sbyte number => unchecked((ulong)number),
+            byte number => number,
+            short number => unchecked((ulong)number),
+            ushort number => number,
+            int number => unchecked((ulong)number),
+            uint number => number,
+            long number => unchecked((ulong)number),
+            ulong number => number,
+            _ => throw new InvalidDataException(
+                $"Enum value type '{value.GetType().FullName}' is unsupported."),
+        };
 
         private static string RenderAttributeTargets(object? value)
         {
@@ -765,8 +932,30 @@ public static class MetadataApiReader
         {
             HandleKind.TypeDefinition => GetDefinitionTypeName((TypeDefinitionHandle)handle),
             HandleKind.TypeReference => GetReferenceTypeName((TypeReferenceHandle)handle),
+            HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle)
+                .DecodeSignature(typeProvider, SignatureContext.Empty).CanonicalName
+                ?? throw new InvalidDataException("A generic attribute type has no canonical identity."),
             _ => throw new InvalidDataException($"Attribute type handle '{handle.Kind}' is unsupported."),
         };
+
+        private string GetAttributeDisplayType(CustomAttribute attribute)
+        {
+            var declaringType = attribute.Constructor.Kind switch
+            {
+                HandleKind.MethodDefinition => (EntityHandle)reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)attribute.Constructor).GetDeclaringType(),
+                HandleKind.MemberReference => reader.GetMemberReference(
+                    (MemberReferenceHandle)attribute.Constructor).Parent,
+                _ => throw new InvalidDataException(
+                    $"Attribute constructor handle '{attribute.Constructor.Kind}' is unsupported."),
+            };
+            return declaringType.Kind == HandleKind.TypeSpecification
+                ? RenderCSharp(
+                    reader.GetTypeSpecification((TypeSpecificationHandle)declaringType)
+                        .DecodeSignature(typeProvider, SignatureContext.Empty),
+                    null)
+                : RenderNamedType(GetEntityTypeName(declaringType));
+        }
 
         private DecodedType DecodeEntityType(EntityHandle handle, SignatureContext context) => handle.Kind switch
         {
@@ -809,15 +998,30 @@ public static class MetadataApiReader
         private bool TryGetPropertyAccessibility(PropertyDefinition property, out string accessibility)
         {
             var accessors = property.GetAccessors();
-            return TryGetMostVisibleAccessibility([accessors.Getter, accessors.Setter, .. accessors.Others], out accessibility);
+            return TryGetMostVisibleAccessibility([accessors.Getter, accessors.Setter], out accessibility);
         }
 
         private bool TryGetEventAccessibility(EventDefinition eventDefinition, out string accessibility)
         {
             var accessors = eventDefinition.GetAccessors();
             return TryGetMostVisibleAccessibility(
-                [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others],
+                [accessors.Adder, accessors.Remover],
                 out accessibility);
+        }
+
+        private void RejectVisibleOtherAccessors(
+            IEnumerable<MethodDefinitionHandle> handles,
+            string position)
+        {
+            foreach (var handle in handles.Where(handle => !handle.IsNil))
+            {
+                var method = reader.GetMethodDefinition(handle);
+                if (IsVisible(method.Attributes & MethodAttributes.MemberAccessMask))
+                {
+                    throw new InvalidDataException(
+                        $"Visible accessor '{reader.GetString(method.Name)}' on {position} cannot be represented as C#.");
+                }
+            }
         }
 
         private bool TryGetMostVisibleAccessibility(
@@ -900,6 +1104,173 @@ public static class MetadataApiReader
             return string.Join(' ', parts);
         }
 
+        private void ValidatePropertyAccessors(
+            string propertyName,
+            PropertyAccessors accessors,
+            MethodSignature<DecodedType> propertySignature,
+            SignatureContext context)
+        {
+            if (accessors.Getter.IsNil && accessors.Setter.IsNil)
+                throw new InvalidDataException($"Property '{propertyName}' has no getter or setter.");
+            if (!accessors.Getter.IsNil)
+            {
+                var getter = reader.GetMethodDefinition(accessors.Getter);
+                var getterName = reader.GetString(getter.Name);
+                if (getterName != $"get_{propertyName}")
+                    throw new InvalidDataException($"Property getter '{getterName}' has an unsupported name.");
+                var getterSignature = getter.DecodeSignature(typeProvider, context);
+                ValidateAccessorHeader(getter, getterSignature, getterName);
+                ValidateSignatureType(
+                    getterSignature.ReturnType,
+                    propertySignature.ReturnType,
+                    $"return type of '{getterName}'");
+                ValidateAccessorParameters(
+                    getterSignature.ParameterTypes,
+                    propertySignature.ParameterTypes,
+                    getterName);
+            }
+
+            if (!accessors.Setter.IsNil)
+            {
+                var setter = reader.GetMethodDefinition(accessors.Setter);
+                var setterName = reader.GetString(setter.Name);
+                if (setterName != $"set_{propertyName}")
+                    throw new InvalidDataException($"Property setter '{setterName}' has an unsupported name.");
+                var setterSignature = setter.DecodeSignature(typeProvider, context);
+                ValidateAccessorHeader(setter, setterSignature, setterName);
+                ValidateRootModifiers(
+                    setterSignature.ReturnType,
+                    InitAccessorModifierTypes,
+                    $"return type of '{setterName}'",
+                    "System.Void");
+                if (setterSignature.ParameterTypes.Length != propertySignature.ParameterTypes.Length + 1)
+                    throw new InvalidDataException($"Property setter '{setterName}' has an incompatible parameter count.");
+                for (var index = 0; index < propertySignature.ParameterTypes.Length; index++)
+                {
+                    ValidateSignatureType(
+                        setterSignature.ParameterTypes[index],
+                        propertySignature.ParameterTypes[index],
+                        $"parameter {index} of '{setterName}'");
+                }
+                ValidateSignatureType(
+                    setterSignature.ParameterTypes[^1],
+                    propertySignature.ReturnType,
+                    $"value parameter of '{setterName}'");
+            }
+        }
+
+        private void ValidateEventAccessors(
+            string eventName,
+            EventAccessors accessors,
+            DecodedType eventType,
+            SignatureContext context)
+        {
+            if (accessors.Adder.IsNil || accessors.Remover.IsNil)
+                throw new InvalidDataException($"Event '{eventName}' must have both an adder and remover.");
+            var addAccess = reader.GetMethodDefinition(accessors.Adder).Attributes
+                & MethodAttributes.MemberAccessMask;
+            var removeAccess = reader.GetMethodDefinition(accessors.Remover).Attributes
+                & MethodAttributes.MemberAccessMask;
+            if (addAccess != removeAccess)
+                throw new InvalidDataException($"Event '{eventName}' accessors have incompatible visibility.");
+
+            ValidateEventAccessor(accessors.Adder, $"add_{eventName}", eventType, context);
+            ValidateEventAccessor(accessors.Remover, $"remove_{eventName}", eventType, context);
+        }
+
+        private void ValidateEventAccessor(
+            MethodDefinitionHandle handle,
+            string expectedName,
+            DecodedType eventType,
+            SignatureContext context)
+        {
+            var method = reader.GetMethodDefinition(handle);
+            var name = reader.GetString(method.Name);
+            if (name != expectedName)
+                throw new InvalidDataException($"Event accessor '{name}' has an unsupported name.");
+            var signature = method.DecodeSignature(typeProvider, context);
+            ValidateAccessorHeader(method, signature, name);
+            ValidateRootModifiers(
+                signature.ReturnType,
+                NoModifierTypes,
+                $"return type of '{name}'",
+                "System.Void");
+            if (signature.ParameterTypes.Length != 1)
+                throw new InvalidDataException($"Event accessor '{name}' has an incompatible parameter count.");
+            ValidateSignatureType(signature.ParameterTypes[0], eventType, $"parameter of '{name}'");
+        }
+
+        private static void ValidateAccessorHeader(
+            MethodDefinition method,
+            MethodSignature<DecodedType> signature,
+            string name)
+        {
+            if ((method.Attributes & MethodAttributes.SpecialName) == 0)
+                throw new InvalidDataException($"Accessor '{name}' is not marked special-name.");
+            if (signature.GenericParameterCount != 0)
+                throw new InvalidDataException($"Accessor '{name}' cannot be generic.");
+            var isStatic = (method.Attributes & MethodAttributes.Static) != 0;
+            if (signature.Header.IsInstance == isStatic)
+                throw new InvalidDataException($"Accessor '{name}' has an incompatible calling convention.");
+        }
+
+        private static void ValidateAccessorParameters(
+            ImmutableArray<DecodedType> actual,
+            ImmutableArray<DecodedType> expected,
+            string name)
+        {
+            if (actual.Length != expected.Length)
+                throw new InvalidDataException($"Accessor '{name}' has an incompatible parameter count.");
+            for (var index = 0; index < actual.Length; index++)
+                ValidateSignatureType(actual[index], expected[index], $"parameter {index} of '{name}'");
+        }
+
+        private static void ValidateSignatureType(
+            DecodedType actual,
+            DecodedType expected,
+            string position)
+        {
+            if (!HaveSameSignatureShape(actual, expected))
+                throw new InvalidDataException($"The {position} does not match its declaration.");
+        }
+
+        private static bool HaveSameSignatureShape(DecodedType left, DecodedType right)
+        {
+            if (left.Kind != right.Kind
+                || left.CanonicalName != right.CanonicalName
+                || left.GenericIndex != right.GenericIndex
+                || left.IsMethodGenericParameter != right.IsMethodGenericParameter
+                || left.IsValueType != right.IsValueType
+                || left.IsRequiredModifier != right.IsRequiredModifier
+                || left.IsSzArray != right.IsSzArray
+                || left.ModifierType?.CanonicalName != right.ModifierType?.CanonicalName
+                || left.ArrayShape.Rank != right.ArrayShape.Rank
+                || !SequenceEqual(left.ArrayShape.Sizes, right.ArrayShape.Sizes)
+                || !SequenceEqual(left.ArrayShape.LowerBounds, right.ArrayShape.LowerBounds)
+                || left.TypeArguments.Length != right.TypeArguments.Length)
+            {
+                return false;
+            }
+            if (left.ElementType is null != (right.ElementType is null))
+                return false;
+            if (left.ElementType is not null
+                && !HaveSameSignatureShape(left.ElementType, right.ElementType!))
+            {
+                return false;
+            }
+            for (var index = 0; index < left.TypeArguments.Length; index++)
+            {
+                if (!HaveSameSignatureShape(left.TypeArguments[index], right.TypeArguments[index]))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool SequenceEqual<T>(ImmutableArray<T> left, ImmutableArray<T> right) =>
+            left.IsDefaultOrEmpty
+                ? right.IsDefaultOrEmpty
+                : !right.IsDefault && left.AsSpan().SequenceEqual(right.AsSpan());
+
         private bool IsVisibleAccessor(MethodDefinitionHandle handle) => !handle.IsNil
             && IsVisible(reader.GetMethodDefinition(handle).Attributes & MethodAttributes.MemberAccessMask);
 
@@ -937,10 +1308,63 @@ public static class MetadataApiReader
             return accessibility == propertyAccessibility ? $"{keyword};" : $"{accessibility} {keyword};";
         }
 
-        private bool IsStaticAccessor(params MethodDefinitionHandle[] handles) => handles
-            .Where(handle => !handle.IsNil)
-            .Select(handle => reader.GetMethodDefinition(handle))
-            .Any(method => (method.Attributes & MethodAttributes.Static) != 0);
+        private string GetAccessorDeclarationModifiers(
+            TypeDefinitionHandle typeHandle,
+            IEnumerable<MethodDefinitionHandle> handles,
+            string position)
+        {
+            const MethodAttributes semanticMask = MethodAttributes.Static
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.PinvokeImpl;
+            var semantics = handles
+                .Where(handle => !handle.IsNil)
+                .Select(handle => reader.GetMethodDefinition(handle).Attributes & semanticMask)
+                .Distinct()
+                .ToArray();
+            if (semantics.Length == 0)
+                throw new InvalidDataException($"The {position} has no getter, setter, adder, or remover.");
+            if (semantics.Length != 1)
+                throw new InvalidDataException($"The accessors for {position} have incompatible modifiers.");
+
+            var attributes = semantics[0];
+            var isStatic = (attributes & MethodAttributes.Static) != 0;
+            var isAbstract = (attributes & MethodAttributes.Abstract) != 0;
+            var isVirtual = (attributes & MethodAttributes.Virtual) != 0;
+            var isFinal = (attributes & MethodAttributes.Final) != 0;
+            var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
+            var declaringType = reader.GetTypeDefinition(typeHandle);
+            var isInterface = (declaringType.Attributes & TypeAttributes.Interface) != 0;
+            if ((attributes & MethodAttributes.PinvokeImpl) != 0
+                || isAbstract && !isVirtual
+                || isFinal && !isVirtual
+                || isStatic && (isFinal || isNewSlot && !isVirtual)
+                || isStatic && isVirtual && !isInterface)
+            {
+                throw new InvalidDataException(
+                    isStatic && isVirtual && !isInterface
+                        ? $"Static virtual accessors for {position} require an interface declaring type."
+                        : $"The accessors for {position} have unsupported modifiers ({attributes}).");
+            }
+
+            if (isStatic)
+            {
+                if (isAbstract)
+                    return "static abstract ";
+                if (isVirtual)
+                    return "static virtual ";
+                return "static ";
+            }
+            if (isAbstract)
+                return isNewSlot ? "abstract " : "abstract override ";
+            if (!isVirtual)
+                return string.Empty;
+            if (isFinal)
+                return "sealed override ";
+            return isNewSlot ? "virtual " : "override ";
+        }
 
         private Dictionary<int, ParameterHandle> GetPropertyParameterDefinitions(PropertyAccessors accessors)
         {
@@ -963,11 +1387,176 @@ public static class MetadataApiReader
             var parameters = signature.ParameterTypes.Length == 0
                 ? string.Empty
                 : $"({string.Join(",", signature.ParameterTypes.Select(RenderEcmaType))})";
-            var conversionReturn = reader.GetString(method.Name) is "op_Implicit" or "op_Explicit"
+            var conversionReturn = IsConversionOperator(reader.GetString(method.Name))
                 ? $"~{RenderEcmaType(signature.ReturnType)}"
                 : string.Empty;
             return $"M:{GetEcmaTypeName(typeHandle)}.{name}{parameters}{conversionReturn}";
         }
+
+        private void ValidateConstructor(
+            TypeDefinitionHandle typeHandle,
+            MethodDefinition method,
+            MethodSignature<DecodedType> signature,
+            int declaredGenericParameterCount,
+            string name)
+        {
+            var typeName = GetSourceTypeName(typeHandle, includeNamespace: true);
+            var attributes = method.Attributes;
+            var isStatic = (attributes & MethodAttributes.Static) != 0;
+            if ((attributes & (MethodAttributes.SpecialName | MethodAttributes.RTSpecialName))
+                != (MethodAttributes.SpecialName | MethodAttributes.RTSpecialName))
+            {
+                throw new InvalidDataException($"The constructor '{typeName}.{name}' lacks constructor metadata flags.");
+            }
+            const MethodAttributes incompatibleFlags = MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot;
+            if ((attributes & incompatibleFlags) != 0)
+            {
+                throw new InvalidDataException(
+                    $"The constructor '{typeName}.{name}' has constructor-incompatible method flags.");
+            }
+            if (!IsPlainVoid(signature.ReturnType))
+                throw new InvalidDataException($"Constructor '{typeName}' must return System.Void.");
+            if (signature.GenericParameterCount != 0 || declaredGenericParameterCount != 0)
+                throw new InvalidDataException($"The constructor '{typeName}.{name}' cannot be generic.");
+            if (signature.Header.CallingConvention != SignatureCallingConvention.Default)
+                throw new InvalidDataException($"The constructor '{typeName}.{name}' has an unsupported calling convention.");
+
+            if (name == ".ctor")
+            {
+                if (isStatic || !signature.Header.IsInstance)
+                    throw new InvalidDataException($"Instance constructor '{typeName}.ctor' must be an instance method.");
+                return;
+            }
+
+            if (!isStatic
+                || signature.Header.IsInstance
+                || signature.ParameterTypes.Length != 0
+                || (attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Private)
+                throw new InvalidDataException($"Type initializer '{typeName}.cctor' must be static and parameterless.");
+        }
+
+        private void ValidateOperator(
+            TypeDefinitionHandle typeHandle,
+            MethodDefinition method,
+            MethodSignature<DecodedType> signature,
+            int declaredGenericParameterCount,
+            string name)
+        {
+            if (!OperatorNames.ContainsKey(name))
+                throw new InvalidDataException($"Operator metadata name '{name}' is unsupported.");
+            var attributes = method.Attributes;
+            if ((attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                || (attributes & MethodAttributes.Static) == 0
+                || (attributes & MethodAttributes.SpecialName) == 0
+                || signature.Header.IsInstance
+                || signature.Header.CallingConvention != SignatureCallingConvention.Default)
+            {
+                throw new InvalidDataException($"Operator '{name}' must be a public static special-name method.");
+            }
+            if (signature.GenericParameterCount != 0 || declaredGenericParameterCount != 0)
+                throw new InvalidDataException($"Operator '{name}' cannot be generic.");
+            if (IsPlainVoid(signature.ReturnType))
+                throw new InvalidDataException($"Operator '{name}' cannot return System.Void.");
+
+            var expectedParameterCount = UnaryOperatorNames.Contains(name) ? 1 : 2;
+            if (signature.ParameterTypes.Length != expectedParameterCount)
+            {
+                throw new InvalidDataException(
+                    $"Operator '{name}' requires {expectedParameterCount} parameter(s).");
+            }
+
+            var declaringType = GetDeclaredSelfType(typeHandle);
+            var isConversion = IsConversionOperator(name);
+            var hasDeclaringParameter = signature.ParameterTypes.Any(type =>
+                HaveSameSignatureShape(type, declaringType));
+            if (isConversion
+                ? !hasDeclaringParameter && !HaveSameSignatureShape(signature.ReturnType, declaringType)
+                : !hasDeclaringParameter)
+            {
+                throw new InvalidDataException(
+                    $"Operator '{name}' must convert to, convert from, or operate on '{RenderEcmaType(declaringType)}'.");
+            }
+            if (isConversion && HaveSameSignatureShape(signature.ParameterTypes[0], signature.ReturnType))
+                throw new InvalidDataException($"Conversion operator '{name}' must change type.");
+            if (IncrementOperatorNames.Contains(name)
+                && !HaveSameSignatureShape(signature.ReturnType, declaringType))
+            {
+                throw new InvalidDataException(
+                    $"Increment or decrement operator '{name}' must return '{RenderEcmaType(declaringType)}'.");
+            }
+            if (BooleanOperatorNames.Contains(name)
+                && (signature.ReturnType.Kind != DecodedTypeKind.Named
+                    || signature.ReturnType.CanonicalName != "System.Boolean"))
+            {
+                throw new InvalidDataException($"Boolean operator '{name}' must return System.Boolean.");
+            }
+        }
+
+        private DecodedType GetDeclaredSelfType(TypeDefinitionHandle handle)
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            var canonicalName = GetEcmaTypeName(handle);
+            var baseTypeName = definition.BaseType.IsNil
+                ? null
+                : GetEntityTypeName(definition.BaseType);
+            var isValueType = baseTypeName is "System.ValueType" or "System.Enum";
+            var arguments = definition.GetGenericParameters()
+                .Select(item => reader.GetGenericParameter(item))
+                .OrderBy(item => item.Index)
+                .Select(item => new DecodedType(
+                    DecodedTypeKind.GenericParameter,
+                    GenericName: reader.GetString(item.Name),
+                    GenericIndex: item.Index))
+                .ToImmutableArray();
+            return arguments.Length == 0
+                ? new DecodedType(DecodedTypeKind.Named, canonicalName, IsValueType: isValueType)
+                : new DecodedType(
+                    DecodedTypeKind.GenericInstance,
+                    canonicalName,
+                    IsValueType: isValueType,
+                    TypeArguments: arguments);
+        }
+
+        private static readonly HashSet<string> UnaryOperatorNames = new(StringComparer.Ordinal)
+        {
+            "op_UnaryPlus",
+            "op_UnaryNegation",
+            "op_LogicalNot",
+            "op_OnesComplement",
+            "op_Increment",
+            "op_Decrement",
+            "op_True",
+            "op_False",
+            "op_Implicit",
+            "op_Explicit",
+            "op_CheckedUnaryNegation",
+            "op_CheckedIncrement",
+            "op_CheckedDecrement",
+            "op_CheckedExplicit",
+        };
+
+        private static readonly HashSet<string> IncrementOperatorNames = new(StringComparer.Ordinal)
+        {
+            "op_Increment",
+            "op_Decrement",
+            "op_CheckedIncrement",
+            "op_CheckedDecrement",
+        };
+
+        private static readonly HashSet<string> BooleanOperatorNames = new(StringComparer.Ordinal)
+        {
+            "op_True",
+            "op_False",
+            "op_Equality",
+            "op_Inequality",
+            "op_GreaterThan",
+            "op_LessThan",
+            "op_GreaterThanOrEqual",
+            "op_LessThanOrEqual",
+        };
 
         private string GetEcmaTypeName(TypeDefinitionHandle handle)
         {
@@ -1012,6 +1601,18 @@ public static class MetadataApiReader
                 .ToImmutableArray(),
             ImmutableArray<string>.Empty);
 
+        private byte? GetInheritedNullableContext(TypeDefinitionHandle typeHandle)
+        {
+            var declaringType = reader.GetTypeDefinition(typeHandle).GetDeclaringType();
+            if (!declaringType.IsNil)
+            {
+                return ReadNullableContext(
+                    reader.GetTypeDefinition(declaringType).GetCustomAttributes(),
+                    GetInheritedNullableContext(declaringType));
+            }
+            return ReadNullableContext(reader.GetModuleDefinition().GetCustomAttributes(), null);
+        }
+
         private byte? ReadNullableContext(CustomAttributeHandleCollection handles, byte? fallback)
         {
             foreach (var handle in handles)
@@ -1021,13 +1622,13 @@ public static class MetadataApiReader
                     continue;
                 var value = attribute.DecodeValue(typeProvider);
                 if (value.FixedArguments.Length == 1 && value.FixedArguments[0].Value is byte flag)
-                    return flag;
+                    return ValidateNullableFlag(flag, "NullableContextAttribute");
                 throw new InvalidDataException("NullableContextAttribute had an unsupported encoding.");
             }
             return fallback;
         }
 
-        private byte[]? ReadNullableFlags(CustomAttributeHandleCollection? handles)
+        private NullableTransform? ReadNullableFlags(CustomAttributeHandleCollection? handles)
         {
             if (handles is null)
                 return null;
@@ -1040,12 +1641,41 @@ public static class MetadataApiReader
                 if (value.FixedArguments.Length != 1)
                     throw new InvalidDataException("NullableAttribute had an unsupported encoding.");
                 if (value.FixedArguments[0].Value is byte single)
-                    return [single];
+                    return new NullableTransform(
+                        [ValidateNullableFlag(single, "NullableAttribute")],
+                        IsSingle: true);
                 if (value.FixedArguments[0].Value is ImmutableArray<CustomAttributeTypedArgument<DecodedType>> values)
-                    return values.Select(item => (byte)item.Value!).ToArray();
+                {
+                    return new NullableTransform(
+                        values.Select(item => ValidateNullableFlag(
+                            (byte)item.Value!,
+                            "NullableAttribute")).ToArray(),
+                        IsSingle: false);
+                }
                 throw new InvalidDataException("NullableAttribute had an unsupported encoding.");
             }
             return null;
+        }
+
+        private static byte ValidateNullableFlag(byte flag, string attributeName)
+        {
+            if (flag > 2)
+                throw new InvalidDataException($"{attributeName} contains invalid flag '{flag}'.");
+            return flag;
+        }
+
+        private static bool IsNullableClassConstraint(
+            NullableTransform? transform,
+            string parameterName)
+        {
+            if (transform is null)
+                return false;
+            if (transform.Flags.Length != 1)
+            {
+                throw new InvalidDataException(
+                    $"NullableAttribute supplied {transform.Flags.Length} flags for class constraint '{parameterName}'.");
+            }
+            return transform.Flags[0] == 2;
         }
 
         private string?[]? ReadTupleNames(CustomAttributeHandleCollection? handles)
@@ -1083,28 +1713,63 @@ public static class MetadataApiReader
             return false;
         }
 
-        private static DecodedType ApplyNullable(DecodedType type, byte[]? flags, byte? context)
+        private static DecodedType ApplyNullable(
+            DecodedType type,
+            NullableTransform? transform,
+            byte? context)
         {
             var index = 0;
-            return ApplyNullable(type, flags, context, ref index);
+            var result = ApplyNullable(type, transform, context, ref index);
+            if (transform is { IsSingle: false } && index != transform.Flags.Length)
+            {
+                throw new InvalidDataException(
+                    $"NullableAttribute supplied {transform.Flags.Length} flags for {index} signature positions.");
+            }
+            return result;
         }
 
         private static DecodedType ApplyNullable(
             DecodedType type,
-            byte[]? flags,
+            NullableTransform? transform,
             byte? context,
             ref int index)
         {
             if (type.Kind is DecodedTypeKind.ByReference or DecodedTypeKind.Pointer or DecodedTypeKind.Modified)
-                return type with { ElementType = ApplyNullable(type.ElementType!, flags, context, ref index) };
+                return type with { ElementType = ApplyNullable(type.ElementType!, transform, context, ref index) };
 
-            var annotation = flags is not null && index < flags.Length ? flags[index++] : context ?? 0;
+            if (type.Kind == DecodedTypeKind.GenericInstance
+                && type.CanonicalName == "System.Nullable`1")
+            {
+                var nullableArguments = ImmutableArray.CreateBuilder<DecodedType>(type.TypeArguments.Length);
+                foreach (var argument in type.TypeArguments)
+                    nullableArguments.Add(ApplyNullable(argument, transform, context, ref index));
+                return type with { TypeArguments = nullableArguments.MoveToImmutable() };
+            }
+
+            byte annotation;
+            if (transform is { IsSingle: true })
+            {
+                annotation = transform.Flags[0];
+            }
+            else if (transform is not null)
+            {
+                if (index >= transform.Flags.Length)
+                {
+                    throw new InvalidDataException(
+                        $"NullableAttribute does not supply every signature position; missing '{type.CanonicalName ?? type.Kind.ToString()}'.");
+                }
+                annotation = transform.Flags[index++];
+            }
+            else
+            {
+                annotation = context ?? 0;
+            }
             if (type.Kind == DecodedTypeKind.Array)
             {
                 return type with
                 {
                     NullableAnnotation = annotation,
-                    ElementType = ApplyNullable(type.ElementType!, flags, context, ref index),
+                    ElementType = ApplyNullable(type.ElementType!, transform, context, ref index),
                 };
             }
 
@@ -1112,7 +1777,7 @@ public static class MetadataApiReader
             {
                 var arguments = ImmutableArray.CreateBuilder<DecodedType>(type.TypeArguments.Length);
                 foreach (var argument in type.TypeArguments)
-                    arguments.Add(ApplyNullable(argument, flags, context, ref index));
+                    arguments.Add(ApplyNullable(argument, transform, context, ref index));
                 return type with { NullableAnnotation = annotation, TypeArguments = arguments.MoveToImmutable() };
             }
 
@@ -1122,7 +1787,13 @@ public static class MetadataApiReader
         private static string RenderCSharp(DecodedType type, IReadOnlyList<string?>? tupleNames)
         {
             var tupleIndex = 0;
-            return RenderCSharp(type, tupleNames, ref tupleIndex);
+            var result = RenderCSharp(type, tupleNames, ref tupleIndex);
+            if (tupleNames is not null && tupleIndex != tupleNames.Count)
+            {
+                throw new InvalidDataException(
+                    $"TupleElementNamesAttribute supplied {tupleNames.Count} names for {tupleIndex} tuple elements.");
+            }
+            return result;
         }
 
         private static string RenderCSharp(
@@ -1133,13 +1804,20 @@ public static class MetadataApiReader
             switch (type.Kind)
             {
                 case DecodedTypeKind.ByReference:
+                    throw new InvalidDataException(
+                        "A nested or otherwise unconsumed by-reference type cannot be rendered as C#.");
                 case DecodedTypeKind.Modified:
                     return RenderCSharp(type.ElementType!, tupleNames, ref tupleIndex);
                 case DecodedTypeKind.Pointer:
                     return RenderCSharp(type.ElementType!, tupleNames, ref tupleIndex) + "*";
                 case DecodedTypeKind.Array:
                 {
-                    if (type.ArrayShape.Rank < 1
+                    if (!type.IsSzArray)
+                    {
+                        throw new InvalidDataException(
+                            "A non-SZ array signature cannot be rendered as C# without losing its metadata shape.");
+                    }
+                    if (type.ArrayShape.Rank != 1
                         || type.ArrayShape.Sizes.Length > 0
                         || type.ArrayShape.LowerBounds.Length > 0)
                     {
@@ -1147,10 +1825,7 @@ public static class MetadataApiReader
                             "An array signature with explicit sizes or lower bounds cannot be rendered as C#.");
                     }
                     var element = RenderCSharp(type.ElementType!, tupleNames, ref tupleIndex);
-                    var suffix = type.ArrayShape.Rank == 1
-                        ? "[]"
-                        : $"[{new string(',', type.ArrayShape.Rank - 1)}]";
-                    return element + suffix + NullableSuffix(type);
+                    return element + "[]" + NullableSuffix(type);
                 }
                 case DecodedTypeKind.GenericParameter:
                     return type.GenericName! + NullableSuffix(type);
@@ -1160,24 +1835,31 @@ public static class MetadataApiReader
                         return RenderCSharp(type.TypeArguments[0], tupleNames, ref tupleIndex) + "?";
                     if (IsValueTuple(type.CanonicalName))
                     {
-                        var elements = new List<string>();
-                        foreach (var argument in ExpandTupleArguments(type))
+                        var tupleArguments = ExpandTupleArguments(type).ToArray();
+                        var directNameIndex = tupleIndex;
+                        tupleIndex += tupleArguments.Length;
+                        if (tupleNames is not null && tupleIndex > tupleNames.Count)
                         {
-                            var rendered = RenderCSharp(argument, tupleNames, ref tupleIndex);
-                            var tupleName = tupleNames is not null && tupleIndex < tupleNames.Count
-                                ? tupleNames[tupleIndex]
+                            throw new InvalidDataException(
+                                "TupleElementNamesAttribute does not supply every tuple element name.");
+                        }
+                        var elements = new List<string>();
+                        for (var index = 0; index < tupleArguments.Length; index++)
+                        {
+                            var rendered = RenderCSharp(tupleArguments[index], tupleNames, ref tupleIndex);
+                            var tupleName = tupleNames is not null
+                                ? tupleNames[directNameIndex + index]
                                 : null;
-                            tupleIndex++;
                             elements.Add(string.IsNullOrEmpty(tupleName) ? rendered : $"{rendered} {tupleName}");
                         }
                         return $"({string.Join(", ", elements)})" + NullableSuffix(type);
                     }
 
-                    var genericName = RenderNamedType(type.CanonicalName!);
                     var arguments = new string[type.TypeArguments.Length];
                     for (var index = 0; index < type.TypeArguments.Length; index++)
                         arguments[index] = RenderCSharp(type.TypeArguments[index], tupleNames, ref tupleIndex);
-                    return $"{genericName}<{string.Join(", ", arguments)}>" + NullableSuffix(type);
+                    return RenderConstructedType(type, arguments, ", ", "<", ">")
+                        + NullableSuffix(type);
                 }
                 case DecodedTypeKind.Named:
                     return RenderNamedType(type.CanonicalName!) + NullableSuffix(type);
@@ -1191,16 +1873,61 @@ public static class MetadataApiReader
             DecodedTypeKind.ByReference => RenderEcmaType(type.ElementType!) + "@",
             DecodedTypeKind.Modified => RenderEcmaType(type.ElementType!),
             DecodedTypeKind.Pointer => RenderEcmaType(type.ElementType!) + "*",
-            DecodedTypeKind.Array when type.ArrayShape.Rank == 1 => RenderEcmaType(type.ElementType!) + "[]",
+            DecodedTypeKind.Array when type.IsSzArray => RenderEcmaType(type.ElementType!) + "[]",
             DecodedTypeKind.Array => RenderEcmaType(type.ElementType!) + RenderEcmaArrayShape(type.ArrayShape),
             DecodedTypeKind.GenericParameter => type.IsMethodGenericParameter
                 ? $"``{type.GenericIndex}"
                 : $"`{type.GenericIndex}",
-            DecodedTypeKind.GenericInstance =>
-                $"{StripArityFromQualifiedName(type.CanonicalName!)}{{{string.Join(",", type.TypeArguments.Select(RenderEcmaType))}}}",
+            DecodedTypeKind.GenericInstance => RenderConstructedType(
+                type,
+                type.TypeArguments.Select(RenderEcmaType).ToArray(),
+                ",",
+                "{",
+                "}"),
             DecodedTypeKind.Named => type.CanonicalName!,
             _ => throw new InvalidDataException($"Signature type kind '{type.Kind}' is unsupported."),
         };
+
+        private static string RenderConstructedType(
+            DecodedType type,
+            IReadOnlyList<string> renderedArguments,
+            string argumentSeparator,
+            string openArguments,
+            string closeArguments)
+        {
+            var segments = type.CanonicalName!.Split('.');
+            var argumentIndex = 0;
+            for (var segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
+            {
+                var segment = segments[segmentIndex];
+                var arityMarker = segment.LastIndexOf('`');
+                if (arityMarker < 0)
+                    continue;
+                if (!int.TryParse(segment[(arityMarker + 1)..], out var arity) || arity < 1)
+                    throw new InvalidDataException($"Generic type segment '{segment}' has an invalid arity.");
+                if (argumentIndex + arity > type.TypeArguments.Length)
+                {
+                    throw new InvalidDataException(
+                        $"Constructed type '{type.CanonicalName}' does not provide its declared generic arguments.");
+                }
+
+                var segmentArguments = renderedArguments
+                    .Skip(argumentIndex)
+                    .Take(arity);
+                segments[segmentIndex] = segment[..arityMarker]
+                    + openArguments
+                    + string.Join(argumentSeparator, segmentArguments)
+                    + closeArguments;
+                argumentIndex += arity;
+            }
+
+            if (argumentIndex != type.TypeArguments.Length)
+            {
+                throw new InvalidDataException(
+                    $"Constructed type '{type.CanonicalName}' has {type.TypeArguments.Length} generic arguments but declares {argumentIndex}.");
+            }
+            return string.Join('.', segments);
+        }
 
         private static string RenderEcmaArrayShape(ArrayShape shape)
         {
@@ -1350,8 +2077,7 @@ public static class MetadataApiReader
             ValidateModifiers(current, NoModifierTypes, position);
             if (requireModifier && !foundModifier)
                 throw new InvalidDataException($"The required signature modifier on {position} is missing.");
-            if (foundModifier
-                && requiredUnderlyingCanonicalName is not null
+            if (requiredUnderlyingCanonicalName is not null
                 && current.CanonicalName != requiredUnderlyingCanonicalName)
             {
                 throw new InvalidDataException(
@@ -1387,6 +2113,9 @@ public static class MetadataApiReader
             return type.Kind == DecodedTypeKind.Named && type.CanonicalName == "System.Void";
         }
 
+        private static bool IsPlainVoid(DecodedType type) =>
+            type.Kind == DecodedTypeKind.Named && type.CanonicalName == "System.Void";
+
         private static string GetMethodDisplayName(
             string metadataName,
             DecodedType returnType,
@@ -1394,10 +2123,13 @@ public static class MetadataApiReader
         {
             if (!OperatorNames.TryGetValue(metadataName, out var operatorName))
                 return metadataName;
-            if (metadataName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit")
+            if (IsConversionOperator(metadataName))
                 return $"{operatorName} {RenderCSharp(UnwrapByReference(returnType), tupleNames)}";
             return operatorName;
         }
+
+        private static bool IsConversionOperator(string metadataName) =>
+            metadataName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
 
         private static string NullableSuffix(DecodedType type) =>
             type.NullableAnnotation == 2 && !type.IsValueType ? "?" : string.Empty;
@@ -1525,6 +2257,7 @@ public static class MetadataApiReader
             DecodedTypeKind.Array,
             ElementType: elementType,
             ArrayShape: shape,
+            IsSzArray: false,
             IsValueType: false);
 
         public DecodedType GetByReferenceType(DecodedType elementType) => new(
@@ -1603,6 +2336,7 @@ public static class MetadataApiReader
             DecodedTypeKind.Array,
             ElementType: elementType,
             ArrayShape: new ArrayShape(1, ImmutableArray<int>.Empty, ImmutableArray<int>.Empty),
+            IsSzArray: true,
             IsValueType: false);
 
         public DecodedType GetTypeFromDefinition(
@@ -1748,6 +2482,7 @@ public static class MetadataApiReader
             ArrayShape ArrayShape = default,
             DecodedType? ModifierType = null,
             bool IsRequiredModifier = false,
+            bool IsSzArray = false,
             byte NullableAnnotation = 0)
         {
             this.Kind = Kind;
@@ -1761,6 +2496,7 @@ public static class MetadataApiReader
             this.ArrayShape = ArrayShape;
             this.ModifierType = ModifierType;
             this.IsRequiredModifier = IsRequiredModifier;
+            this.IsSzArray = IsSzArray;
             this.NullableAnnotation = NullableAnnotation;
         }
 
@@ -1775,6 +2511,7 @@ public static class MetadataApiReader
         internal ArrayShape ArrayShape { get; init; }
         internal DecodedType? ModifierType { get; init; }
         internal bool IsRequiredModifier { get; init; }
+        internal bool IsSzArray { get; init; }
         internal byte NullableAnnotation { get; init; }
     }
 
@@ -1797,4 +2534,6 @@ public static class MetadataApiReader
             ImmutableArray<string>.Empty,
             ImmutableArray<string>.Empty);
     }
+
+    private sealed record NullableTransform(byte[] Flags, bool IsSingle);
 }
