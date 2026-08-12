@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 
 namespace DotNetKnowledge.Mcp.Sources;
@@ -6,6 +7,12 @@ public sealed record PackageFrameworkAsset(string Framework, string AssemblyEntr
 
 public static class PackageArchiveReader
 {
+    private const uint EndOfCentralDirectorySignature = 0x06054b50;
+    private const uint Zip64EndOfCentralDirectorySignature = 0x06064b50;
+    private const uint Zip64EndOfCentralDirectoryLocatorSignature = 0x07064b50;
+    private const int EndOfCentralDirectorySize = 22;
+    private const int MaximumEndSearchBytes = EndOfCentralDirectorySize + ushort.MaxValue;
+
     private const long MaximumEntryBytes = 32L * 1024 * 1024;
     private const long MaximumTotalBytes = 128L * 1024 * 1024;
 
@@ -20,8 +27,34 @@ public static class PackageArchiveReader
         ArgumentException.ThrowIfNullOrWhiteSpace(nupkgPath);
         ArgumentNullException.ThrowIfNull(definition);
 
-        using var archive = ZipFile.OpenRead(nupkgPath);
-        if (archive.Entries.Count > MaximumArchiveEntries)
+        using var packageStream = new FileStream(
+            nupkgPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            FileOptions.RandomAccess);
+        var declaredEntryCount = ReadDeclaredEntryCount(packageStream);
+        if (declaredEntryCount > MaximumArchiveEntries)
+            throw new InvalidDataException($"The package exceeds the {MaximumArchiveEntries}-entry limit.");
+
+        packageStream.Position = 0;
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read, leaveOpen: false);
+        int actualEntryCount;
+        try
+        {
+            actualEntryCount = archive.Entries.Count;
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new InvalidDataException(
+                "The package central directory does not match its declared entry count.",
+                exception);
+        }
+
+        if ((ulong)actualEntryCount != declaredEntryCount)
+            throw new InvalidDataException("The package central directory does not match its declared entry count.");
+        if (actualEntryCount > MaximumArchiveEntries)
             throw new InvalidDataException($"The package exceeds the {MaximumArchiveEntries}-entry limit.");
 
         var normalizedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -62,6 +95,109 @@ public static class PackageArchiveReader
 
         assets.Sort(static (left, right) => string.CompareOrdinal(left.Framework, right.Framework));
         return assets;
+    }
+
+    private static ulong ReadDeclaredEntryCount(FileStream stream)
+    {
+        if (stream.Length < EndOfCentralDirectorySize)
+            throw new InvalidDataException("The package has no complete end-of-central-directory record.");
+
+        var searchLength = (int)Math.Min(stream.Length, MaximumEndSearchBytes);
+        var searchStart = stream.Length - searchLength;
+        var endBuffer = new byte[searchLength];
+        stream.Position = searchStart;
+        stream.ReadExactly(endBuffer);
+
+        var endOffsetInBuffer = FindEndOfCentralDirectory(endBuffer);
+        if (endOffsetInBuffer < 0)
+            throw new InvalidDataException("The package has no valid end-of-central-directory record.");
+
+        var endRecord = endBuffer.AsSpan(endOffsetInBuffer, EndOfCentralDirectorySize);
+        if (BinaryPrimitives.ReadUInt16LittleEndian(endRecord[4..]) != 0
+            || BinaryPrimitives.ReadUInt16LittleEndian(endRecord[6..]) != 0)
+        {
+            throw new InvalidDataException("Multi-disk ZIP packages are not supported.");
+        }
+
+        var entriesOnDisk = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[8..]);
+        var totalEntries = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[10..]);
+        if (entriesOnDisk != ushort.MaxValue && totalEntries != ushort.MaxValue)
+        {
+            if (entriesOnDisk != totalEntries)
+                throw new InvalidDataException("The package has inconsistent declared entry counts.");
+            return totalEntries;
+        }
+
+        var absoluteEndOffset = searchStart + endOffsetInBuffer;
+        return ReadZip64DeclaredEntryCount(stream, absoluteEndOffset);
+    }
+
+    private static int FindEndOfCentralDirectory(byte[] buffer)
+    {
+        for (var offset = buffer.Length - EndOfCentralDirectorySize; offset >= 0; offset--)
+        {
+            var record = buffer.AsSpan(offset);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(record) != EndOfCentralDirectorySignature)
+                continue;
+
+            var commentLength = BinaryPrimitives.ReadUInt16LittleEndian(record[20..]);
+            if (offset + EndOfCentralDirectorySize + commentLength == buffer.Length)
+                return offset;
+        }
+
+        return -1;
+    }
+
+    private static ulong ReadZip64DeclaredEntryCount(FileStream stream, long endOffset)
+    {
+        const int locatorSize = 20;
+        const int minimumZip64EndSize = 56;
+        var locatorOffset = endOffset - locatorSize;
+        if (locatorOffset < 0)
+            throw new InvalidDataException("The package ZIP64 locator is missing or truncated.");
+
+        Span<byte> locator = stackalloc byte[locatorSize];
+        stream.Position = locatorOffset;
+        stream.ReadExactly(locator);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(locator) != Zip64EndOfCentralDirectoryLocatorSignature)
+            throw new InvalidDataException("The package ZIP64 locator is missing or malformed.");
+        if (BinaryPrimitives.ReadUInt32LittleEndian(locator[4..]) != 0
+            || BinaryPrimitives.ReadUInt32LittleEndian(locator[16..]) != 1)
+        {
+            throw new InvalidDataException("Multi-disk ZIP64 packages are not supported.");
+        }
+
+        var zip64EndOffset = BinaryPrimitives.ReadUInt64LittleEndian(locator[8..]);
+        if (zip64EndOffset > (ulong)locatorOffset
+            || (ulong)locatorOffset - zip64EndOffset < minimumZip64EndSize)
+        {
+            throw new InvalidDataException("The package ZIP64 end-of-central-directory record is truncated.");
+        }
+
+        Span<byte> zip64End = stackalloc byte[minimumZip64EndSize];
+        stream.Position = (long)zip64EndOffset;
+        stream.ReadExactly(zip64End);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(zip64End) != Zip64EndOfCentralDirectorySignature)
+            throw new InvalidDataException("The package ZIP64 end-of-central-directory record is malformed.");
+
+        var recordPayloadSize = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[4..]);
+        if (recordPayloadSize < 44
+            || zip64EndOffset + 12 + recordPayloadSize != (ulong)locatorOffset)
+        {
+            throw new InvalidDataException("The package ZIP64 end-of-central-directory record is truncated.");
+        }
+        if (BinaryPrimitives.ReadUInt32LittleEndian(zip64End[16..]) != 0
+            || BinaryPrimitives.ReadUInt32LittleEndian(zip64End[20..]) != 0)
+        {
+            throw new InvalidDataException("Multi-disk ZIP64 packages are not supported.");
+        }
+
+        var entriesOnDisk = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[24..]);
+        var totalEntries = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[32..]);
+        if (entriesOnDisk != totalEntries)
+            throw new InvalidDataException("The package ZIP64 record has inconsistent declared entry counts.");
+
+        return totalEntries;
     }
 
     private static string NormalizeAndValidatePath(string path)

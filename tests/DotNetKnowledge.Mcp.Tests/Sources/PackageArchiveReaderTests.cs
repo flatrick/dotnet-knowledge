@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Buffers.Binary;
 using System.Text;
 using DotNetKnowledge.Mcp.Sources;
 
@@ -248,6 +249,129 @@ public sealed class PackageArchiveReaderTests
         }
     }
 
+    [TestMethod]
+    public void ReadAssetsRejectsDeclaredStandardEntryExcessBeforeParsingTheCentralDirectory()
+    {
+        var path = CreateDeclaredOnlyStandardArchive(ExpectedMaximumArchiveEntries + 1);
+        try
+        {
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageArchiveReader.ReadAssets(path, Package()));
+
+            StringAssert.Contains(exception.Message, "1024-entry limit");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsAcceptsAValidZip64ArchiveAtTheEntryBoundary()
+    {
+        var path = CreateEntryCountArchive(ExpectedMaximumArchiveEntries);
+        ConvertToZip64(path, ExpectedMaximumArchiveEntries);
+        try
+        {
+            Assert.HasCount(1, PackageArchiveReader.ReadAssets(path, Package()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsRejectsDeclaredZip64EntryExcessBeforeParsingTheCentralDirectory()
+    {
+        var path = CreateEntryCountArchive(2);
+        ConvertToZip64(path, ExpectedMaximumArchiveEntries + 1UL);
+        try
+        {
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageArchiveReader.ReadAssets(path, Package()));
+
+            StringAssert.Contains(exception.Message, "1024-entry limit");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsRejectsZip64SentinelsWithoutALocator()
+    {
+        var path = CreateEntryCountArchive(2);
+        RewriteStandardEntryCount(path, ushort.MaxValue);
+        try
+        {
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageArchiveReader.ReadAssets(path, Package()));
+
+            StringAssert.Contains(exception.Message, "ZIP64 locator");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsRejectsATruncatedZip64CountRecord()
+    {
+        var path = CreateEntryCountArchive(2);
+        ConvertToZip64(path, 2);
+        TruncateZip64Record(path);
+        try
+        {
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageArchiveReader.ReadAssets(path, Package()));
+
+            StringAssert.Contains(exception.Message, "ZIP64 end-of-central-directory record");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsRejectsADeclaredActualEntryCountMismatch()
+    {
+        var path = CreateEntryCountArchive(2);
+        RewriteStandardEntryCount(path, 1);
+        try
+        {
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageArchiveReader.ReadAssets(path, Package()));
+
+            StringAssert.Contains(exception.Message, "declared entry count");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsRejectsAFalseLowZip64CountThatWouldBypassTheCap()
+    {
+        var path = CreateEntryCountArchive(ExpectedMaximumArchiveEntries + 1);
+        ConvertToZip64(path, 1);
+        try
+        {
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageArchiveReader.ReadAssets(path, Package()));
+
+            StringAssert.Contains(exception.Message, "declared entry count");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static ApiPackageDefinition Package() => new(
         "Test.Package",
         "Test.Assembly",
@@ -301,5 +425,81 @@ public sealed class PackageArchiveReaderTests
             archive.CreateEntry($"content/{index:D4}.bin");
 
         return path;
+    }
+
+    private static string CreateDeclaredOnlyStandardArchive(int declaredEntryCount)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}.nupkg");
+        var endRecord = new byte[22];
+        BinaryPrimitives.WriteUInt32LittleEndian(endRecord, 0x06054b50);
+        BinaryPrimitives.WriteUInt16LittleEndian(endRecord.AsSpan(8), (ushort)declaredEntryCount);
+        BinaryPrimitives.WriteUInt16LittleEndian(endRecord.AsSpan(10), (ushort)declaredEntryCount);
+        File.WriteAllBytes(path, endRecord);
+        return path;
+    }
+
+    private static void RewriteStandardEntryCount(string path, ushort declaredEntryCount)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var endOffset = FindSignature(bytes, 0x06054b50);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(endOffset + 8), declaredEntryCount);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(endOffset + 10), declaredEntryCount);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static void ConvertToZip64(string path, ulong declaredEntryCount)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var endOffset = FindSignature(bytes, 0x06054b50);
+        var standardEnd = bytes.AsSpan(endOffset, 22).ToArray();
+        var centralDirectorySize = BinaryPrimitives.ReadUInt32LittleEndian(standardEnd.AsSpan(12));
+        var centralDirectoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(standardEnd.AsSpan(16));
+
+        var zip64End = new byte[56];
+        BinaryPrimitives.WriteUInt32LittleEndian(zip64End, 0x06064b50);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64End.AsSpan(4), 44);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip64End.AsSpan(12), 45);
+        BinaryPrimitives.WriteUInt16LittleEndian(zip64End.AsSpan(14), 45);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64End.AsSpan(24), declaredEntryCount);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64End.AsSpan(32), declaredEntryCount);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64End.AsSpan(40), centralDirectorySize);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64End.AsSpan(48), centralDirectoryOffset);
+
+        var locator = new byte[20];
+        BinaryPrimitives.WriteUInt32LittleEndian(locator, 0x07064b50);
+        BinaryPrimitives.WriteUInt64LittleEndian(locator.AsSpan(8), (ulong)endOffset);
+        BinaryPrimitives.WriteUInt32LittleEndian(locator.AsSpan(16), 1);
+
+        BinaryPrimitives.WriteUInt16LittleEndian(standardEnd.AsSpan(8), ushort.MaxValue);
+        BinaryPrimitives.WriteUInt16LittleEndian(standardEnd.AsSpan(10), ushort.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(standardEnd.AsSpan(12), uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(standardEnd.AsSpan(16), uint.MaxValue);
+
+        using var output = new MemoryStream(bytes.Length + zip64End.Length + locator.Length);
+        output.Write(bytes, 0, endOffset);
+        output.Write(zip64End);
+        output.Write(locator);
+        output.Write(standardEnd);
+        File.WriteAllBytes(path, output.ToArray());
+    }
+
+    private static void TruncateZip64Record(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var locatorOffset = FindSignature(bytes, 0x07064b50);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(locatorOffset + 8), (ulong)(locatorOffset - 8));
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static int FindSignature(byte[] bytes, uint signature)
+    {
+        for (var index = bytes.Length - 4; index >= 0; index--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index, 4)) == signature)
+                return index;
+        }
+
+        Assert.Fail($"ZIP signature 0x{signature:X8} was not found.");
+        return -1;
     }
 }
