@@ -143,7 +143,7 @@ public sealed class SourceCatalog
         foreach (var package in packages)
         {
             if (package is null
-                || string.IsNullOrWhiteSpace(package.PackageId)
+                || !NuGetPackageIdentity.IsValidPackageId(package.PackageId)
                 || !packageIds.Add(package.PackageId)
                 || string.IsNullOrWhiteSpace(package.AssemblyName)
                 || package.AssemblyName.Contains('/')

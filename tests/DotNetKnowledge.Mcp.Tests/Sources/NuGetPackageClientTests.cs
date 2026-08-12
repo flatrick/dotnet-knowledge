@@ -8,6 +8,10 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 [TestClass]
 public sealed class NuGetPackageClientTests
 {
+    private const int ExpectedMaximumServiceIndexBytes = 1024 * 1024;
+    private const int ExpectedMaximumHashResponseBytes = 1024;
+    private const int ExpectedMaximumPackageBytes = 64 * 1024 * 1024;
+
     [TestMethod]
     public async Task DownloadUsesLowercaseFlatContainerUrlsAndPublishesVerifiedBytes()
     {
@@ -261,13 +265,303 @@ public sealed class NuGetPackageClientTests
         }
     }
 
-    private static HttpClient CreateSuccessfulHttpClient(byte[] packageBytes, string serverSha512) =>
+    [TestMethod]
+    [DataRow("//evil.test/package")]
+    [DataRow("../escape")]
+    [DataRow("package/name")]
+    [DataRow("package?query")]
+    [DataRow("package#fragment")]
+    public async Task DownloadRejectsPackageIdsThatAreNotExactNuGetPathSegments(string packageId)
+    {
+        var requests = 0;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler((_, _) =>
+        {
+            requests++;
+            return Task.FromResult(JsonResponse(ServiceIndex()));
+        }));
+
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+            new NuGetPackageClient(httpClient).DownloadAsync(
+                Package() with { PackageId = packageId },
+                "5.3.0",
+                Package().Sha512,
+                Path.Combine(Path.GetTempPath(), $"unused-{Guid.NewGuid():N}.nupkg"),
+                CancellationToken.None));
+
+        Assert.AreEqual(0, requests, "Invalid package identity reached the network boundary.");
+    }
+
+    [TestMethod]
+    [DataRow("//evil.test/version")]
+    [DataRow("../5.3.0")]
+    [DataRow("5.3.0/path")]
+    [DataRow("5.3.0?query")]
+    [DataRow("5.3.0#fragment")]
+    [DataRow("latest")]
+    public async Task DownloadRejectsVersionsThatAreNotExactNuGetVersionSegments(string version)
+    {
+        var requests = 0;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler((_, _) =>
+        {
+            requests++;
+            return Task.FromResult(JsonResponse(ServiceIndex()));
+        }));
+
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+            new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(),
+                version,
+                Package().Sha512,
+                Path.Combine(Path.GetTempPath(), $"unused-{Guid.NewGuid():N}.nupkg"),
+                CancellationToken.None));
+
+        Assert.AreEqual(0, requests, "Invalid package version reached the network boundary.");
+    }
+
+    [TestMethod]
+    [DataRow("https://flat.test/v3-flatcontainer/?alternate=evil")]
+    [DataRow("https://flat.test/v3-flatcontainer/#fragment")]
+    public async Task DownloadRejectsPackageBaseAddressesWithQueryOrFragment(string packageBaseAddress)
+    {
+        var requests = 0;
+        var serviceIndex = $$"""
+            {"version":"3.0.0","resources":[
+              {"@id":"{{packageBaseAddress}}","@type":"PackageBaseAddress/3.0.0"}
+            ]}
+            """;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler((_, _) =>
+        {
+            requests++;
+            return Task.FromResult(JsonResponse(serviceIndex));
+        }));
+
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+            new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", Package().Sha512,
+                Path.Combine(Path.GetTempPath(), $"unused-{Guid.NewGuid():N}.nupkg"),
+                CancellationToken.None));
+
+        Assert.AreEqual(1, requests, "An unusable package base address was used for an asset request.");
+    }
+
+    [TestMethod]
+    public async Task DownloadSucceedsAfterExactlyFiveHttpsRedirects()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var packageBytes = Encoding.UTF8.GetBytes("five redirects");
+            var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
+            var serviceRequests = 0;
+            using var httpClient = new HttpClient(new StubHttpMessageHandler((request, _) =>
+            {
+                if (request.RequestUri!.Host == "feed.test")
+                {
+                    serviceRequests++;
+                    return Task.FromResult(serviceRequests <= 5
+                        ? RedirectResponse($"https://feed.test/redirect/{serviceRequests}")
+                        : JsonResponse(ServiceIndex()));
+                }
+
+                return Task.FromResult(request.RequestUri.AbsolutePath.EndsWith(".sha512", StringComparison.Ordinal)
+                    ? TextResponse(hash)
+                    : BytesResponse(packageBytes));
+            }));
+
+            await new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", hash, Path.Combine(root, "package.nupkg"), CancellationToken.None);
+
+            Assert.AreEqual(6, serviceRequests);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "package.nupkg")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadAcceptsAServiceIndexAtTheByteLimit()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var packageBytes = Encoding.UTF8.GetBytes("bounded index");
+            var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
+            var serviceIndex = PadWithWhitespace(ServiceIndex(), ExpectedMaximumServiceIndexBytes);
+            using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, serviceIndex, hash);
+
+            await new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", hash, Path.Combine(root, "package.nupkg"), CancellationToken.None);
+
+            Assert.IsTrue(File.Exists(Path.Combine(root, "package.nupkg")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadRejectsAServiceIndexOverTheByteLimit()
+    {
+        var serviceIndex = PadWithWhitespace(ServiceIndex(), ExpectedMaximumServiceIndexBytes + 1);
+        var packageBytes = Encoding.UTF8.GetBytes("over-limit service index");
+        var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
+        using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, serviceIndex, hash);
+
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+            new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", hash,
+                Path.Combine(Path.GetTempPath(), $"unused-{Guid.NewGuid():N}.nupkg"),
+                CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task DownloadAcceptsAHashResponseAtTheByteLimit()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var packageBytes = Encoding.UTF8.GetBytes("bounded hash");
+            var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
+            var hashResponse = PadWithWhitespace(hash, ExpectedMaximumHashResponseBytes);
+            using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, ServiceIndex(), hashResponse);
+
+            await new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", hash, Path.Combine(root, "package.nupkg"), CancellationToken.None);
+
+            Assert.IsTrue(File.Exists(Path.Combine(root, "package.nupkg")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadRejectsAHashResponseOverTheByteLimit()
+    {
+        var packageBytes = new byte[] { 1 };
+        var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
+        var hashResponse = PadWithWhitespace(hash, ExpectedMaximumHashResponseBytes + 1);
+        using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, ServiceIndex(), hashResponse);
+
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+            new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", hash,
+                Path.Combine(Path.GetTempPath(), $"unused-{Guid.NewGuid():N}.nupkg"),
+                CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task DownloadAcceptsPackageContentAtTheCompressedByteLimit()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var hash = HashZeroBytes(ExpectedMaximumPackageBytes);
+            using var httpClient = CreateStreamingHttpClient(ExpectedMaximumPackageBytes, hash);
+            var destination = Path.Combine(root, "package.nupkg");
+
+            await new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", hash, destination, CancellationToken.None);
+
+            Assert.AreEqual(ExpectedMaximumPackageBytes, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadRejectsStreamedPackageContentOverTheCompressedByteLimit()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var hash = HashZeroBytes(ExpectedMaximumPackageBytes + 1L);
+            using var httpClient = CreateStreamingHttpClient(ExpectedMaximumPackageBytes + 1L, hash);
+            var destination = Path.Combine(root, "package.nupkg");
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+                new NuGetPackageClient(httpClient).DownloadAsync(
+                    Package(), "5.3.0", hash, destination, CancellationToken.None));
+
+            Assert.IsFalse(File.Exists(destination));
+            Assert.HasCount(0, Directory.EnumerateFiles(root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task CancellationDuringPackageStreamingRemovesTempAndPreservesExistingDestination()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var destination = Path.Combine(root, "package.nupkg");
+            var originalBytes = Encoding.UTF8.GetBytes("previous verified package");
+            await File.WriteAllBytesAsync(destination, originalBytes);
+            var hash = Convert.ToBase64String(new byte[64]);
+            using var cancellation = new CancellationTokenSource();
+            using var httpClient = new HttpClient(new StubHttpMessageHandler((request, _) =>
+                Task.FromResult(request.RequestUri!.AbsolutePath switch
+                {
+                    "/v3/index.json" => JsonResponse(ServiceIndex()),
+                    var path when path.EndsWith(".sha512", StringComparison.Ordinal) => TextResponse(hash),
+                    var path when path.EndsWith(".nupkg", StringComparison.Ordinal) =>
+                        StreamResponse(new CancellingStream(cancellation)),
+                    _ => throw new AssertFailedException($"Unexpected request: {request.RequestUri}"),
+                })));
+
+            try
+            {
+                await new NuGetPackageClient(httpClient).DownloadAsync(
+                    Package(), "5.3.0", hash, destination, cancellation.Token);
+                Assert.Fail("The package stream did not cancel the download.");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            CollectionAssert.AreEqual(originalBytes, await File.ReadAllBytesAsync(destination));
+            var expectedFiles = new List<string> { destination };
+            CollectionAssert.AreEqual(expectedFiles, Directory.EnumerateFiles(root).ToList());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static HttpClient CreateSuccessfulHttpClient(
+        byte[] packageBytes,
+        string serverSha512,
+        string? serviceIndex = null,
+        string? hashResponse = null) =>
+        new(new StubHttpMessageHandler((request, _) =>
+            Task.FromResult(request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => JsonResponse(serviceIndex ?? ServiceIndex()),
+                var path when path.EndsWith(".nupkg.sha512", StringComparison.Ordinal) =>
+                    TextResponse(hashResponse ?? serverSha512),
+                var path when path.EndsWith(".nupkg", StringComparison.Ordinal) => BytesResponse(packageBytes),
+                _ => throw new AssertFailedException($"Unexpected request: {request.RequestUri}"),
+            })));
+
+    private static HttpClient CreateStreamingHttpClient(long packageLength, string serverSha512) =>
         new(new StubHttpMessageHandler((request, _) =>
             Task.FromResult(request.RequestUri!.AbsolutePath switch
             {
                 "/v3/index.json" => JsonResponse(ServiceIndex()),
                 var path when path.EndsWith(".nupkg.sha512", StringComparison.Ordinal) => TextResponse(serverSha512),
-                var path when path.EndsWith(".nupkg", StringComparison.Ordinal) => BytesResponse(packageBytes),
+                var path when path.EndsWith(".nupkg", StringComparison.Ordinal) =>
+                    StreamResponse(new GeneratedZeroStream(packageLength)),
                 _ => throw new AssertFailedException($"Unexpected request: {request.RequestUri}"),
             })));
 
@@ -300,6 +594,11 @@ public sealed class NuGetPackageClientTests
         Content = new ByteArrayContent(bytes),
     };
 
+    private static HttpResponseMessage StreamResponse(Stream stream) => new(HttpStatusCode.OK)
+    {
+        Content = new StreamContent(stream),
+    };
+
     private static HttpResponseMessage RedirectResponse(string location) => new(HttpStatusCode.Redirect)
     {
         Headers = { Location = new Uri(location) },
@@ -312,6 +611,27 @@ public sealed class NuGetPackageClientTests
         return path;
     }
 
+    private static string PadWithWhitespace(string value, int byteCount)
+    {
+        var existingBytes = Encoding.UTF8.GetByteCount(value);
+        Assert.IsTrue(byteCount >= existingBytes);
+        return value + new string(' ', byteCount - existingBytes);
+    }
+
+    private static string HashZeroBytes(long length)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA512);
+        var buffer = new byte[128 * 1024];
+        for (long remaining = length; remaining > 0;)
+        {
+            var count = (int)Math.Min(buffer.Length, remaining);
+            hash.AppendData(buffer, 0, count);
+            remaining -= count;
+        }
+
+        return Convert.ToBase64String(hash.GetHashAndReset());
+    }
+
     private sealed class StubHttpMessageHandler(
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
         : HttpMessageHandler
@@ -319,5 +639,80 @@ public sealed class NuGetPackageClientTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken) => send(request, cancellationToken);
+    }
+
+    private sealed class GeneratedZeroStream(long length) : Stream
+    {
+        private readonly long _length = length;
+        private long _remaining = length;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => _length - _remaining;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var bytesRead = (int)Math.Min(count, _remaining);
+            Array.Clear(buffer, offset, bytesRead);
+            _remaining -= bytesRead;
+            return bytesRead;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var bytesRead = (int)Math.Min(buffer.Length, _remaining);
+            buffer.Span[..bytesRead].Clear();
+            _remaining -= bytesRead;
+            return ValueTask.FromResult(bytesRead);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class CancellingStream(CancellationTokenSource cancellation) : Stream
+    {
+        private bool _hasRead;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_hasRead)
+                return ValueTask.FromCanceled<int>(cancellationToken);
+
+            _hasRead = true;
+            buffer.Span[..Math.Min(16, buffer.Length)].Fill(42);
+            cancellation.Cancel();
+            return ValueTask.FromResult(Math.Min(16, buffer.Length));
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

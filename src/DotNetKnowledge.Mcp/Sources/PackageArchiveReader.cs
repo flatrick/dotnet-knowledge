@@ -9,6 +9,10 @@ public static class PackageArchiveReader
     private const long MaximumEntryBytes = 32L * 1024 * 1024;
     private const long MaximumTotalBytes = 128L * 1024 * 1024;
 
+    // The pinned 5.3.0 package contains 95 entries. Ten times that count leaves ample package
+    // evolution headroom while bounding central-directory-driven processing and path indexes.
+    private const int MaximumArchiveEntries = 1024;
+
     public static IReadOnlyList<PackageFrameworkAsset> ReadAssets(
         string nupkgPath,
         ApiPackageDefinition definition)
@@ -17,8 +21,12 @@ public static class PackageArchiveReader
         ArgumentNullException.ThrowIfNull(definition);
 
         using var archive = ZipFile.OpenRead(nupkgPath);
+        if (archive.Entries.Count > MaximumArchiveEntries)
+            throw new InvalidDataException($"The package exceeds the {MaximumArchiveEntries}-entry limit.");
+
         var normalizedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var frameworks = new Dictionary<string, FrameworkEntries>(StringComparer.OrdinalIgnoreCase);
+        var readBuffer = new byte[128 * 1024];
         long totalBytes = 0;
 
         foreach (var entry in archive.Entries)
@@ -27,8 +35,8 @@ public static class PackageArchiveReader
             if (!normalizedPaths.Add(normalizedPath))
                 throw new InvalidDataException($"The package contains duplicate path '{normalizedPath}'.");
 
-            ValidateEntrySize(entry, ref totalBytes);
-            AddFrameworkEntry(normalizedPath, definition.AssemblyName, frameworks);
+            ValidateEntrySize(entry, readBuffer, ref totalBytes);
+            AddFrameworkEntry(normalizedPath, entry.FullName, definition.AssemblyName, frameworks);
         }
 
         if (frameworks.Count == 0)
@@ -60,6 +68,8 @@ public static class PackageArchiveReader
     {
         if (string.IsNullOrEmpty(path) || path.Contains('\0'))
             throw new InvalidDataException("The package contains an empty or invalid entry path.");
+        if (path.EndsWith('/') || path.EndsWith('\\'))
+            throw new InvalidDataException($"The package contains non-file entry path '{path}'.");
 
         var normalizedSeparators = path.Replace('\\', '/');
         if (normalizedSeparators.StartsWith('/')
@@ -68,24 +78,19 @@ public static class PackageArchiveReader
             throw new InvalidDataException($"The package contains rooted path '{path}'.");
         }
 
-        var segments = normalizedSeparators.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Any(segment => segment == ".."))
-            throw new InvalidDataException($"The package contains parent traversal path '{path}'.");
+        var segments = normalizedSeparators.Split('/');
+        if (segments.Any(segment => segment.Length == 0 || segment is "." or ".."))
+            throw new InvalidDataException($"The package contains aliased or traversing path '{path}'.");
 
-        var normalizedSegments = segments.Where(segment => segment != ".").ToArray();
-        if (normalizedSegments.Length == 0)
-            throw new InvalidDataException($"The package entry path '{path}' has no filename.");
-
-        return string.Join('/', normalizedSegments);
+        return normalizedSeparators;
     }
 
     private static bool HasDrivePrefix(string path) =>
         path.Length >= 2 && char.IsAsciiLetter(path[0]) && path[1] == ':';
 
-    private static void ValidateEntrySize(ZipArchiveEntry entry, ref long totalBytes)
+    private static void ValidateEntrySize(ZipArchiveEntry entry, byte[] buffer, ref long totalBytes)
     {
         using var stream = entry.Open();
-        var buffer = new byte[128 * 1024];
         long entryBytes = 0;
         int count;
         while ((count = stream.Read(buffer, 0, buffer.Length)) != 0)
@@ -105,6 +110,7 @@ public static class PackageArchiveReader
 
     private static void AddFrameworkEntry(
         string normalizedPath,
+        string rawPath,
         string assemblyName,
         Dictionary<string, FrameworkEntries> frameworks)
     {
@@ -129,13 +135,13 @@ public static class PackageArchiveReader
         {
             if (entries.AssemblyEntry is not null)
                 throw new InvalidDataException($"Framework '{entries.Framework}' contains duplicate assemblies.");
-            entries.AssemblyEntry = normalizedPath;
+            entries.AssemblyEntry = rawPath;
         }
         else
         {
             if (entries.XmlEntry is not null)
                 throw new InvalidDataException($"Framework '{entries.Framework}' contains duplicate XML documents.");
-            entries.XmlEntry = normalizedPath;
+            entries.XmlEntry = rawPath;
         }
     }
 

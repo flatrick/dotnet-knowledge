@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace DotNetKnowledge.Mcp.Sources;
@@ -19,6 +20,12 @@ public interface INuGetPackageClient
 public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageClient
 {
     private const int MaximumRedirects = 5;
+    private const int MaximumServiceIndexBytes = 1024 * 1024;
+    private const int MaximumHashResponseBytes = 1024;
+
+    // The pinned 5.3.0 package is 2,213,613 bytes; this permits about 29 times that size while
+    // keeping a malicious response comfortably below the archive's 128 MiB uncompressed budget.
+    private const long MaximumPackageBytes = 64L * 1024 * 1024;
 
     public async Task<NuGetPackageDownload> DownloadAsync(
         ApiPackageDefinition package,
@@ -28,23 +35,31 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
-        ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ArgumentException.ThrowIfNullOrWhiteSpace(destination);
+        ValidatePackageIdentity(package.PackageId, version);
 
         var packageBaseAddress = await GetPackageBaseAddressAsync(package.Feed, cancellationToken)
             .ConfigureAwait(false);
         var lowercaseId = package.PackageId.ToLowerInvariant();
         var lowercaseVersion = version.ToLowerInvariant();
+        var idSegment = Uri.EscapeDataString(lowercaseId);
+        var versionSegment = Uri.EscapeDataString(lowercaseVersion);
+        var fileSegment = Uri.EscapeDataString($"{lowercaseId}.{lowercaseVersion}.nupkg");
         var packageAddress = new Uri(
             packageBaseAddress,
-            $"{lowercaseId}/{lowercaseVersion}/{lowercaseId}.{lowercaseVersion}.nupkg");
+            $"{idSegment}/{versionSegment}/{fileSegment}");
         var hashAddress = new Uri($"{packageAddress.AbsoluteUri}.sha512", UriKind.Absolute);
 
         byte[] serverHash;
         using (var hashResponse = await SendAsync(hashAddress, cancellationToken).ConfigureAwait(false))
         {
-            var encodedServerHash = await hashResponse.Content.ReadAsStringAsync(cancellationToken)
+            var encodedServerHashBytes = await ReadBoundedContentAsync(
+                hashResponse.Content,
+                MaximumHashResponseBytes,
+                "NuGet package hash response",
+                cancellationToken)
                 .ConfigureAwait(false);
+            var encodedServerHash = Encoding.ASCII.GetString(encodedServerHashBytes);
             serverHash = DecodeSha512(encodedServerHash, "NuGet package hash");
         }
 
@@ -78,10 +93,18 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
                 FileOptions.Asynchronous | FileOptions.SequentialScan))
             using (var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA512))
             {
+                if (packageResponse.Content.Headers.ContentLength is > MaximumPackageBytes)
+                    throw new InvalidDataException("The NuGet package exceeds the 64 MiB compressed limit.");
+
                 var buffer = new byte[128 * 1024];
+                long downloadedBytes = 0;
                 int count;
                 while ((count = await packageStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) != 0)
                 {
+                    downloadedBytes += count;
+                    if (downloadedBytes > MaximumPackageBytes)
+                        throw new InvalidDataException("The NuGet package exceeds the 64 MiB compressed limit.");
+
                     hasher.AppendData(buffer, 0, count);
                     await temporaryFile.WriteAsync(buffer.AsMemory(0, count), cancellationToken)
                         .ConfigureAwait(false);
@@ -121,9 +144,13 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
     {
         var feedAddress = RequireHttpsAbsoluteUri(feed, "NuGet feed");
         using var response = await SendAsync(feedAddress, cancellationToken).ConfigureAwait(false);
-        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken)
+        var serviceIndex = await ReadBoundedContentAsync(
+            response.Content,
+            MaximumServiceIndexBytes,
+            "NuGet service index",
+            cancellationToken)
             .ConfigureAwait(false);
+        using var document = JsonDocument.Parse(serviceIndex);
 
         if (!document.RootElement.TryGetProperty("resources", out var resources)
             || resources.ValueKind != JsonValueKind.Array)
@@ -138,7 +165,9 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
                 || !resource.TryGetProperty("@id", out var id)
                 || id.ValueKind != JsonValueKind.String
                 || !Uri.TryCreate(id.GetString(), UriKind.Absolute, out var address)
-                || address.Scheme != Uri.UriSchemeHttps)
+                || address.Scheme != Uri.UriSchemeHttps
+                || !string.IsNullOrEmpty(address.Query)
+                || !string.IsNullOrEmpty(address.Fragment))
             {
                 continue;
             }
@@ -244,5 +273,44 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
             throw new InvalidDataException($"The {description} is not a 64-byte SHA-512 hash.");
 
         return hash;
+    }
+
+    private static async Task<byte[]> ReadBoundedContentAsync(
+        HttpContent content,
+        int maximumBytes,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        var contentLength = content.Headers.ContentLength;
+        if (contentLength > maximumBytes)
+            throw new InvalidDataException($"The {description} exceeds the {maximumBytes}-byte limit.");
+
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var buffer = new MemoryStream(
+            contentLength is > 0 && contentLength <= maximumBytes
+                ? (int)contentLength.Value
+                : 0);
+        var chunk = new byte[16 * 1024];
+        var totalBytes = 0;
+        int count;
+        while ((count = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) != 0)
+        {
+            totalBytes += count;
+            if (totalBytes > maximumBytes)
+                throw new InvalidDataException($"The {description} exceeds the {maximumBytes}-byte limit.");
+
+            buffer.Write(chunk, 0, count);
+        }
+
+        return buffer.ToArray();
+    }
+
+    private static void ValidatePackageIdentity(string packageId, string version)
+    {
+        if (!NuGetPackageIdentity.IsValidPackageId(packageId))
+            throw new InvalidDataException("The NuGet package ID is not a valid package path segment.");
+
+        if (!NuGetPackageIdentity.IsValidVersion(version))
+            throw new InvalidDataException("The NuGet package version is not a valid version path segment.");
     }
 }

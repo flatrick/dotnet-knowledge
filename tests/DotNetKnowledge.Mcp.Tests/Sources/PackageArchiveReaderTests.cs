@@ -8,6 +8,7 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 public sealed class PackageArchiveReaderTests
 {
     private const int MiB = 1024 * 1024;
+    private const int ExpectedMaximumArchiveEntries = 1024;
 
     [TestMethod]
     public void ReadAssetsReturnsPairedFrameworksInOrdinalOrder()
@@ -157,6 +158,96 @@ public sealed class PackageArchiveReaderTests
         }
     }
 
+    [TestMethod]
+    public void ReadAssetsPreservesRawMixedSeparatorNamesThatReopenExactEntries()
+    {
+        var path = CreateArchive(
+            ("lib/net10.0/Test.Assembly.dll", Encoding.UTF8.GetBytes("raw dll")),
+            ("lib\\net10.0\\Test.Assembly.xml", Encoding.UTF8.GetBytes("raw xml")));
+        try
+        {
+            var asset = PackageArchiveReader.ReadAssets(path, Package()).Single();
+
+            Assert.AreEqual("lib/net10.0/Test.Assembly.dll", asset.AssemblyEntry);
+            Assert.AreEqual("lib\\net10.0\\Test.Assembly.xml", asset.XmlEntry);
+            using var archive = ZipFile.OpenRead(path);
+            Assert.IsNotNull(archive.GetEntry(asset.AssemblyEntry));
+            Assert.IsNotNull(archive.GetEntry(asset.XmlEntry));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("lib/net10.0/")]
+    [DataRow("lib\\net10.0\\")]
+    public void ReadAssetsRejectsDirectoryEntriesAndTrailingSeparators(string directoryPath)
+    {
+        var path = CreateArchive(
+            ("lib/net10.0/Test.Assembly.dll", [1]),
+            ("lib/net10.0/Test.Assembly.xml", [2]),
+            (directoryPath, []));
+        try
+        {
+            Assert.ThrowsExactly<InvalidDataException>(() => PackageArchiveReader.ReadAssets(path, Package()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("lib/./net10.0/ignored.bin")]
+    [DataRow("lib//net10.0/ignored.bin")]
+    [DataRow("lib\\.\\net10.0\\ignored.bin")]
+    [DataRow("lib\\\\net10.0\\ignored.bin")]
+    public void ReadAssetsRejectsDotAndEmptySegmentAliases(string aliasPath)
+    {
+        var path = CreateArchive(
+            ("lib/net10.0/Test.Assembly.dll", [1]),
+            ("lib/net10.0/Test.Assembly.xml", [2]),
+            (aliasPath, [3]));
+        try
+        {
+            Assert.ThrowsExactly<InvalidDataException>(() => PackageArchiveReader.ReadAssets(path, Package()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsAcceptsTheMaximumArchiveEntryCount()
+    {
+        var path = CreateEntryCountArchive(ExpectedMaximumArchiveEntries);
+        try
+        {
+            Assert.HasCount(1, PackageArchiveReader.ReadAssets(path, Package()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void ReadAssetsRejectsMoreThanTheMaximumArchiveEntryCount()
+    {
+        var path = CreateEntryCountArchive(ExpectedMaximumArchiveEntries + 1);
+        try
+        {
+            Assert.ThrowsExactly<InvalidDataException>(() => PackageArchiveReader.ReadAssets(path, Package()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static ApiPackageDefinition Package() => new(
         "Test.Package",
         "Test.Assembly",
@@ -195,6 +286,19 @@ public sealed class PackageArchiveReaderTests
                 remaining -= count;
             }
         }
+
+        return path;
+    }
+
+    private static string CreateEntryCountArchive(int entryCount)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}.nupkg");
+        using var file = File.Create(path);
+        using var archive = new ZipArchive(file, ZipArchiveMode.Create);
+        archive.CreateEntry("lib/net10.0/Test.Assembly.dll");
+        archive.CreateEntry("lib/net10.0/Test.Assembly.xml");
+        for (var index = 2; index < entryCount; index++)
+            archive.CreateEntry($"content/{index:D4}.bin");
 
         return path;
     }

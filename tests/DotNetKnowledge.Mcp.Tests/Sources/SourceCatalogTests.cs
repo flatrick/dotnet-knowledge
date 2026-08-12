@@ -20,6 +20,9 @@ public sealed class SourceCatalogTests
 
     [TestMethod]
     [DataRow("packageId", "")]
+    [DataRow("packageId", "//evil.test/package")]
+    [DataRow("packageId", "../escape")]
+    [DataRow("packageId", "..")]
     [DataRow("assemblyName", "path/to/assembly")]
     [DataRow("feed", "http://api.nuget.org/v3/index.json")]
     [DataRow("version", "latest")]
