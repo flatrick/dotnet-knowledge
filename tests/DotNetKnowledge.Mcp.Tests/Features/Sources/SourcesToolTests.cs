@@ -44,7 +44,7 @@ public sealed class SourcesToolTests
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual("sync_failed", document.RootElement.GetProperty("error").GetString());
             Assert.IsFalse(cache.IsSynced("local"));
-            Assert.IsFalse(Directory.Exists(cache.DirectoryFor("local")));
+            Assert.IsFalse(Directory.Exists(cache.GenerationsDirectoryFor("local")));
         }
         finally
         {
@@ -126,7 +126,8 @@ public sealed class SourcesToolTests
             var catalogPath = Path.Combine(root, "sources.json");
             await WriteCatalogAsync(catalogPath, repository, pin);
             var cache = new SourceCache(Path.Combine(root, "cache"));
-            var synchronizer = new SourceSynchronizer(new SourceCatalog(catalogPath), cache);
+            var catalog = new SourceCatalog(catalogPath);
+            var synchronizer = new SourceSynchronizer(catalog, cache);
 
             var json = await SourcesTool.SyncSource(
                 "local",
@@ -137,12 +138,24 @@ public sealed class SourcesToolTests
 
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual("local", document.RootElement.GetProperty("name").GetString());
-            Assert.AreEqual(cache.DirectoryFor("local"), document.RootElement.GetProperty("cacheDir").GetString());
+            var state = cache.TryReadState("local");
+            Assert.IsNotNull(state);
+            var repositoryDirectory = cache.RepositoryDirectoryFor("local", state.Generation);
+            Assert.AreEqual(repositoryDirectory, document.RootElement.GetProperty("cacheDir").GetString());
             var source = document.RootElement.GetProperty("source");
             Assert.AreEqual("test/local", source.GetProperty("repo").GetString());
             Assert.AreEqual("pinned", source.GetProperty("ref").GetString());
             Assert.AreEqual(pin, source.GetProperty("commit").GetString());
             Assert.IsTrue(source.TryGetProperty("fetchedAt", out _));
+
+            var statusJson = await SourcesTool.ListSources(
+                catalog,
+                cache,
+                synchronizer,
+                CancellationToken.None);
+            using var statusDocument = JsonDocument.Parse(statusJson);
+            var status = statusDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.AreEqual(repositoryDirectory, status.GetProperty("cacheDir").GetString());
         }
         finally
         {

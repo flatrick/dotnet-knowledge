@@ -108,7 +108,9 @@ public sealed class SourcesTool
             CurrentRef: state?.Ref,
             CurrentCommit: state?.Commit,
             FetchedAt: state?.FetchedAt,
-            CacheDir: cache.DirectoryFor(name));
+            CacheDir: state is null
+                ? cache.DirectoryFor(name)
+                : cache.RepositoryDirectoryFor(name, state.Generation));
     }
 
     [McpServerTool(Name = "sync_source", Destructive = true, Idempotent = true)]

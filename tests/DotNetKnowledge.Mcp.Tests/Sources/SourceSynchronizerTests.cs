@@ -8,6 +8,170 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 public sealed class SourceSynchronizerTests
 {
     [TestMethod]
+    public async Task FirstSyncPublishesACompleteGeneration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var contributor = new RecordingContributor();
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                cache,
+                [contributor],
+                GitTimeouts.Default);
+
+            var result = await synchronizer.SyncAsync("local", null, CancellationToken.None);
+            var snapshot = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+
+            Assert.IsNotNull(snapshot);
+            Assert.AreEqual(snapshot.State.Generation, Path.GetFileName(snapshot.GenerationDirectory));
+            Assert.AreEqual(cache.GenerationDirectoryFor("local", snapshot.State.Generation), snapshot.GenerationDirectory);
+            Assert.AreEqual(Path.Combine(snapshot.GenerationDirectory, "repository"), snapshot.RepositoryDirectory);
+            Assert.AreEqual(Path.Combine(snapshot.GenerationDirectory, "supplements"), snapshot.SupplementsDirectory);
+            Assert.AreEqual(snapshot.RepositoryDirectory, result.CacheDir);
+            Assert.IsTrue(File.Exists(Path.Combine(snapshot.RepositoryDirectory, "docs", "included.md")));
+            Assert.IsTrue(File.Exists(Path.Combine(snapshot.SupplementsDirectory, "contributor.complete")));
+            Assert.AreSequenceEqual(snapshot.State.ApiPackages, result.ApiPackages);
+            Assert.IsFalse(Path.GetFileName(snapshot.GenerationDirectory).StartsWith('.'));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FailedContributorRetainsThePublishedGeneration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var contributor = new RecordingContributor();
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                cache,
+                [contributor],
+                GitTimeouts.Default);
+            await synchronizer.SyncAsync("local", null, CancellationToken.None);
+            var before = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+            Assert.IsNotNull(before);
+
+            contributor.Failure = new InvalidOperationException("fixture failure");
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => synchronizer.SyncAsync("local", "head", CancellationToken.None));
+            var after = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+
+            Assert.IsNotNull(after);
+            Assert.AreEqual(before.State.Commit, after.State.Commit);
+            Assert.AreEqual(before.GenerationDirectory, after.GenerationDirectory);
+            Assert.IsTrue(Directory.Exists(after.GenerationDirectory));
+            Assert.IsTrue(File.Exists(Path.Combine(after.SupplementsDirectory, "contributor.complete")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task ReaderWaitsUntilTheNewGenerationIsComplete()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var contributor = new RecordingContributor();
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                cache,
+                [contributor],
+                GitTimeouts.Default);
+            await synchronizer.SyncAsync("local", null, CancellationToken.None);
+
+            contributor.PauseOnNextBuild();
+            var sync = synchronizer.SyncAsync("local", "head", CancellationToken.None);
+            await contributor.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var read = synchronizer.ReadCurrentSourceAsync(
+                "local",
+                snapshot => (
+                    Repository: File.ReadAllText(Path.Combine(snapshot.RepositoryDirectory, "docs", "included.md")),
+                    SupplementComplete: File.Exists(Path.Combine(snapshot.SupplementsDirectory, "contributor.complete"))),
+                CancellationToken.None);
+
+            Assert.IsFalse(read.IsCompleted, "A reader entered the generation while its contributor was still running.");
+            contributor.Continue.TrySetResult();
+            await sync;
+            var observed = await read;
+
+            Assert.AreEqual("included", observed.Repository);
+            Assert.IsTrue(observed.SupplementComplete);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void GenerationPruningIgnoresDirectoryDiscoveryFailures()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(root, "current"));
+
+        SourceSynchronizer.PruneGenerationDirectories(
+            root,
+            "current",
+            _ => throw new UnauthorizedAccessException("fixture failure"));
+
+        Assert.IsTrue(Directory.Exists(Path.Combine(root, "current")));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [TestMethod]
+    public async Task NextSyncPrunesAbandonedAndNoncurrentGenerations()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var synchronizer = new SourceSynchronizer(catalog, cache);
+            await synchronizer.SyncAsync("local", null, CancellationToken.None);
+            var before = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+            Assert.IsNotNull(before);
+            var abandoned = Path.Combine(cache.GenerationsDirectoryFor("local"), ".abandoned.tmp");
+            var orphan = cache.GenerationDirectoryFor("local", "orphan");
+            Directory.CreateDirectory(abandoned);
+            Directory.CreateDirectory(orphan);
+
+            await synchronizer.SyncAsync("local", null, CancellationToken.None);
+            var after = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+
+            Assert.IsNotNull(after);
+            Assert.IsTrue(Directory.Exists(after.GenerationDirectory));
+            Assert.IsFalse(Directory.Exists(before.GenerationDirectory));
+            Assert.IsFalse(Directory.Exists(abandoned));
+            Assert.IsFalse(Directory.Exists(orphan));
+            Assert.AreSequenceEqual(
+                [after.GenerationDirectory],
+                Directory.EnumerateDirectories(cache.GenerationsDirectoryFor("local")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task TryGetCurrentStateAsyncRejectsCommitMismatch()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -176,14 +340,16 @@ public sealed class SourceSynchronizerTests
             var synchronizer = new SourceSynchronizer(new SourceCatalog(catalogPath), cache);
             await synchronizer.SyncAsync("local", null, CancellationToken.None);
 
-            await File.WriteAllTextAsync(Path.Combine(cache.DirectoryFor("local"), "docs", "included.md"), "changed");
+            var snapshot = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+            Assert.IsNotNull(snapshot);
+            await File.WriteAllTextAsync(Path.Combine(snapshot.RepositoryDirectory, "docs", "included.md"), "changed");
             Assert.IsNull(await synchronizer.TryGetCurrentStateAsync("local", CancellationToken.None));
 
-            await RunGitAsync(cache.DirectoryFor("local"), "checkout", "--", "docs/included.md");
-            await File.WriteAllTextAsync(Path.Combine(cache.DirectoryFor("local"), "docs", "untracked.md"), "fake");
+            await RunGitAsync(snapshot.RepositoryDirectory, "checkout", "--", "docs/included.md");
+            await File.WriteAllTextAsync(Path.Combine(snapshot.RepositoryDirectory, "docs", "untracked.md"), "fake");
             Assert.IsNull(await synchronizer.TryGetCurrentStateAsync("local", CancellationToken.None));
-            File.Delete(Path.Combine(cache.DirectoryFor("local"), "docs", "untracked.md"));
-            Directory.Delete(Path.Combine(cache.DirectoryFor("local"), "docs"), recursive: true);
+            File.Delete(Path.Combine(snapshot.RepositoryDirectory, "docs", "untracked.md"));
+            Directory.Delete(Path.Combine(snapshot.RepositoryDirectory, "docs"), recursive: true);
             Assert.IsNull(await synchronizer.TryGetCurrentStateAsync("local", CancellationToken.None));
         }
         finally
@@ -208,10 +374,12 @@ public sealed class SourceSynchronizerTests
             var synchronizer = new SourceSynchronizer(new SourceCatalog(catalogPath), cache);
             await synchronizer.SyncAsync("local", null, CancellationToken.None);
             var rewriteKey = $"url.{substitute}.insteadOf";
-            await RunGitAsync(cache.DirectoryFor("local"), "config", rewriteKey, configured);
+            var snapshot = await synchronizer.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+            Assert.IsNotNull(snapshot);
+            await RunGitAsync(snapshot.RepositoryDirectory, "config", rewriteKey, configured);
             Assert.IsNotNull(await synchronizer.TryGetCurrentStateAsync("local", CancellationToken.None));
-            await RunGitAsync(cache.DirectoryFor("local"), "config", "--unset", rewriteKey);
-            await RunGitAsync(cache.DirectoryFor("local"), "remote", "set-url", "origin", substitute);
+            await RunGitAsync(snapshot.RepositoryDirectory, "config", "--unset", rewriteKey);
+            await RunGitAsync(snapshot.RepositoryDirectory, "remote", "set-url", "origin", substitute);
 
             var result = await synchronizer.SyncAsync("local", null, CancellationToken.None);
 
@@ -422,5 +590,49 @@ public sealed class SourceSynchronizerTests
             File.SetAttributes(file, FileAttributes.Normal);
 
         Directory.Delete(path, recursive: true);
+    }
+
+    private sealed class RecordingContributor : ISourceGenerationContributor
+    {
+        public Exception? Failure { get; set; }
+
+        private bool Pause { get; set; }
+
+        public TaskCompletionSource Started { get; private set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Continue { get; private set; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void PauseOnNextBuild()
+        {
+            Pause = true;
+            Started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Continue = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        public bool AppliesTo(SourceDefinition definition) => true;
+
+        public async Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
+            SourceDefinition definition,
+            string refLabel,
+            string repositoryDirectory,
+            string supplementsDirectory,
+            IProgress<string>? progress,
+            CancellationToken cancellationToken)
+        {
+            Directory.CreateDirectory(supplementsDirectory);
+            Started.TrySetResult();
+            if (Pause)
+                await Continue.Task.WaitAsync(cancellationToken);
+            if (Failure is not null)
+                throw Failure;
+
+            await File.WriteAllTextAsync(
+                Path.Combine(supplementsDirectory, "contributor.complete"),
+                refLabel,
+                cancellationToken);
+            return [];
+        }
     }
 }

@@ -8,4 +8,6 @@ public sealed record SourceSyncState(
     string Ref,
     string Commit,
     DateTimeOffset FetchedAt,
-    IReadOnlyList<string> SparsePaths);
+    IReadOnlyList<string> SparsePaths,
+    string Generation,
+    IReadOnlyList<ApiPackageSyncState> ApiPackages);

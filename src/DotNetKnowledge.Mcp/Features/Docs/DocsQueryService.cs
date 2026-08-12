@@ -134,8 +134,13 @@ public sealed class DocsQueryService
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
                     sourceName,
-                    (definition, state, directory) =>
-                        ReadSearchSource(directory, definition, state, query, compiledPattern, cancellationToken),
+                    snapshot => ReadSearchSource(
+                        snapshot.RepositoryDirectory,
+                        snapshot.Definition,
+                        snapshot.State,
+                        query,
+                        compiledPattern,
+                        cancellationToken),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
@@ -287,7 +292,12 @@ public sealed class DocsQueryService
         {
             read = await _synchronizer.ReadCurrentSourceAsync(
                 source,
-                (definition, state, directory) => ReadDocument(directory, source, path, definition, state),
+                snapshot => ReadDocument(
+                    snapshot.RepositoryDirectory,
+                    source,
+                    path,
+                    snapshot.Definition,
+                    snapshot.State),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException exception)

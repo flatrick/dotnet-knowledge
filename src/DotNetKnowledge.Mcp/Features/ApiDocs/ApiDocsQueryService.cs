@@ -65,8 +65,12 @@ public sealed class ApiDocsQueryService
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
                     sourceName,
-                    (definition, state, directory) => ReadLookupSource(
-                        sourceName, directory, symbol, definition, state),
+                    snapshot => ReadLookupSource(
+                        sourceName,
+                        snapshot.RepositoryDirectory,
+                        symbol,
+                        snapshot.Definition,
+                        snapshot.State),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
@@ -163,8 +167,13 @@ public sealed class ApiDocsQueryService
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
                     sourceName,
-                    (definition, state, directory) => ReadSearchSource(
-                        sourceName, directory, pattern, definition, state, cancellationToken),
+                    snapshot => ReadSearchSource(
+                        sourceName,
+                        snapshot.RepositoryDirectory,
+                        pattern,
+                        snapshot.Definition,
+                        snapshot.State,
+                        cancellationToken),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
@@ -247,8 +256,13 @@ public sealed class ApiDocsQueryService
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
                     sourceName,
-                    (definition, state, directory) => ReadTextSource(
-                        sourceName, directory, query, definition, state, cancellationToken),
+                    snapshot => ReadTextSource(
+                        sourceName,
+                        snapshot.RepositoryDirectory,
+                        query,
+                        snapshot.Definition,
+                        snapshot.State,
+                        cancellationToken),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
@@ -461,8 +475,13 @@ public sealed class ApiDocsQueryService
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
                     sourceName,
-                    (definition, state, directory) => ReadReferenceSource(
-                        sourceName, directory, symbol, definition, state, cancellationToken),
+                    snapshot => ReadReferenceSource(
+                        sourceName,
+                        snapshot.RepositoryDirectory,
+                        symbol,
+                        snapshot.Definition,
+                        snapshot.State,
+                        cancellationToken),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
