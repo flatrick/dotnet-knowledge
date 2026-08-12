@@ -287,34 +287,60 @@ public sealed class SourceSynchronizer
         finally
         {
             if (primaryException is not null && !published)
-            {
-                try
-                {
-                    var unpublishedDirectory = Directory.Exists(generationStaging)
-                        ? generationStaging
-                        : Directory.Exists(generationDirectory)
-                            ? generationDirectory
-                            : null;
-                    if (unpublishedDirectory is not null)
-                    {
-                        var unpublishedRepository = Path.Combine(unpublishedDirectory, "repository");
-                        if (Directory.Exists(unpublishedRepository) && !Directory.Exists(staging))
-                            Directory.Move(unpublishedRepository, staging);
-                        DeleteDirectory(unpublishedDirectory);
-                        if (!Directory.EnumerateFileSystemEntries(generationsDirectory).Any())
-                            Directory.Delete(generationsDirectory);
-                    }
+                CleanupFailedPublication(
+                    generationStaging,
+                    generationDirectory,
+                    generationsDirectory,
+                    staging,
+                    resumed is not null,
+                    repositoryValidated,
+                    DeleteDirectory);
+        }
+    }
 
-                    // A failed resume before Git validation makes the retained tree suspect. A
-                    // contributor failure happens after validation, so its repository remains
-                    // resumable just like a failed fresh synchronization.
-                    if (resumed is not null && !repositoryValidated && Directory.Exists(staging))
-                        DeleteDirectory(staging);
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    // Preserve the synchronization or cancellation failure that caused cleanup.
-                }
+    internal static void CleanupFailedPublication(
+        string generationStaging,
+        string generationDirectory,
+        string generationsDirectory,
+        string staging,
+        bool resumed,
+        bool repositoryValidated,
+        Action<string> deleteDirectory)
+    {
+        try
+        {
+            var unpublishedDirectory = Directory.Exists(generationStaging)
+                ? generationStaging
+                : Directory.Exists(generationDirectory)
+                    ? generationDirectory
+                    : null;
+            if (unpublishedDirectory is not null)
+            {
+                var unpublishedRepository = Path.Combine(unpublishedDirectory, "repository");
+                if (Directory.Exists(unpublishedRepository) && !Directory.Exists(staging))
+                    Directory.Move(unpublishedRepository, staging);
+                deleteDirectory(unpublishedDirectory);
+                if (!Directory.EnumerateFileSystemEntries(generationsDirectory).Any())
+                    Directory.Delete(generationsDirectory);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Preserve the synchronization or cancellation failure that caused cleanup.
+        }
+
+        // A failed resume before Git validation makes the retained tree suspect. A contributor
+        // failure happens after validation, so its repository remains resumable just like a
+        // failed fresh synchronization. This attempt stays independent of generation cleanup.
+        if (resumed && !repositoryValidated && Directory.Exists(staging))
+        {
+            try
+            {
+                deleteDirectory(staging);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Preserve the synchronization or cancellation failure that caused cleanup.
             }
         }
     }
@@ -343,10 +369,23 @@ public sealed class SourceSynchronizer
             return;
         }
 
+        var currentDirectory = currentGeneration is null
+            ? null
+            : Path.TrimEndingDirectorySeparator(Path.GetFullPath(
+                Path.Combine(generationsDirectory, currentGeneration)));
         foreach (var candidate in candidates)
         {
-            if (string.Equals(Path.GetFileName(candidate), currentGeneration, StringComparison.Ordinal))
+            var candidateDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+            if (currentDirectory is not null
+                && string.Equals(
+                    candidateDirectory,
+                    currentDirectory,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
+            {
                 continue;
+            }
 
             try
             {

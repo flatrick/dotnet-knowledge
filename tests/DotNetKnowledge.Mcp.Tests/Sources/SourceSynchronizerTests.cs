@@ -136,6 +136,73 @@ public sealed class SourceSynchronizerTests
     }
 
     [TestMethod]
+    public void GenerationPruningPreservesCurrentWindowsPathWhenPointerCasingDiffers()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Windows path comparison is case-insensitive.");
+
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var generation = "abcdef0123456789";
+        var generationDirectory = Path.Combine(root, generation);
+        Directory.CreateDirectory(generationDirectory);
+
+        try
+        {
+            SourceSynchronizer.PruneGenerationDirectories(
+                root,
+                generation.ToUpperInvariant(),
+                Directory.EnumerateDirectories);
+
+            Assert.IsTrue(Directory.Exists(generationDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void FailedResumeDiscardsSuspectStagingEvenWhenGenerationCleanupFails()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var generationsDirectory = Path.Combine(root, ".generations", "local");
+        var generationStaging = Path.Combine(generationsDirectory, ".generation.tmp");
+        var generationDirectory = Path.Combine(generationsDirectory, "generation");
+        var repositoryDirectory = Path.Combine(generationStaging, "repository");
+        var staging = Path.Combine(root, ".local-resumed.tmp");
+        Directory.CreateDirectory(repositoryDirectory);
+        File.WriteAllText(Path.Combine(repositoryDirectory, "downloaded-object"), "suspect");
+
+        try
+        {
+            SourceSynchronizer.CleanupFailedPublication(
+                generationStaging,
+                generationDirectory,
+                generationsDirectory,
+                staging,
+                resumed: true,
+                repositoryValidated: false,
+                path =>
+                {
+                    if (string.Equals(path, generationStaging, StringComparison.Ordinal))
+                        throw new IOException("fixture generation cleanup failure");
+
+                    DeleteDirectory(path);
+                });
+
+            Assert.IsFalse(
+                Directory.Exists(staging),
+                "Suspect resumed Git staging survived because generation cleanup failed first.");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task NextSyncPrunesAbandonedAndNoncurrentGenerations()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
