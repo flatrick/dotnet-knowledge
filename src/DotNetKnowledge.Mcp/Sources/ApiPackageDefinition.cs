@@ -11,7 +11,11 @@ public sealed record ApiPackageDefinition(
     [property: JsonPropertyName("feed")] string Feed,
     [property: JsonPropertyName("version")] string Version,
     [property: JsonPropertyName("sha512")] string Sha512,
-    [property: JsonPropertyName("defaultFramework")] string DefaultFramework);
+    [property: JsonPropertyName("defaultFramework")] string DefaultFramework)
+{
+    internal ApiPackageDefinition WithSynchronizedContent(string version, string sha512) =>
+        this with { Version = version, Sha512 = sha512 };
+}
 
 internal static class NuGetPackageIdentity
 {

@@ -1,4 +1,5 @@
 using DotNetKnowledge.Mcp.Features.ApiDocs;
+using DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,8 @@ builder.Services.AddSingleton(static _ => new HttpClient(new HttpClientHandler
     AllowAutoRedirect = false,
 }));
 builder.Services.AddSingleton<INuGetPackageClient, NuGetPackageClient>();
+builder.Services.AddSingleton<PackageApiCorpusBuilder>();
+builder.Services.AddSingleton<ISourceGenerationContributor, ApiPackageGenerationContributor>();
 builder.Services.AddSingleton<SourceSynchronizer>();
 builder.Services.AddSingleton<ApiDocsQueryService>();
 builder.Services.AddSingleton<DocsQueryService>();

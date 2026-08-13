@@ -83,6 +83,14 @@ public sealed class SourceSynchronizer
         return await SyncCoreAsync(name, definition, requestedRef, progress, cancellationToken).ConfigureAwait(false);
     }
 
+    public int GetStageCount(string name)
+    {
+        if (!_catalog.TryGet(name, out var definition))
+            throw new ArgumentException($"Unknown source '{name}'. Call list_sources to see valid names.", nameof(name));
+
+        return ApiPackageGenerationContributor.AppliesToSource(definition) ? 8 : 5;
+    }
+
     public async Task<SourceSyncState?> TryGetCurrentStateAsync(
         string name,
         CancellationToken cancellationToken) =>
@@ -269,7 +277,15 @@ public sealed class SourceSynchronizer
             var fetchedAt = DateTimeOffset.UtcNow;
 
             var apiPackages = new List<ApiPackageSyncState>();
-            foreach (var contributor in _contributors.Where(contributor => contributor.AppliesTo(definition)))
+            var applicableContributors = _contributors.Where(contributor => contributor.AppliesTo(definition)).ToArray();
+            if (ApiPackageGenerationContributor.AppliesToSource(definition)
+                && applicableContributors.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Source '{name}' requires an API-package generation contributor.");
+            }
+
+            foreach (var contributor in applicableContributors)
             {
                 apiPackages.AddRange(await contributor.BuildAsync(
                     definition,
@@ -280,6 +296,7 @@ public sealed class SourceSynchronizer
                     cancellationToken).ConfigureAwait(false));
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             Directory.Move(generationStaging, generationDirectory);
             _cache.WriteState(
                 name,

@@ -230,6 +230,55 @@ public sealed class SourcesToolTests
     }
 
     [TestMethod]
+    public async Task SyncSourceUsesCompositeProgressDenominatorForPackageSupplements()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = Path.Combine(root, "origin");
+            Directory.CreateDirectory(Path.Combine(repository, "docs"));
+            await RunGitAsync(null, "init", "--initial-branch=main", repository);
+            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Tests");
+            await File.WriteAllTextAsync(Path.Combine(repository, "docs", "included.md"), "included");
+            await RunGitAsync(repository, "add", ".");
+            await RunGitAsync(repository, "commit", "-m", "initial");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WritePackageCatalogAsync(catalogPath, repository, pin);
+            var catalog = new SourceCatalog(catalogPath);
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                new SourceCache(Path.Combine(root, "cache")),
+                [new StageOnlyContributor()]);
+            var recorder = new RecordingProgressNotifications();
+
+            await SourcesTool.SyncSource(
+                "local",
+                synchronizer,
+                recorder,
+                CancellationToken.None,
+                @ref: null);
+
+            var expected = ExpectedStages.Concat(
+                ["package-download", "package-validate", "package-normalize"]).ToArray();
+            Assert.HasCount(expected.Length, recorder.Notifications);
+            for (var index = 0; index < expected.Length; index++)
+            {
+                Assert.AreEqual((float)(index + 1), recorder.Notifications[index].Progress);
+                Assert.AreEqual((float)expected.Length, recorder.Notifications[index].Total);
+                Assert.AreEqual($"local: {expected[index]}", recorder.Notifications[index].Message);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task ListSourcesReportsValidatedSynchronizationState()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
@@ -366,6 +415,40 @@ public sealed class SourcesToolTests
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
     }
 
+    private static async Task WritePackageCatalogAsync(string path, string repository, string pin)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["local"] = new
+                {
+                    repository = "dotnet/roslyn-api-docs",
+                    url = repository,
+                    pin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Test source.",
+                    apiPackages = new[]
+                    {
+                        new
+                        {
+                            packageId = "Fixture.Package",
+                            assemblyName = "Fixture.Package",
+                            feed = "https://api.nuget.org/v3/index.json",
+                            version = "5.3.0",
+                            sha512 = Convert.ToBase64String(new byte[64]),
+                            defaultFramework = "net10.0",
+                        },
+                    },
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
     private static async Task<string> RunGitAsync(string? workingDirectory, params string[] arguments)
     {
         using var process = new Process
@@ -412,5 +495,24 @@ public sealed class SourcesToolTests
         public List<ProgressNotificationValue> Notifications { get; } = [];
 
         public void Report(ProgressNotificationValue value) => Notifications.Add(value);
+    }
+
+    private sealed class StageOnlyContributor : ISourceGenerationContributor
+    {
+        public bool AppliesTo(SourceDefinition definition) => definition.ApiPackages is { Count: > 0 };
+
+        public Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
+            SourceDefinition definition,
+            string refLabel,
+            string repositoryDirectory,
+            string supplementsDirectory,
+            IProgress<string>? progress,
+            CancellationToken cancellationToken)
+        {
+            progress?.Report("package-download");
+            progress?.Report("package-validate");
+            progress?.Report("package-normalize");
+            return Task.FromResult<IReadOnlyList<ApiPackageSyncState>>([]);
+        }
     }
 }

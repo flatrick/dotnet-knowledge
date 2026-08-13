@@ -125,13 +125,11 @@ public sealed class SourcesTool
         CancellationToken cancellationToken,
         string? @ref = null)
     {
-        // Five known stages, so the client sees liveness with a real denominator rather than a
-        // spinner. The SDK supplies a no-op reporter when the client sent no progress token.
-        var stages = new[] { "clone", "sparse-checkout", "fetch", "checkout", "validate" };
-        var stageProgress = new StageReporter(name, stages.Length, progress);
-
         try
         {
+            // The SDK supplies a no-op reporter when the client sent no progress token. Package
+            // supplements add their three stages to the five-stage Git synchronization.
+            var stageProgress = new StageReporter(name, synchronizer.GetStageCount(name), progress);
             var result = await synchronizer
                 .SyncAsync(name, @ref, cancellationToken, stageProgress)
                 .ConfigureAwait(false);

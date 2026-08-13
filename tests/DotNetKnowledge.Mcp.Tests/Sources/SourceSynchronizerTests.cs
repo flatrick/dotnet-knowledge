@@ -7,6 +7,240 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 [TestClass]
 public sealed class SourceSynchronizerTests
 {
+    private static readonly string[] CompositeStages =
+    [
+        "clone", "sparse-checkout", "fetch", "checkout", "validate",
+        "package-download", "package-validate", "package-normalize",
+    ];
+    private static readonly string[] GitStages =
+        ["clone", "sparse-checkout", "fetch", "checkout", "validate"];
+
+    [TestMethod]
+    public async Task CompositeSyncPublishesPackageStateAfterGitValidation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var fixture = await CreatePackageFixtureAsync(root, ["net472", "net10.0"]);
+            var contributor = new ApiPackageGenerationContributor(
+                fixture.Client,
+                new DotNetKnowledge.Mcp.Features.ApiDocs.Corpus.PackageApiCorpusBuilder());
+            var synchronizer = new SourceSynchronizer(
+                fixture.Catalog,
+                fixture.Cache,
+                [contributor],
+                GitTimeouts.Default);
+            var progress = new RecordingProgress();
+
+            var result = await synchronizer.SyncAsync(
+                "roslyn-api-docs",
+                null,
+                CancellationToken.None,
+                progress);
+
+            Assert.HasCount(1, result.ApiPackages);
+            var package = result.ApiPackages[0];
+            Assert.AreEqual("5.3.0", package.Version);
+            Assert.AreEqual("net10.0", package.DefaultFramework);
+            CollectionAssert.Contains(package.AvailableFrameworks.ToList(), "net472");
+            CollectionAssert.AreEqual(CompositeStages, progress.Values.ToArray());
+            Assert.AreEqual(8, synchronizer.GetStageCount("roslyn-api-docs"));
+            Assert.AreEqual(0, Directory.EnumerateFiles(
+                fixture.Cache.SupplementsDirectoryFor(
+                    "roslyn-api-docs",
+                    fixture.Cache.TryReadState("roslyn-api-docs")!.Generation),
+                "*.nupkg",
+                SearchOption.AllDirectories).Count());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("hash")]
+    [DataRow("missing-default")]
+    [DataRow("build")]
+    [DataRow("cancel")]
+    public async Task CompositeRefreshFailureRetainsThePublishedGeneration(string failure)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var fixture = await CreatePackageFixtureAsync(root, ["net472", "net10.0"]);
+            var initialContributor = new ApiPackageGenerationContributor(
+                fixture.Client,
+                new DotNetKnowledge.Mcp.Features.ApiDocs.Corpus.PackageApiCorpusBuilder());
+            var initialSynchronizer = new SourceSynchronizer(
+                fixture.Catalog,
+                fixture.Cache,
+                [initialContributor],
+                GitTimeouts.Default);
+            await initialSynchronizer.SyncAsync("roslyn-api-docs", null, CancellationToken.None);
+            var before = await initialSynchronizer.TryGetCurrentSnapshotAsync(
+                "roslyn-api-docs",
+                CancellationToken.None);
+            Assert.IsNotNull(before);
+
+            var retryPackage = Path.Combine(root, $"retry-{failure}.nupkg");
+            PackageSyncFixture.CreatePackage(
+                retryPackage,
+                failure == "missing-default" ? ["net472"] : ["net10.0"],
+                validAssembly: failure != "build");
+            using var cancellation = new CancellationTokenSource();
+            var retryClient = new FixtureNuGetPackageClient(retryPackage, fixture.ClientSha512)
+            {
+                Failure = failure == "hash" ? new InvalidDataException("fixture hash mismatch") : null,
+                AfterCopy = failure == "cancel" ? cancellation.Cancel : null,
+            };
+            var retrySynchronizer = new SourceSynchronizer(
+                fixture.Catalog,
+                fixture.Cache,
+                [new ApiPackageGenerationContributor(
+                    retryClient,
+                    new DotNetKnowledge.Mcp.Features.ApiDocs.Corpus.PackageApiCorpusBuilder())],
+                GitTimeouts.Default);
+
+            if (failure == "cancel")
+            {
+                await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => retrySynchronizer.SyncAsync(
+                    "roslyn-api-docs", "head", cancellation.Token));
+            }
+            else
+            {
+                await Assert.ThrowsExactlyAsync<InvalidDataException>(() => retrySynchronizer.SyncAsync(
+                    "roslyn-api-docs", "head", CancellationToken.None));
+            }
+
+            var after = await retrySynchronizer.TryGetCurrentSnapshotAsync(
+                "roslyn-api-docs",
+                CancellationToken.None);
+            Assert.IsNotNull(after);
+            Assert.AreEqual(before.State.Generation, after.State.Generation);
+            Assert.AreEqual(before.State.Commit, after.State.Commit);
+            Assert.AreEqual(
+                JsonSerializer.Serialize(before.State.ApiPackages),
+                JsonSerializer.Serialize(after.State.ApiPackages));
+            Assert.AreEqual(
+                0,
+                Directory.EnumerateFiles(fixture.Cache.Root, "*.nupkg", SearchOption.AllDirectories).Count());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GitOnlySourceRetainsFiveStagesAndNoPackageState()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                cache,
+                [new ApiPackageGenerationContributor(
+                    new FixtureNuGetPackageClient(Path.Combine(root, "unused.nupkg"), Convert.ToBase64String(new byte[64])),
+                    new DotNetKnowledge.Mcp.Features.ApiDocs.Corpus.PackageApiCorpusBuilder())],
+                GitTimeouts.Default);
+
+            var result = await synchronizer.SyncAsync("local", null, CancellationToken.None);
+
+            Assert.AreEqual(5, synchronizer.GetStageCount("local"));
+            Assert.HasCount(0, result.ApiPackages);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task NonRoslynSourceWithPackageDeclarationsRemainsGitOnly()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = await CreateRepositoryAsync(root, "origin", "included");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WriteNonRoslynPackageCatalogAsync(catalogPath, repository, pin);
+            var catalog = new SourceCatalog(catalogPath);
+            var client = new FixtureNuGetPackageClient(
+                Path.Combine(root, "must-not-download.nupkg"),
+                Convert.ToBase64String(new byte[64]))
+            {
+                Failure = new InvalidOperationException("A non-Roslyn source attempted a package download."),
+            };
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                new SourceCache(Path.Combine(root, "cache")),
+                [new ApiPackageGenerationContributor(
+                    client,
+                    new DotNetKnowledge.Mcp.Features.ApiDocs.Corpus.PackageApiCorpusBuilder())],
+                GitTimeouts.Default);
+            var progress = new RecordingProgress();
+
+            var result = await synchronizer.SyncAsync("other", null, CancellationToken.None, progress);
+
+            Assert.AreEqual(5, synchronizer.GetStageCount("other"));
+            Assert.HasCount(0, result.ApiPackages);
+            CollectionAssert.AreEqual(GitStages, progress.Values.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task CancellationAfterContributorCompletionRetainsThePublishedGeneration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache) = await CreateFixtureAsync(root);
+            var initial = new SourceSynchronizer(
+                catalog,
+                cache,
+                [new RecordingContributor()],
+                GitTimeouts.Default);
+            await initial.SyncAsync("local", null, CancellationToken.None);
+            var before = await initial.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+            Assert.IsNotNull(before);
+            using var cancellation = new CancellationTokenSource();
+            var retry = new SourceSynchronizer(
+                catalog,
+                cache,
+                [new CancelingContributor(cancellation)],
+                GitTimeouts.Default);
+
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+                retry.SyncAsync("local", "head", cancellation.Token));
+
+            var after = await retry.TryGetCurrentSnapshotAsync("local", CancellationToken.None);
+            Assert.IsNotNull(after);
+            Assert.AreEqual(before.State.Generation, after.State.Generation);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     [TestMethod]
     public async Task FirstSyncPublishesACompleteGeneration()
     {
@@ -835,6 +1069,78 @@ public sealed class SourceSynchronizerTests
         return (new SourceCatalog(catalogPath), new SourceCache(Path.Combine(root, "cache")));
     }
 
+    private static async Task<PackageSynchronizerFixture> CreatePackageFixtureAsync(
+        string root,
+        IReadOnlyList<string> frameworks)
+    {
+        var repository = Path.Combine(root, "origin");
+        Directory.CreateDirectory(repository);
+        await RunGitAsync(null, "init", "--initial-branch=main", repository);
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        PackageSyncFixture.WriteManifest(repository, "5.3.0");
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "manifest");
+        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WritePackageCatalogAsync(catalogPath, repository, pin);
+        var packagePath = Path.Combine(root, "initial.nupkg");
+        PackageSyncFixture.CreatePackage(packagePath, frameworks);
+        var sha512 = Convert.ToBase64String(Enumerable.Repeat((byte)7, 64).ToArray());
+        var client = new FixtureNuGetPackageClient(packagePath, sha512);
+        return new PackageSynchronizerFixture(
+            new SourceCatalog(catalogPath),
+            new SourceCache(Path.Combine(root, "cache")),
+            client,
+            sha512);
+    }
+
+    private static async Task WritePackageCatalogAsync(string path, string repository, string pin)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["roslyn-api-docs"] = new
+                {
+                    repository = "dotnet/roslyn-api-docs",
+                    url = repository,
+                    pin,
+                    head = "main",
+                    sparse = new[] { "dotnet/xml" },
+                    purpose = "Fixture Roslyn API source.",
+                    apiPackages = new[] { PackageSyncFixture.Package("5.3.0") },
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    private static async Task WriteNonRoslynPackageCatalogAsync(string path, string repository, string pin)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["other"] = new
+                {
+                    repository = "example/other-api-docs",
+                    url = repository,
+                    pin,
+                    head = "main",
+                    sparse = new[] { "docs" },
+                    purpose = "Fixture non-Roslyn API source.",
+                    apiPackages = new[] { PackageSyncFixture.Package("5.3.0") },
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
     private static async Task<string> CreateRepositoryAsync(string root, string name, string contents)
     {
         var repository = Path.Combine(root, name);
@@ -959,4 +1265,27 @@ public sealed class SourceSynchronizerTests
     {
         public void Report(string value) => callback(value);
     }
+
+    private sealed class CancelingContributor(CancellationTokenSource cancellation) : ISourceGenerationContributor
+    {
+        public bool AppliesTo(SourceDefinition definition) => true;
+
+        public Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
+            SourceDefinition definition,
+            string refLabel,
+            string repositoryDirectory,
+            string supplementsDirectory,
+            IProgress<string>? progress,
+            CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            return Task.FromResult<IReadOnlyList<ApiPackageSyncState>>([]);
+        }
+    }
+
+    private sealed record PackageSynchronizerFixture(
+        SourceCatalog Catalog,
+        SourceCache Cache,
+        FixtureNuGetPackageClient Client,
+        string ClientSha512);
 }
