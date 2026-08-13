@@ -10,6 +10,7 @@ namespace DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 public static class MetadataApiReader
 {
     private const int SchemaVersion = 1;
+    private const int MaximumArrayRank = 32;
 
     private static readonly ApiDocumentation EmptyDocumentation = new(
         null,
@@ -1110,6 +1111,12 @@ public static class MetadataApiReader
             MethodSignature<DecodedType> propertySignature,
             SignatureContext context)
         {
+            if (propertySignature.Header.Kind != SignatureKind.Property
+                || propertySignature.Header.HasExplicitThis)
+            {
+                throw new InvalidDataException(
+                    $"Property '{propertyName}' has an unsupported signature calling convention.");
+            }
             if (accessors.Getter.IsNil && accessors.Setter.IsNil)
                 throw new InvalidDataException($"Property '{propertyName}' has no getter or setter.");
             if (!accessors.Getter.IsNil)
@@ -1119,7 +1126,11 @@ public static class MetadataApiReader
                 if (getterName != $"get_{propertyName}")
                     throw new InvalidDataException($"Property getter '{getterName}' has an unsupported name.");
                 var getterSignature = getter.DecodeSignature(typeProvider, context);
-                ValidateAccessorHeader(getter, getterSignature, getterName);
+                ValidateAccessorHeader(
+                    getter,
+                    getterSignature,
+                    getterName,
+                    propertySignature.Header.IsInstance);
                 ValidateSignatureType(
                     getterSignature.ReturnType,
                     propertySignature.ReturnType,
@@ -1137,7 +1148,11 @@ public static class MetadataApiReader
                 if (setterName != $"set_{propertyName}")
                     throw new InvalidDataException($"Property setter '{setterName}' has an unsupported name.");
                 var setterSignature = setter.DecodeSignature(typeProvider, context);
-                ValidateAccessorHeader(setter, setterSignature, setterName);
+                ValidateAccessorHeader(
+                    setter,
+                    setterSignature,
+                    setterName,
+                    propertySignature.Header.IsInstance);
                 ValidateRootModifiers(
                     setterSignature.ReturnType,
                     InitAccessorModifierTypes,
@@ -1203,15 +1218,29 @@ public static class MetadataApiReader
         private static void ValidateAccessorHeader(
             MethodDefinition method,
             MethodSignature<DecodedType> signature,
-            string name)
+            string name,
+            bool? declarationIsInstance = null)
         {
             if ((method.Attributes & MethodAttributes.SpecialName) == 0)
                 throw new InvalidDataException($"Accessor '{name}' is not marked special-name.");
             if (signature.GenericParameterCount != 0)
                 throw new InvalidDataException($"Accessor '{name}' cannot be generic.");
+            if (signature.Header.Kind != SignatureKind.Method
+                || signature.Header.CallingConvention != SignatureCallingConvention.Default
+                || signature.Header.HasExplicitThis)
+            {
+                throw new InvalidDataException(
+                    $"Accessor '{name}' has an unsupported calling convention.");
+            }
             var isStatic = (method.Attributes & MethodAttributes.Static) != 0;
             if (signature.Header.IsInstance == isStatic)
                 throw new InvalidDataException($"Accessor '{name}' has an incompatible calling convention.");
+            if (declarationIsInstance is not null
+                && signature.Header.IsInstance != declarationIsInstance.Value)
+            {
+                throw new InvalidDataException(
+                    $"Accessor '{name}' has staticness incompatible with its property declaration.");
+            }
         }
 
         private static void ValidateAccessorParameters(
@@ -1460,6 +1489,12 @@ public static class MetadataApiReader
                 throw new InvalidDataException($"Operator '{name}' cannot be generic.");
             if (IsPlainVoid(signature.ReturnType))
                 throw new InvalidDataException($"Operator '{name}' cannot return System.Void.");
+            if (ContainsByReference(signature.ReturnType)
+                || signature.ParameterTypes.Any(ContainsByReference))
+            {
+                throw new InvalidDataException(
+                    $"Operator '{name}' cannot have a by-reference return or parameter type.");
+            }
 
             var expectedParameterCount = UnaryOperatorNames.Contains(name) ? 1 : 2;
             if (signature.ParameterTypes.Length != expectedParameterCount)
@@ -1812,20 +1847,38 @@ public static class MetadataApiReader
                     return RenderCSharp(type.ElementType!, tupleNames, ref tupleIndex) + "*";
                 case DecodedTypeKind.Array:
                 {
-                    if (!type.IsSzArray)
+                    string suffix;
+                    if (type.IsSzArray)
                     {
-                        throw new InvalidDataException(
-                            "A non-SZ array signature cannot be rendered as C# without losing its metadata shape.");
+                        if (type.ArrayShape.Rank != 1
+                            || type.ArrayShape.Sizes.Length > 0
+                            || type.ArrayShape.LowerBounds.Length > 0)
+                        {
+                            throw new InvalidDataException(
+                                "An SZ array signature has an invalid rank, size, or lower-bound shape.");
+                        }
+                        suffix = "[]";
                     }
-                    if (type.ArrayShape.Rank != 1
-                        || type.ArrayShape.Sizes.Length > 0
-                        || type.ArrayShape.LowerBounds.Length > 0)
+                    else
                     {
-                        throw new InvalidDataException(
-                            "An array signature with explicit sizes or lower bounds cannot be rendered as C#.");
+                        if (type.ArrayShape.Rank == 1)
+                        {
+                            throw new InvalidDataException(
+                                "A rank-one non-SZ array signature cannot be rendered as C# without losing its metadata shape.");
+                        }
+                        if (type.ArrayShape.Rank is < 2 or > MaximumArrayRank
+                            || type.ArrayShape.Sizes.Length > 0
+                            || type.ArrayShape.LowerBounds.Any(bound => bound != 0))
+                        {
+                            throw new InvalidDataException(
+                                $"A multidimensional array signature with invalid rank, explicit sizes, or lower bounds cannot be rendered as C# "
+                                + $"(rank {type.ArrayShape.Rank}, sizes [{string.Join(',', type.ArrayShape.Sizes)}], "
+                                + $"lower bounds [{string.Join(',', type.ArrayShape.LowerBounds)}]).");
+                        }
+                        suffix = $"[{new string(',', type.ArrayShape.Rank - 1)}]";
                     }
                     var element = RenderCSharp(type.ElementType!, tupleNames, ref tupleIndex);
-                    return element + "[]" + NullableSuffix(type);
+                    return element + suffix + NullableSuffix(type);
                 }
                 case DecodedTypeKind.GenericParameter:
                     return type.GenericName! + NullableSuffix(type);
@@ -2091,6 +2144,11 @@ public static class MetadataApiReader
                 type = type.ElementType!;
             return type.Kind == DecodedTypeKind.ByReference;
         }
+
+        private static bool ContainsByReference(DecodedType type) =>
+            type.Kind == DecodedTypeKind.ByReference
+            || type.ElementType is not null && ContainsByReference(type.ElementType)
+            || type.TypeArguments.Any(ContainsByReference);
 
         private static DecodedType UnwrapByReference(DecodedType type)
         {

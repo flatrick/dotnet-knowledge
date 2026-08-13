@@ -241,6 +241,12 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
         return values;
     }
 
+    public int[,] MultiDimensionalArrayProbe(int[,] matrix, string[,,] cube)
+    {
+        _ = cube;
+        return matrix;
+    }
+
     public int[] NestedByRefProbe(int[] values, string marker)
     {
         _ = marker;
@@ -303,6 +309,20 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
     {
         _ = right;
         return left;
+    }
+
+    public static SignatureGallery<T> RefParameterOperatorSource(
+        ref int left,
+        SignatureGallery<T> right)
+    {
+        _ = left;
+        return right;
+    }
+
+    public static ref byte RefConversionReturnSource(SignatureGallery<T> value)
+    {
+        _ = value;
+        throw new NotSupportedException();
     }
 
     public static SignatureGallery<Marker> WrongConstructedOperatorSource(

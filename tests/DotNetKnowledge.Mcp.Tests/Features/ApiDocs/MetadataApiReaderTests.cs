@@ -19,6 +19,7 @@ public sealed class MetadataApiReaderTests
         ["Fixtures.Marker", "System.Uri"];
     private static readonly string[] ExpectedMarkerTypeNames = ["Fixtures.Marker"];
     private static readonly string[] ExpectedInt32TypeNames = ["System.Int32"];
+    private static readonly string[] ExpectedStringTypeNames = ["System.String"];
     private static readonly string[] ExpectedUriTypeNames = ["System.Uri"];
     private static readonly string[] ExpectedStreamTypeNames = ["System.IO.Stream"];
     private static readonly string[] ExpectedAttributeTargetsTypeNames = ["System.AttributeTargets"];
@@ -307,6 +308,63 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
+    public void ReadRendersRepresentableMultidimensionalArraysExactly()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var member = MetadataApiReader.Read(stream).Types
+            .Single(item => item.FullName == "Fixtures.SignatureGallery<T>")
+            .Members.Single(item => item.Name == "MultiDimensionalArrayProbe");
+
+        Assert.AreEqual(
+            "public int[,] MultiDimensionalArrayProbe(int[,] matrix, string[,,] cube);",
+            member.Signature);
+        Assert.AreEqual(
+            "M:Fixtures.SignatureGallery`1.MultiDimensionalArrayProbe(System.Int32[0:,0:],System.String[0:,0:,0:])",
+            member.EcmaId);
+        Assert.AreEqual("int[,]", member.ReturnType!.TypeExpression);
+        CollectionAssert.AreEqual(
+            ExpectedInt32TypeNames,
+            member.ReturnType.TypeNames.ToArray());
+        Assert.AreEqual("int[,]", member.Parameters[0].TypeExpression);
+        CollectionAssert.AreEqual(
+            ExpectedInt32TypeNames,
+            member.Parameters[0].TypeNames.ToArray());
+        Assert.AreEqual("string[,,]", member.Parameters[1].TypeExpression);
+        CollectionAssert.AreEqual(
+            ExpectedStringTypeNames,
+            member.Parameters[1].TypeNames.ToArray());
+    }
+
+    [TestMethod]
+    public void ReadRejectsMultidimensionalArraysWithNonRepresentableShapeData()
+    {
+        var mutations = new[]
+        {
+            (Signature: new byte[] { 0x20, 0x00, 0x14, 0x08, 0x02, 0x01, 0x04, 0x00 },
+                Expected: "sizes"),
+            (Signature: new byte[] { 0x20, 0x00, 0x14, 0x08, 0x02, 0x00, 0x02, 0x00, 0x02 },
+                Expected: "lower bounds"),
+            (Signature: new byte[] { 0x20, 0x00, 0x14, 0x08, 0x21, 0x00, 0x00 },
+                Expected: "rank"),
+        };
+
+        foreach (var mutation in mutations)
+        {
+            var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+            ReplaceMethodSignatureBytes(
+                bytes,
+                "SignatureGallery`1",
+                "MultiDimensionalArrayProbe",
+                mutation.Signature);
+
+            using var stream = new MemoryStream(bytes);
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                MetadataApiReader.Read(stream));
+            StringAssert.Contains(exception.Message, mutation.Expected, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [TestMethod]
     public void ReadRejectsAByReferenceTypeNestedInsideAnArray()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
@@ -555,6 +613,55 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
+    [DataRow("SignatureGallery`1", "get_AccessorProbe", (byte)0x25)]
+    [DataRow("AccessorBase", "add_AbstractEvent", (byte)0x60)]
+    public void ReadRejectsUnsupportedAccessorCallingConventions(
+        string typeName,
+        string methodName,
+        byte replacementHeader)
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ChangeMethodSignatureHeader(bytes, typeName, methodName, 0x20, replacementHeader);
+
+        using var stream = new MemoryStream(bytes);
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            MetadataApiReader.Read(stream));
+        StringAssert.Contains(exception.Message, methodName);
+        StringAssert.Contains(exception.Message, "calling convention", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    public void ReadRejectsAPropertyWhoseStaticnessDisagreesWithItsAccessor()
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ChangePropertySignatureHeader(bytes, "SignatureGallery`1", "AccessorProbe", 0x28, 0x08);
+
+        using var stream = new MemoryStream(bytes);
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            MetadataApiReader.Read(stream));
+        StringAssert.Contains(exception.Message, "AccessorProbe");
+        StringAssert.Contains(exception.Message, "static", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    public void ReadRejectsEventAccessorsWithIncompatibleStaticness()
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ChangeMethodAttributes(
+            bytes,
+            "AccessorBase",
+            "add_AbstractEvent",
+            attributes => attributes | MethodAttributes.Static);
+        ChangeMethodSignatureHeader(bytes, "AccessorBase", "add_AbstractEvent", 0x20, 0x00);
+
+        using var stream = new MemoryStream(bytes);
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            MetadataApiReader.Read(stream));
+        StringAssert.Contains(exception.Message, "AbstractEvent");
+        StringAssert.Contains(exception.Message, "incompatible", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
     public void ReadRejectsExtraNullableFlagsOnAClassConstraint()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
@@ -649,6 +756,29 @@ public sealed class MetadataApiReaderTests
         var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
             MetadataApiReader.Read(stream));
         StringAssert.Contains(exception.Message, "op_Increment");
+    }
+
+    [TestMethod]
+    [DataRow("RefParameterOperatorSource", "op_Addition")]
+    [DataRow("RefConversionReturnSource", "op_Implicit")]
+    [DataRow("RefConversionReturnSource", "op_CheckedExplicit")]
+    public void ReadRejectsByReferenceOperatorParametersAndReturns(
+        string sourceName,
+        string operatorName)
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ChangeMethodAttributes(
+            bytes,
+            "SignatureGallery`1",
+            sourceName,
+            attributes => attributes | MethodAttributes.SpecialName);
+        ReplaceMetadataString(bytes, sourceName, operatorName);
+
+        using var stream = new MemoryStream(bytes);
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            MetadataApiReader.Read(stream));
+        StringAssert.Contains(exception.Message, operatorName);
+        StringAssert.Contains(exception.Message, "by-reference", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
@@ -880,6 +1010,39 @@ public sealed class MetadataApiReaderTests
         Assert.IsGreaterThanOrEqualTo(3, signature.Length);
         Assert.AreEqual(oldType, signature[2]);
         signature[2] = newType;
+    }
+
+    private static void ChangeMethodSignatureHeader(
+        byte[] bytes,
+        string typeName,
+        string methodName,
+        byte expectedHeader,
+        byte replacementHeader)
+    {
+        var location = GetMethodSignatureLocation(bytes, typeName, methodName);
+        Assert.AreEqual(expectedHeader, bytes[location.DataOffset]);
+        bytes[location.DataOffset] = replacementHeader;
+    }
+
+    private static void ChangePropertySignatureHeader(
+        byte[] bytes,
+        string typeName,
+        string propertyName,
+        byte expectedHeader,
+        byte replacementHeader)
+    {
+        using var peReader = new PEReader(new MemoryStream(bytes, writable: false));
+        var metadata = peReader.GetMetadataReader();
+        var property = metadata.PropertyDefinitions
+            .Select(metadata.GetPropertyDefinition)
+            .Single(item => metadata.GetString(item.Name) == propertyName
+                && metadata.GetString(metadata.GetTypeDefinition(item.GetDeclaringType()).Name) == typeName);
+        var heapStart = GetMetadataStreamFileOffset(bytes, peReader.PEHeaders.MetadataStartOffset, "#Blob");
+        var blobOffset = MetadataTokens.GetHeapOffset(property.Signature);
+        var prefixOffset = heapStart + blobOffset;
+        var prefixSize = GetCompressedIntegerSize(bytes[prefixOffset]);
+        Assert.AreEqual(expectedHeader, bytes[prefixOffset + prefixSize]);
+        bytes[prefixOffset + prefixSize] = replacementHeader;
     }
 
     private static SignatureLocation GetMethodSignatureLocation(
