@@ -7,4 +7,5 @@ public sealed record SourceSyncResult(
     string Commit,
     DateTimeOffset FetchedAt,
     string CacheDir,
+    IReadOnlyList<ApiPackageDefinition> ConfiguredApiPackages,
     IReadOnlyList<ApiPackageSyncState> ApiPackages);

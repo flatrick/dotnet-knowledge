@@ -1,12 +1,39 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
-public sealed record SourceProvenance(
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(GitProvenance), "git")]
+[JsonDerivedType(typeof(NuGetProvenance), "nuget")]
+public abstract record ApiProvenance
+{
+    [JsonIgnore]
+    public abstract string RevisionKey { get; }
+}
+
+public sealed record GitProvenance(
     string Repo,
     string Ref,
     string Commit,
-    DateTimeOffset FetchedAt);
+    DateTimeOffset FetchedAt) : ApiProvenance
+{
+    [JsonIgnore]
+    public override string RevisionKey => JsonSerializer.Serialize(new { kind = "git", Repo, Ref, Commit });
+}
+
+public sealed record NuGetProvenance(
+    string PackageId,
+    string Version,
+    string Sha512,
+    string Feed,
+    string Framework,
+    DateTimeOffset FetchedAt) : ApiProvenance
+{
+    [JsonIgnore]
+    public override string RevisionKey => JsonSerializer.Serialize(
+        new { kind = "nuget", PackageId, Version, Sha512, Feed, Framework });
+}
 
 public sealed record ApiParameterDocumentation(
     string Name,
@@ -34,7 +61,7 @@ public static class ApiLookupDetail
 public sealed record ApiTypeDocumentation(
     string FullName,
     IReadOnlyList<ApiMemberDocumentation> Members,
-    SourceProvenance Source,
+    ApiProvenance Source,
     string Detail);
 
 /// <summary>
@@ -50,7 +77,7 @@ public enum ApiLookupOutcome
 
 public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
-    IReadOnlyList<SourceProvenance> SearchedSources,
+    IReadOnlyList<ApiProvenance> SearchedSources,
     [property: JsonIgnore] ApiLookupOutcome Outcome,
     IReadOnlyList<string> ResolvedTypeNames,
     bool IsPartial,
@@ -66,7 +93,7 @@ public sealed record ApiSearchItem(
     string Name,
     string MatchedOn,
     int? NamespaceDepth,
-    SourceProvenance Source);
+    ApiProvenance Source);
 
 /// <summary>
 /// Which part of a fully-qualified name a search pattern matched. A caller that asked for a type
@@ -92,7 +119,7 @@ public sealed record ApiSearchResult(
     IReadOnlyList<ApiSearchItem> Items,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources,
+    IReadOnlyList<ApiProvenance> SearchedSources,
     ApiSearchNote? Note = null);
 
 /// <param name="MoreFromSymbol">
@@ -106,14 +133,14 @@ public sealed record ApiTextHit(
     string Element,
     string Text,
     bool IsTruncated,
-    SourceProvenance Source,
+    ApiProvenance Source,
     int? MoreFromSymbol = null);
 
 public sealed record ApiTextSearchResult(
     IReadOnlyList<ApiTextHit> Hits,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<ApiProvenance> SearchedSources);
 
 /// <summary>
 /// How a declaration uses the type asked about. These are different questions wearing one word:
@@ -152,7 +179,7 @@ public sealed record ApiReferenceHit(
     string? AttributeType,
     bool IsExact,
     string? Signature,
-    SourceProvenance Source);
+    ApiProvenance Source);
 
 /// <summary>
 /// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
@@ -188,7 +215,7 @@ public sealed record ApiReferenceResult(
     ApiReferenceNote? Note,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<ApiProvenance> SearchedSources);
 
 public sealed class SourceNotSyncedException : InvalidOperationException
 {

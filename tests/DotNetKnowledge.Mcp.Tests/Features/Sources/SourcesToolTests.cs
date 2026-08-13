@@ -12,6 +12,8 @@ public sealed class SourcesToolTests
     private static readonly string[] ExpectedStages =
         ["clone", "sparse-checkout", "fetch", "checkout", "validate"];
 
+    private static readonly string[] ExpectedConfiguredSupplementFrameworks = ["net10.0"];
+
     // These tests call the static tool method directly rather than through the MCP SDK's
     // parameter injection, so they must supply a progress reporter themselves; nothing here
     // reads it.
@@ -165,6 +167,289 @@ public sealed class SourcesToolTests
             using var statusDocument = JsonDocument.Parse(statusJson);
             var status = statusDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
             Assert.AreEqual(repositoryDirectory, status.GetProperty("cacheDir").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SourceStatusReportsConfiguredSupplementAndVerifiedSynchronizationState()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var repository = Path.Combine(root, "origin");
+            Directory.CreateDirectory(Path.Combine(repository, "docs"));
+            await RunGitAsync(null, "init", "--initial-branch=main", repository);
+            await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Tests");
+            await File.WriteAllTextAsync(Path.Combine(repository, "docs", "included.md"), "included");
+            await RunGitAsync(repository, "add", ".");
+            await RunGitAsync(repository, "commit", "-m", "initial");
+            var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WritePackageCatalogAsync(catalogPath, repository, pin);
+            var catalog = new SourceCatalog(catalogPath);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(catalog, cache, [new StateReportingContributor()]);
+
+            var before = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using (var beforeDocument = JsonDocument.Parse(before))
+            {
+                var source = beforeDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
+                Assert.IsFalse(source.GetProperty("synced").GetBoolean());
+                var supplement = source.GetProperty("supplements").EnumerateArray().Single();
+                Assert.AreEqual("Fixture.Package", supplement.GetProperty("packageId").GetString());
+                Assert.AreEqual("Fixture.Package", supplement.GetProperty("assemblyName").GetString());
+                Assert.AreEqual("https://api.nuget.org/v3/index.json", supplement.GetProperty("feed").GetString());
+                Assert.AreEqual("5.3.0", supplement.GetProperty("version").GetString());
+                Assert.IsFalse(supplement.GetProperty("synced").GetBoolean());
+                Assert.AreEqual("net10.0", supplement.GetProperty("defaultFramework").GetString());
+                Assert.AreEqual(0, supplement.GetProperty("availableFrameworks").GetArrayLength());
+            }
+
+            var sync = await SourcesTool.SyncSource(
+                "local", synchronizer, NoOpProgress, CancellationToken.None, @ref: null);
+            using (var syncDocument = JsonDocument.Parse(sync))
+            {
+                var supplement = syncDocument.RootElement.GetProperty("supplements").EnumerateArray().Single();
+                Assert.IsTrue(supplement.GetProperty("synced").GetBoolean());
+                Assert.AreEqual("5.3.0", supplement.GetProperty("version").GetString());
+                Assert.AreEqual(Convert.ToBase64String(new byte[64]), supplement.GetProperty("sha512").GetString());
+                Assert.AreEqual("net10.0", supplement.GetProperty("defaultFramework").GetString());
+                CollectionAssert.AreEqual(
+                    ExpectedConfiguredSupplementFrameworks,
+                    supplement.GetProperty("availableFrameworks").EnumerateArray().Select(value => value.GetString()).ToArray());
+                Assert.IsTrue(supplement.TryGetProperty("fetchedAt", out _));
+            }
+
+            var after = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using var afterDocument = JsonDocument.Parse(after);
+            var status = afterDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.IsTrue(status.GetProperty("synced").GetBoolean());
+            Assert.IsTrue(status.GetProperty("supplements").EnumerateArray().Single().GetProperty("synced").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("version")]
+    [DataRow("hash")]
+    [DataRow("assembly")]
+    [DataRow("feed")]
+    [DataRow("default")]
+    [DataRow("available-frameworks")]
+    [DataRow("corpus-path")]
+    [DataRow("duplicate")]
+    public async Task SourceStatusRejectsMismatchedOrAmbiguousPinnedSupplementState(string mutation)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache, synchronizer) = await CreateSynchronizedPackageSourceAsync(root);
+            var current = cache.TryReadState("local")!;
+            var package = current.ApiPackages.Single();
+            var mutated = mutation switch
+            {
+                "version" => package with { Version = "5.3.1" },
+                "hash" => package with { Sha512 = Convert.ToBase64String(Enumerable.Repeat((byte)1, 64).ToArray()) },
+                "assembly" => package with { AssemblyName = "Other.Assembly" },
+                "feed" => package with { Feed = "https://example.invalid/v3/index.json" },
+                "default" => package with { DefaultFramework = "net8.0" },
+                "available-frameworks" => package with { AvailableFrameworks = ["net8.0"] },
+                "corpus-path" => package with { CorpusDirectory = "../outside" },
+                "duplicate" => package,
+                _ => throw new AssertFailedException($"Unknown mutation '{mutation}'."),
+            };
+            cache.WriteState(
+                "local",
+                current with
+                {
+                    ApiPackages = mutation == "duplicate"
+                        ? [package, package with { PackageId = "FIXTURE.PACKAGE" }]
+                        : [mutated],
+                });
+
+            var json = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using var document = JsonDocument.Parse(json);
+            var source = document.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.IsFalse(source.GetProperty("synced").GetBoolean(), mutation);
+            var supplement = source.GetProperty("supplements").EnumerateArray().Single();
+            Assert.IsFalse(supplement.GetProperty("synced").GetBoolean(), mutation);
+            Assert.AreEqual("Fixture.Package", supplement.GetProperty("packageId").GetString(), mutation);
+            Assert.AreEqual("Fixture.Package", supplement.GetProperty("assemblyName").GetString(), mutation);
+            Assert.AreEqual("https://api.nuget.org/v3/index.json", supplement.GetProperty("feed").GetString(), mutation);
+            Assert.AreEqual("5.3.0", supplement.GetProperty("version").GetString(), mutation);
+            Assert.AreEqual(Convert.ToBase64String(new byte[64]), supplement.GetProperty("sha512").GetString(), mutation);
+            Assert.AreEqual("net10.0", supplement.GetProperty("defaultFramework").GetString(), mutation);
+            Assert.AreEqual(0, supplement.GetProperty("availableFrameworks").GetArrayLength(), mutation);
+            Assert.IsFalse(supplement.TryGetProperty("fetchedAt", out _), mutation);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SourceStatusIgnoresUnrelatedNullPackageStateAndTreatsNullOnlyStateAsMissing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache, synchronizer) = await CreateSynchronizedPackageSourceAsync(root);
+            var current = cache.TryReadState("local")!;
+            var package = current.ApiPackages.Single();
+            cache.WriteState("local", current with { ApiPackages = [null!, package] });
+
+            var withUnrelatedNull = await SourcesTool.ListSources(
+                catalog, cache, synchronizer, CancellationToken.None);
+            using (var document = JsonDocument.Parse(withUnrelatedNull))
+            {
+                var source = document.RootElement.GetProperty("sources").EnumerateArray().Single();
+                Assert.IsTrue(source.GetProperty("synced").GetBoolean());
+                Assert.IsTrue(source.GetProperty("supplements").EnumerateArray().Single().GetProperty("synced").GetBoolean());
+            }
+
+            cache.WriteState("local", current with { ApiPackages = [null!] });
+            var withOnlyNull = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using var nullOnlyDocument = JsonDocument.Parse(withOnlyNull);
+            var nullOnlySource = nullOnlyDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.IsFalse(nullOnlySource.GetProperty("synced").GetBoolean());
+            Assert.IsFalse(nullOnlySource.GetProperty("supplements").EnumerateArray().Single().GetProperty("synced").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("net8.0", true)]
+    [DataRow("net<10.0", false)]
+    [DataRow("net\u0001", false)]
+    [DataRow("net10.0.", false)]
+    [DataRow("net10.0 ", false)]
+    [DataRow("NUL.framework", false)]
+    public async Task SourceStatusRequiresPortableAvailableFrameworkFilenameStems(
+        string extraFramework,
+        bool expectedSynced)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache, synchronizer) = await CreateSynchronizedPackageSourceAsync(root);
+            var current = cache.TryReadState("local")!;
+            var package = current.ApiPackages.Single();
+            cache.WriteState(
+                "local",
+                current with { ApiPackages = [package with { AvailableFrameworks = ["net10.0", extraFramework] }] });
+
+            var json = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using var document = JsonDocument.Parse(json);
+            var source = document.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.AreEqual(expectedSynced, source.GetProperty("synced").GetBoolean(), extraFramework);
+            var supplement = source.GetProperty("supplements").EnumerateArray().Single();
+            Assert.AreEqual(expectedSynced, supplement.GetProperty("synced").GetBoolean(), extraFramework);
+            Assert.AreEqual(
+                expectedSynced ? 2 : 0,
+                supplement.GetProperty("availableFrameworks").GetArrayLength(),
+                extraFramework);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SourceStatusRejectsReservedDefaultFrameworkFilenameStem()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, cache, synchronizer) = await CreatePackageSourceAsync(
+                root,
+                new StateReportingContributor(defaultFramework: "COM1"),
+                configuredDefaultFramework: "COM1");
+            await synchronizer.SyncAsync("local", requestedRef: null, CancellationToken.None);
+
+            var json = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using var document = JsonDocument.Parse(json);
+            var source = document.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.IsFalse(source.GetProperty("synced").GetBoolean());
+            Assert.IsFalse(source.GetProperty("supplements").EnumerateArray().Single().GetProperty("synced").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SyncSourceReportsPinnedMismatchedSupplementUsingConfiguredIdentity()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (catalog, _, synchronizer) = await CreatePackageSourceAsync(
+                root,
+                new StateReportingContributor(version: "5.3.1", sha512: Convert.ToBase64String(Enumerable.Repeat((byte)1, 64).ToArray())));
+
+            var json = await SourcesTool.SyncSource(
+                "local", synchronizer, NoOpProgress, CancellationToken.None, @ref: null);
+
+            using var document = JsonDocument.Parse(json);
+            var supplement = document.RootElement.GetProperty("supplements").EnumerateArray().Single();
+            Assert.IsFalse(supplement.GetProperty("synced").GetBoolean());
+            Assert.AreEqual("5.3.0", supplement.GetProperty("version").GetString());
+            Assert.AreEqual(Convert.ToBase64String(new byte[64]), supplement.GetProperty("sha512").GetString());
+            Assert.AreEqual(0, supplement.GetProperty("availableFrameworks").GetArrayLength());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SyncSourceReportsObservedSupplementIdentityForHead()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var observedHash = Convert.ToBase64String(Enumerable.Repeat((byte)1, 64).ToArray());
+            var (_, _, synchronizer) = await CreatePackageSourceAsync(
+                root,
+                new StateReportingContributor(version: "5.3.1", sha512: observedHash));
+
+            var json = await SourcesTool.SyncSource(
+                "local", synchronizer, NoOpProgress, CancellationToken.None, @ref: "head");
+
+            using var document = JsonDocument.Parse(json);
+            var supplement = document.RootElement.GetProperty("supplements").EnumerateArray().Single();
+            Assert.IsTrue(supplement.GetProperty("synced").GetBoolean());
+            Assert.AreEqual("5.3.1", supplement.GetProperty("version").GetString());
+            Assert.AreEqual(observedHash, supplement.GetProperty("sha512").GetString());
         }
         finally
         {
@@ -415,7 +700,11 @@ public sealed class SourcesToolTests
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
     }
 
-    private static async Task WritePackageCatalogAsync(string path, string repository, string pin)
+    private static async Task WritePackageCatalogAsync(
+        string path,
+        string repository,
+        string pin,
+        string defaultFramework = "net10.0")
     {
         var document = new
         {
@@ -439,7 +728,7 @@ public sealed class SourcesToolTests
                             feed = "https://api.nuget.org/v3/index.json",
                             version = "5.3.0",
                             sha512 = Convert.ToBase64String(new byte[64]),
-                            defaultFramework = "net10.0",
+                            defaultFramework,
                         },
                     },
                 },
@@ -447,6 +736,36 @@ public sealed class SourcesToolTests
         };
 
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    private static async Task<(SourceCatalog Catalog, SourceCache Cache, SourceSynchronizer Synchronizer)>
+        CreateSynchronizedPackageSourceAsync(string root)
+    {
+        var result = await CreatePackageSourceAsync(root, new StateReportingContributor());
+        await result.Synchronizer.SyncAsync("local", requestedRef: null, CancellationToken.None);
+        return result;
+    }
+
+    private static async Task<(SourceCatalog Catalog, SourceCache Cache, SourceSynchronizer Synchronizer)>
+        CreatePackageSourceAsync(
+            string root,
+            ISourceGenerationContributor contributor,
+            string configuredDefaultFramework = "net10.0")
+    {
+        var repository = Path.Combine(root, "origin");
+        Directory.CreateDirectory(Path.Combine(repository, "docs"));
+        await RunGitAsync(null, "init", "--initial-branch=main", repository);
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        await File.WriteAllTextAsync(Path.Combine(repository, "docs", "included.md"), "included");
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "initial");
+        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WritePackageCatalogAsync(catalogPath, repository, pin, configuredDefaultFramework);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        return (catalog, cache, new SourceSynchronizer(catalog, cache, [contributor]));
     }
 
     private static async Task<string> RunGitAsync(string? workingDirectory, params string[] arguments)
@@ -514,5 +833,34 @@ public sealed class SourcesToolTests
             progress?.Report("package-normalize");
             return Task.FromResult<IReadOnlyList<ApiPackageSyncState>>([]);
         }
+    }
+
+    private sealed class StateReportingContributor(
+        string version = "5.3.0",
+        string? sha512 = null,
+        string defaultFramework = "net10.0") : ISourceGenerationContributor
+    {
+        public bool AppliesTo(SourceDefinition definition) => definition.ApiPackages is { Count: > 0 };
+
+        public Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
+            SourceDefinition definition,
+            string refLabel,
+            string repositoryDirectory,
+            string supplementsDirectory,
+            IProgress<string>? progress,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ApiPackageSyncState>>(
+            [
+                new ApiPackageSyncState(
+                    PackageId: "fixture.package",
+                    AssemblyName: "Fixture.Package",
+                    Version: version,
+                    Sha512: sha512 ?? Convert.ToBase64String(new byte[64]),
+                    Feed: "https://api.nuget.org/v3/index.json",
+                    FetchedAt: DateTimeOffset.UnixEpoch,
+                    DefaultFramework: defaultFramework,
+                    AvailableFrameworks: [defaultFramework],
+                    CorpusDirectory: "corpus/fixture.package"),
+            ]);
     }
 }

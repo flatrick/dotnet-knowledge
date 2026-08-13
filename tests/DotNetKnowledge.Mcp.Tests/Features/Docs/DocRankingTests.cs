@@ -6,7 +6,7 @@ namespace DotNetKnowledge.Mcp.Tests.Features.Docs;
 [TestClass]
 public sealed class DocRankingTests
 {
-    private static readonly SourceProvenance Source =
+    private static readonly GitProvenance Source =
         new("dotnet/csharplang", "pinned", "0000000000000000000000000000000000000000", DateTimeOffset.UnixEpoch);
 
     private static readonly string[] ByPathThenRepo =

@@ -114,9 +114,8 @@ public sealed class ApiDocsToolTests
             // Paging runs over one flat member sequence, with a placeholder slot for a type
             // carrying no members, so this is the offset one past the last page's last item.
             var end = whole.Matches.Sum(match => Math.Max(1, match.Members.Count));
-            var pin = (await RunGitAsync(Path.Combine(root, "origin"), "rev-parse", "HEAD")).Trim();
             var atTheEnd = ApiDocsQueryService.EncodeCursor(
-                "lookup", "Widget", end, [$"test/dotnet-api-docs@pinned@{pin}"]);
+                "lookup", "Widget", end, whole.SearchedSources.Select(source => source.RevisionKey).ToArray());
 
             var json = await ApiDocsTool.LookupApi(
                 "Widget",

@@ -59,9 +59,9 @@ public sealed class ApiDocsQueryServiceTests
                 first.Items.Select(item => item.Name).ToArray());
             Assert.IsTrue(first.IsPartial);
             Assert.IsNotNull(first.NextPageToken);
-            Assert.AreEqual("test/dotnet-api-docs", first.Items[0].Source.Repo);
+            Assert.AreEqual("test/dotnet-api-docs", ((GitProvenance)first.Items[0].Source).Repo);
             Assert.HasCount(1, first.SearchedSources);
-            Assert.AreEqual(pin, first.SearchedSources[0].Commit);
+            Assert.AreEqual(pin, ((GitProvenance)first.SearchedSources[0]).Commit);
 
             var malformedCursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
                     "{\"Version\":1,\"Pattern\":\"Widget\",\"Offset\":0}"))
@@ -129,9 +129,10 @@ public sealed class ApiDocsQueryServiceTests
             Assert.AreEqual("The widget name.", member.Parameters![0].Description);
             Assert.AreEqual("The new widget.", member.Returns);
             Assert.AreEqual("Names are case-sensitive.", member.Remarks);
-            Assert.AreEqual("test/dotnet-api-docs", match.Source.Repo);
-            Assert.AreEqual("pinned", match.Source.Ref);
-            Assert.AreEqual(pin, match.Source.Commit);
+            var source = (GitProvenance)match.Source;
+            Assert.AreEqual("test/dotnet-api-docs", source.Repo);
+            Assert.AreEqual("pinned", source.Ref);
+            Assert.AreEqual(pin, source.Commit);
 
             var missing = await service.LookupAsync(
                 "System.MissingWidget",
@@ -141,7 +142,7 @@ public sealed class ApiDocsQueryServiceTests
                 CancellationToken.None);
             Assert.IsEmpty(missing.Matches);
             Assert.HasCount(1, missing.SearchedSources);
-            Assert.AreEqual(pin, missing.SearchedSources[0].Commit);
+            Assert.AreEqual(pin, ((GitProvenance)missing.SearchedSources[0]).Commit);
 
             foreach (var maliciousSymbol in new[] { "../Widget", "..\\Widget", "System.*", "C:\\Widget" })
             {
@@ -282,7 +283,7 @@ public sealed class ApiDocsQueryServiceTests
             Assert.AreEqual("summary", bySummary[0].Element);
             Assert.AreEqual("Creates a widget.", bySummary[0].Text);
             Assert.IsFalse(bySummary[0].IsTruncated);
-            Assert.AreEqual("test/dotnet-api-docs", bySummary[0].Source.Repo);
+            Assert.AreEqual("test/dotnet-api-docs", ((GitProvenance)bySummary[0].Source).Repo);
 
             // Remarks are searched. Leaving them out would answer "no" to a question whose answer
             // is in the corpus.

@@ -8,7 +8,7 @@ public sealed record DocLineHit(
     string Text,
     bool IsTruncated,
     string SectionPath,
-    SourceProvenance Source);
+    GitProvenance Source);
 
 public sealed record DocNormalizationNote(string Message);
 
@@ -16,12 +16,12 @@ public sealed record DocSearchResult(
     IReadOnlyList<DocLineHit> Hits,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources,
+    IReadOnlyList<GitProvenance> SearchedSources,
     DocNormalizationNote? NormalizationNote = null);
 
 public sealed record DocContentResult(
     string Path,
-    SourceProvenance Source,
+    GitProvenance Source,
     string? Section,
     string Text,
     int StartLine,
@@ -34,7 +34,7 @@ public sealed record DocOutlineEntry(int Level, string Text, string Path);
 
 public sealed record DocOutlineResult(
     string Path,
-    SourceProvenance Source,
+    GitProvenance Source,
     IReadOnlyList<DocOutlineEntry> Entries,
     bool IsPartial,
     string? NextPageToken,

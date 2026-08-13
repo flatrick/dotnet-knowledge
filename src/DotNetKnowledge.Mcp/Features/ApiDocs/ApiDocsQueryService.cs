@@ -55,7 +55,7 @@ public sealed class ApiDocsQueryService
         var sourceNames = ResolveSourceNames(source);
         var matches = new List<ApiTypeDocumentation>();
         var resolvedTypeNames = new List<string>();
-        var searchedSources = new List<SourceProvenance>();
+        var searchedSources = new List<ApiProvenance>();
 
         foreach (var sourceName in sourceNames)
         {
@@ -85,7 +85,7 @@ public sealed class ApiDocsQueryService
 
         var ordered = matches
             .OrderBy(match => match.FullName, StringComparer.Ordinal)
-            .ThenBy(match => match.Source.Repo, StringComparer.Ordinal)
+            .ThenBy(match => match.Source.RevisionKey, StringComparer.Ordinal)
             .ToArray();
         var outcome = ordered.Length > 0
             ? ApiLookupOutcome.Found
@@ -112,7 +112,7 @@ public sealed class ApiDocsQueryService
             .ToArray();
 
         var revisions = searchedSources
-            .Select(searched => searched.Repo + "@" + searched.Ref + "@" + searched.Commit)
+            .Select(searched => searched.RevisionKey)
             .ToArray();
         var offset = DecodeCursor(cursor, "lookup", symbol, revisions);
         if (offset > pairs.Length)
@@ -123,7 +123,7 @@ public sealed class ApiDocsQueryService
         var isPartial = nextOffset < pairs.Length;
 
         var paged = page
-            .GroupBy(pair => (pair.Type.FullName, pair.Type.Source.Repo))
+            .GroupBy(pair => (pair.Type.FullName, pair.Type.Source.RevisionKey))
             .Select(group => group.First().Type with
             {
                 Members = group
@@ -158,7 +158,7 @@ public sealed class ApiDocsQueryService
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
 
         var items = new List<ApiSearchItem>();
-        var searchedSources = new List<SourceProvenance>();
+        var searchedSources = new List<ApiProvenance>();
         foreach (var sourceName in ResolveSourceNames(source: null))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -186,7 +186,7 @@ public sealed class ApiDocsQueryService
         }
 
         var revisions = searchedSources
-            .Select(source => source.Repo + "@" + source.Ref + "@" + source.Commit)
+            .Select(source => source.RevisionKey)
             .ToArray();
         var offset = DecodeCursor(cursor, "search", pattern, revisions);
 
@@ -247,7 +247,7 @@ public sealed class ApiDocsQueryService
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
 
         var hits = new List<ApiTextHit>();
-        var searchedSources = new List<SourceProvenance>();
+        var searchedSources = new List<ApiProvenance>();
         foreach (var sourceName in ResolveSourceNames(source))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -275,7 +275,7 @@ public sealed class ApiDocsQueryService
         }
 
         var revisions = searchedSources
-            .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
+            .Select(item => item.RevisionKey)
             .ToArray();
         // Serialized rather than concatenated, so a query ending in the source name cannot
         // forge the scope of a different request.
@@ -287,7 +287,7 @@ public sealed class ApiDocsQueryService
         // Prose that genuinely differs between overloads survives, because the text is part of the
         // key.
         var deduplicated = hits
-            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.Repo));
+            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.RevisionKey));
         var ordered = ApiTextRanking.CollapsePerSymbol(
             ApiTextRanking.Order(deduplicated, query),
             TextHitsPerSymbol);
@@ -368,7 +368,7 @@ public sealed class ApiDocsQueryService
         string path,
         string text,
         string query,
-        SourceProvenance provenance)
+        ApiProvenance provenance)
     {
         XElement? root;
         try
@@ -404,7 +404,7 @@ public sealed class ApiDocsQueryService
         XElement? docs,
         string symbol,
         string query,
-        SourceProvenance provenance)
+        ApiProvenance provenance)
     {
         if (docs is null)
             yield break;
@@ -464,7 +464,7 @@ public sealed class ApiDocsQueryService
         }
 
         var hits = new List<ApiReferenceHit>();
-        var searchedSources = new List<SourceProvenance>();
+        var searchedSources = new List<ApiProvenance>();
         string? siblingType = null;
         var siblingApplications = 0;
         foreach (var sourceName in ResolveSourceNames(source))
@@ -509,7 +509,7 @@ public sealed class ApiDocsQueryService
             Attribute: hits.Count(hit => hit.Kind == ApiReferenceKind.Attribute));
 
         var revisions = searchedSources
-            .Select(item => item.Repo + "@" + item.Ref + "@" + item.Commit)
+            .Select(item => item.RevisionKey)
             .ToArray();
         var scope = JsonSerializer.Serialize(
             new[] { symbol, kind ?? string.Empty, exact?.ToString() ?? string.Empty, source ?? string.Empty });
@@ -522,7 +522,7 @@ public sealed class ApiDocsQueryService
             .ThenBy(hit => hit.Kind, StringComparer.Ordinal)
             .ThenBy(hit => hit.ParameterName ?? string.Empty, StringComparer.Ordinal)
             .ThenBy(hit => hit.TypeExpression ?? string.Empty, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Source.RevisionKey, StringComparer.Ordinal)
             .ToArray();
         if (offset > ordered.Length)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
@@ -601,7 +601,7 @@ public sealed class ApiDocsQueryService
         string path,
         string text,
         AttributeResolution attributes,
-        SourceProvenance provenance)
+        ApiProvenance provenance)
     {
         var symbol = attributes.Symbol;
         XElement? root;
@@ -703,7 +703,7 @@ public sealed class ApiDocsQueryService
         string symbol,
         string owningSymbol,
         string? signature,
-        SourceProvenance provenance)
+        ApiProvenance provenance)
     {
         foreach (var typeParameter in declaration.Element("TypeParameters")?.Elements("TypeParameter") ?? [])
         {
@@ -745,7 +745,7 @@ public sealed class ApiDocsQueryService
         AttributeResolution attributes,
         string owningSymbol,
         string? signature,
-        SourceProvenance provenance)
+        ApiProvenance provenance)
     {
         var symbol = attributes.Symbol;
         var applications = (declaration.Element("Attributes")?.Elements("Attribute") ?? [])
@@ -975,7 +975,7 @@ public sealed class ApiDocsQueryService
     }
 
     private sealed record LookupRead(
-        SourceProvenance Provenance,
+        ApiProvenance Provenance,
         IReadOnlyList<ApiTypeDocumentation> Matches,
         IReadOnlyList<string> ResolvedTypeNames);
 
@@ -1194,7 +1194,7 @@ public sealed class ApiDocsQueryService
         return new ApiTypeDocumentation(
             FullName: fullName,
             Members: members,
-            Source: new SourceProvenance(
+        Source: new GitProvenance(
                 Repo: definition.Repository,
                 Ref: state.Ref,
                 Commit: state.Commit,
@@ -1267,7 +1267,7 @@ public sealed class ApiDocsQueryService
         return candidate;
     }
 
-    private static SourceProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
+    private static GitProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
         new(definition.Repository, state.Ref, state.Commit, state.FetchedAt);
 
     internal static string EncodeCursor(string kind, string scope, int offset, IReadOnlyList<string> revisions)
@@ -1321,10 +1321,10 @@ public sealed class ApiDocsQueryService
         int Offset,
         IReadOnlyList<string> Revisions);
 
-    private sealed record SourceRead<T>(SourceProvenance Provenance, IReadOnlyList<T> Items);
+    private sealed record SourceRead<T>(ApiProvenance Provenance, IReadOnlyList<T> Items);
 
     private sealed record ReferenceRead(
-        SourceProvenance Provenance,
+        ApiProvenance Provenance,
         IReadOnlyList<ApiReferenceHit> Items,
         string? SiblingType,
         int SiblingApplications);

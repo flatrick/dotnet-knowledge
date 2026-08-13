@@ -324,6 +324,7 @@ public sealed class SourceSynchronizer
                 Commit: commit,
                 FetchedAt: fetchedAt,
                 CacheDir: repositoryDirectory,
+                ConfiguredApiPackages: definition.ApiPackages ?? [],
                 ApiPackages: apiPackages);
         }
         catch (Exception exception)

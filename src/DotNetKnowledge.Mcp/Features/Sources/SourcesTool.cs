@@ -10,6 +10,13 @@ namespace DotNetKnowledge.Mcp.Features.Sources;
 [McpServerToolType]
 public sealed class SourcesTool
 {
+    private static readonly HashSet<string> WindowsReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         // Indentation is roughly a fifth of every response's bytes and buys an agent nothing.
@@ -97,6 +104,7 @@ public sealed class SourcesTool
             throw new TimeoutException($"{name}: {exception.Message}", exception);
         }
 
+        var supplements = MapSupplements(definition.ApiPackages, state?.ApiPackages, state?.Ref);
         return new SourceStatus(
             Name: name,
             Repository: definition.Repository,
@@ -104,13 +112,14 @@ public sealed class SourcesTool
             Url: definition.Url,
             Pin: definition.Pin,
             HeadBranch: definition.Head,
-            Synced: state is not null,
+            Synced: state is not null && supplements.All(supplement => supplement.Synced),
             CurrentRef: state?.Ref,
             CurrentCommit: state?.Commit,
             FetchedAt: state?.FetchedAt,
             CacheDir: state is null
                 ? cache.DirectoryFor(name)
-                : cache.RepositoryDirectoryFor(name, state.Generation));
+                : cache.RepositoryDirectoryFor(name, state.Generation),
+            Supplements: supplements);
     }
 
     [McpServerTool(Name = "sync_source", Destructive = true, Idempotent = true)]
@@ -145,6 +154,7 @@ public sealed class SourcesTool
                         commit = result.Commit,
                         fetchedAt = result.FetchedAt,
                     },
+                    supplements = MapSupplements(result.ConfiguredApiPackages, result.ApiPackages, result.Ref),
                 },
                 WriteOptions);
         }
@@ -225,6 +235,135 @@ public sealed class SourcesTool
             });
     }
 
+    private static SupplementStatus[] MapSupplements(
+        IReadOnlyList<ApiPackageDefinition>? definitions,
+        IReadOnlyList<ApiPackageSyncState>? synchronizedPackages,
+        string? synchronizedRef)
+    {
+        var states = synchronizedPackages ?? [];
+        return (definitions ?? [])
+            .Select(definition =>
+            {
+                var state = FindValidatedState(definition, states, synchronizedRef);
+                return new SupplementStatus(
+                    PackageId: definition.PackageId,
+                    AssemblyName: state?.AssemblyName ?? definition.AssemblyName,
+                    Feed: state?.Feed ?? definition.Feed,
+                    Version: state?.Version ?? definition.Version,
+                    Sha512: state?.Sha512 ?? definition.Sha512,
+                    Synced: state is not null,
+                    FetchedAt: state?.FetchedAt,
+                    DefaultFramework: state?.DefaultFramework ?? definition.DefaultFramework,
+                    AvailableFrameworks: state?.AvailableFrameworks ?? []);
+            })
+            .ToArray();
+    }
+
+    private static ApiPackageSyncState? FindValidatedState(
+        ApiPackageDefinition definition,
+        IReadOnlyList<ApiPackageSyncState> states,
+        string? synchronizedRef)
+    {
+        var matches = states
+            .Where(state => state is not null && string.Equals(
+                state.PackageId,
+                definition.PackageId,
+                StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToArray();
+        if (matches.Length != 1)
+            return null;
+
+        var state = matches[0];
+        if (!IsStructurallyComplete(state)
+            || !string.Equals(state.AssemblyName, definition.AssemblyName, StringComparison.Ordinal)
+            || !string.Equals(state.Feed, definition.Feed, StringComparison.Ordinal)
+            || !string.Equals(state.DefaultFramework, definition.DefaultFramework, StringComparison.OrdinalIgnoreCase)
+            || !state.AvailableFrameworks.Contains(definition.DefaultFramework, StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (string.Equals(synchronizedRef, "pinned", StringComparison.Ordinal)
+            && (!string.Equals(state.Version, definition.Version, StringComparison.Ordinal)
+                || !string.Equals(state.Sha512, definition.Sha512, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return state;
+    }
+
+    private static bool IsStructurallyComplete(ApiPackageSyncState state) =>
+        NuGetPackageIdentity.IsValidPackageId(state.PackageId)
+        && !string.IsNullOrWhiteSpace(state.AssemblyName)
+        && !state.AssemblyName.Contains('/')
+        && !state.AssemblyName.Contains('\\')
+        && !state.AssemblyName.Contains(':')
+        && NuGetPackageIdentity.IsValidVersion(state.Version)
+        && IsSha512(state.Sha512)
+        && Uri.TryCreate(state.Feed, UriKind.Absolute, out var feed)
+        && string.Equals(feed.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+        && state.FetchedAt != default
+        && IsSafeFrameworkName(state.DefaultFramework)
+        && state.AvailableFrameworks is { Count: > 0 }
+        && state.AvailableFrameworks.All(IsSafeFrameworkName)
+        && IsRelativeCorpusPath(state.CorpusDirectory);
+
+    // Framework names become <framework>.json below a package corpus directory. Keep every
+    // observed name one path segment so persisted state cannot redirect that lookup.
+    private static bool IsSafeFrameworkName(string? framework) =>
+        !string.IsNullOrWhiteSpace(framework)
+        && !Path.IsPathRooted(framework)
+        && !framework.Contains('/')
+        && !framework.Contains('\\')
+        && !framework.Contains(':')
+        && framework is not "." and not ".."
+        && !framework.EndsWith(' ')
+        && !framework.EndsWith('.')
+        && !framework.Any(character => char.IsControl(character) || character is '<' or '>' or '"' or '|' or '?' or '*')
+        && !WindowsReservedFileNames.Contains(FrameworkFileNameBase(framework));
+
+    private static string FrameworkFileNameBase(string framework)
+    {
+        var dot = framework.IndexOf('.');
+        return dot < 0 ? framework : framework[..dot];
+    }
+
+    private static bool IsSha512(string? sha512)
+    {
+        if (string.IsNullOrWhiteSpace(sha512))
+            return false;
+
+        try
+        {
+            return Convert.FromBase64String(sha512).Length == 64;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsRelativeCorpusPath(string? path) =>
+        !string.IsNullOrWhiteSpace(path)
+        && !Path.IsPathRooted(path)
+        && !path.Contains(':')
+        && path.Split(['/', '\\'], StringSplitOptions.None).All(segment =>
+            !string.IsNullOrWhiteSpace(segment)
+            && segment is not "." and not "..");
+
+    private sealed record SupplementStatus(
+        string PackageId,
+        string AssemblyName,
+        string Feed,
+        string Version,
+        string Sha512,
+        bool Synced,
+        DateTimeOffset? FetchedAt,
+        string DefaultFramework,
+        IReadOnlyList<string> AvailableFrameworks);
+
     private sealed record SourceStatus(
         string Name,
         string Repository,
@@ -236,7 +375,8 @@ public sealed class SourcesTool
         string? CurrentRef,
         string? CurrentCommit,
         DateTimeOffset? FetchedAt,
-        string CacheDir);
+        string CacheDir,
+        IReadOnlyList<SupplementStatus> Supplements);
 
     private sealed record ListSourcesResult(
         string CacheRoot,

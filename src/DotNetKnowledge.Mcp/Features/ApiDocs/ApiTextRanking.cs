@@ -23,7 +23,7 @@ public static class ApiTextRanking
             .ThenBy(hit => hit.Symbol, StringComparer.Ordinal)
             .ThenBy(hit => hit.Element, StringComparer.Ordinal)
             .ThenBy(hit => hit.Text, StringComparer.Ordinal)
-            .ThenBy(hit => hit.Source.Repo, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Source.RevisionKey, StringComparer.Ordinal)
             .ToArray();
     }
 
