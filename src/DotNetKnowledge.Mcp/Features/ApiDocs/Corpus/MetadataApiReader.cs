@@ -1868,6 +1868,7 @@ public static class MetadataApiReader
                         }
                         if (type.ArrayShape.Rank is < 2 or > MaximumArrayRank
                             || type.ArrayShape.Sizes.Length > 0
+                            || type.ArrayShape.LowerBounds.Length != type.ArrayShape.Rank
                             || type.ArrayShape.LowerBounds.Any(bound => bound != 0))
                         {
                             throw new InvalidDataException(

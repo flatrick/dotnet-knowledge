@@ -311,7 +311,8 @@ public sealed class MetadataApiReaderTests
     public void ReadRendersRepresentableMultidimensionalArraysExactly()
     {
         using var stream = File.OpenRead(FixtureAssemblyPath);
-        var member = MetadataApiReader.Read(stream).Types
+        var corpus = MetadataApiReader.Read(stream);
+        var member = corpus.Types
             .Single(item => item.FullName == "Fixtures.SignatureGallery<T>")
             .Members.Single(item => item.Name == "MultiDimensionalArrayProbe");
 
@@ -333,6 +334,20 @@ public sealed class MetadataApiReaderTests
         CollectionAssert.AreEqual(
             ExpectedStringTypeNames,
             member.Parameters[1].TypeNames.ToArray());
+
+        var rankThirtyTwo = corpus.Types
+            .Single(item => item.FullName == "Fixtures.SignatureGallery<T>")
+            .Members.Single(item => item.Name == "RankThirtyTwoArrayProbe");
+        const string rankThirtyTwoCSharp = "int[,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,]";
+        const string rankThirtyTwoEcma =
+            "System.Int32[0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,"
+            + "0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:,0:]";
+        Assert.AreEqual(
+            $"public {rankThirtyTwoCSharp} RankThirtyTwoArrayProbe({rankThirtyTwoCSharp} values);",
+            rankThirtyTwo.Signature);
+        Assert.AreEqual(
+            $"M:Fixtures.SignatureGallery`1.RankThirtyTwoArrayProbe({rankThirtyTwoEcma})",
+            rankThirtyTwo.EcmaId);
     }
 
     [TestMethod]
@@ -362,6 +377,38 @@ public sealed class MetadataApiReaderTests
                 MetadataApiReader.Read(stream));
             StringAssert.Contains(exception.Message, mutation.Expected, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [TestMethod]
+    public void ReadRejectsAMultidimensionalArrayWithTooFewZeroLowerBounds()
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ReplaceMethodSignatureBytes(
+            bytes,
+            "SignatureGallery`1",
+            "MultiDimensionalArrayProbe",
+            [0x20, 0x00, 0x14, 0x08, 0x02, 0x00, 0x01, 0x00]);
+
+        using var stream = new MemoryStream(bytes);
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            MetadataApiReader.Read(stream));
+        StringAssert.Contains(exception.Message, "lower bounds", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    public void ReadRejectsAMultidimensionalArrayWithTooManyZeroLowerBounds()
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ReplaceMethodSignatureBytes(
+            bytes,
+            "SignatureGallery`1",
+            "MultiDimensionalArrayProbe",
+            [0x20, 0x00, 0x14, 0x08, 0x02, 0x00, 0x03, 0x00, 0x00, 0x00]);
+
+        using var stream = new MemoryStream(bytes);
+        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+            MetadataApiReader.Read(stream));
+        StringAssert.Contains(exception.Message, "lower bounds", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]

@@ -247,6 +247,9 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
         return matrix;
     }
 
+    public int[,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,] RankThirtyTwoArrayProbe(
+        int[,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,] values) => values;
+
     public int[] NestedByRefProbe(int[] values, string marker)
     {
         _ = marker;
