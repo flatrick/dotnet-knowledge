@@ -41,13 +41,20 @@
       "pin": "4fed37999ba2fb00b90d4489358bb9a7763e49ef",
       "head": "main",
       "sparse": ["dotnet/xml"],
-      "purpose": "Roslyn compiler and workspace API XML docs (Microsoft.CodeAnalysis.*).",
+      "purpose": "Roslyn compiler and workspace API XML docs (Microsoft.CodeAnalysis.*), plus the MSBuild types MSBuildWorkspace exposes (Microsoft.Build.Framework).",
       "apiPackages": [{
         "packageId": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
         "assemblyName": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
         "feed": "https://api.nuget.org/v3/index.json",
         "version": "5.3.0",
         "sha512": "eA4XuxeicHbppkEcCv1sxGqdyEcrYisH1tUqTvN9pehiQKURoIdR7ydohK6WUoenjTJNJDMH3HqAP6P1Vu/yRg==",
+        "defaultFramework": "net10.0"
+      }, {
+        "packageId": "Microsoft.Build.Framework",
+        "assemblyName": "Microsoft.Build.Framework",
+        "feed": "https://api.nuget.org/v3/index.json",
+        "version": "18.4.0",
+        "sha512": "VmOBicA4RSSTO857wrg91S9eOAsfnZLPeZZdXCsffJAZ8zQAMmZjATuin/LZFH21ajS9nPj7GBe+jvFRNzJPhA==",
         "defaultFramework": "net10.0"
       }]
     },

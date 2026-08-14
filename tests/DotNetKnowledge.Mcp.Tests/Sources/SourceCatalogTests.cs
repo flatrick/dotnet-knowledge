@@ -7,15 +7,23 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 public sealed class SourceCatalogTests
 {
     [TestMethod]
-    public void BundledRoslynSourcePinsTheMsbuildApiPackage()
+    public void BundledRoslynSourcePinsTheMsbuildApiPackages()
     {
         var packages = new SourceCatalog().Sources["roslyn-api-docs"].ApiPackages;
 
-        Assert.HasCount(1, packages!);
-        var package = packages![0];
-        Assert.AreEqual("Microsoft.CodeAnalysis.Workspaces.MSBuild", package.PackageId);
-        Assert.AreEqual("5.3.0", package.Version);
-        Assert.AreEqual("net10.0", package.DefaultFramework);
+        Assert.HasCount(2, packages!);
+        var workspaces = packages!.Single(item =>
+            item.PackageId == "Microsoft.CodeAnalysis.Workspaces.MSBuild");
+        Assert.AreEqual("5.3.0", workspaces.Version);
+        Assert.AreEqual("net10.0", workspaces.DefaultFramework);
+
+        // Microsoft.Build.Framework is the one cataloged package whose public surface differs
+        // between its target frameworks -- the XamlTypes namespace is net472-only, because it needs
+        // System.Xaml. It is what makes the framework argument observable.
+        var buildFramework = packages!.Single(item => item.PackageId == "Microsoft.Build.Framework");
+        Assert.AreEqual("18.4.0", buildFramework.Version);
+        Assert.AreEqual("net10.0", buildFramework.DefaultFramework);
+        Assert.AreEqual("Microsoft.Build.Framework", buildFramework.AssemblyName);
     }
 
     [TestMethod]

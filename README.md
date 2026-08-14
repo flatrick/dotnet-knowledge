@@ -49,12 +49,15 @@ Upstream documentation is fetched explicitly — call `list_sources` to see what
 where it is cached, then `sync_source` before an API lookup.
 
 `roslyn-api-docs` synchronizes two things as one generation: the pinned documentation checkout, and
-a pinned NuGet package — `Microsoft.CodeAnalysis.Workspaces.MSBuild` 5.3.0 — whose compiler XML and
-assembly metadata are normalized into a queryable corpus per target framework. The four API tools
-take an optional `framework` (`net472`, `net8.0`, `net9.0`, `net10.0`, defaulting to `net10.0`) to
-choose which of the package's surfaces to answer from, and report the one they queried. Where both
-halves document the same declaration the repository text wins; every match states whether it came
-from Git or from the package, naming the commit or the verified package hash.
+pinned NuGet packages — `Microsoft.CodeAnalysis.Workspaces.MSBuild` 5.3.0 and
+`Microsoft.Build.Framework` 18.4.0 — whose compiler XML and assembly metadata are normalized into a
+queryable corpus per target framework. The four API tools take an optional `framework` (`net472`,
+`net8.0`, `net9.0`, `net10.0`, defaulting to `net10.0`) to choose which of a package's surfaces to
+answer from, and report the one they queried. That choice is load-bearing: `Microsoft.Build.Framework`
+declares 213 things on `net472` that do not exist on `net10.0`, the `XamlTypes` namespace among them,
+because they need the .NET Framework-only `System.Xaml`. Where both halves document the same
+declaration the repository text wins; every match states whether it came from Git or from the
+package, naming the commit or the verified package hash.
 
 Fetched sources land in a per-user cache shared by every checkout and client on the machine:
 `%LOCALAPPDATA%\dotnet-knowledge\sources` on Windows,
@@ -77,8 +80,9 @@ The server's source, API-doc, and doc tools are implemented and work under an MC
 `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
 `find_api_references`, `search_docs`, `get_doc`, and `get_doc_outline`
 all answer correctly over stdio, including a first sync of a large upstream repository.
-API answers about Roslyn draw on the pinned `Microsoft.CodeAnalysis.Workspaces.MSBuild` package
-beside the documentation checkout, selectable per target framework.
+API answers about Roslyn draw on the pinned `Microsoft.CodeAnalysis.Workspaces.MSBuild` and
+`Microsoft.Build.Framework` packages beside the documentation checkout, selectable per target
+framework.
 
 Bundled-example queries remain future work; their intended surface is recorded in
 [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).

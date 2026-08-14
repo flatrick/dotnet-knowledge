@@ -24,6 +24,20 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · The framework argument is kept: a cataloged package's surface really does differ
+
+`Microsoft.Build.Framework` 18.4.0 is cataloged beside the Roslyn workspace package, and its
+`net472` corpus carries 213 declarations its `net10.0` corpus does not — the whole
+`Microsoft.Build.Framework.XamlTypes` namespace, 31 types, which needs `System.Xaml` and so cannot
+exist on .NET. Asked whether `XamlTypes.Rule` exists, the correct answer differs by framework, and
+without the argument one of the two answers would be wrong. Rejected: removing the argument, and
+the cheaper intermediate of storing one corpus per distinct content, both of which were live while
+every measured package was a Roslyn one and none diverged. Measured more widely: 65 of 321
+multi-framework assemblies on one machine diverge with real surface on both sides, so Roslyn was
+the unrepresentative sample rather than the rule.
+
+---
+
 ### 2026-08-14 · A stale corpus is recorded per API package, not by bumping the sync-state schema
 
 `ApiPackageSyncState.CorpusSchemaVersion` carries the format each package's corpora were written in,
