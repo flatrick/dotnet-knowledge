@@ -13,4 +13,3 @@ file when the item is resolved; `git log` is the record.
 | [YAML content in a synchronized source is unsearchable](yaml-source-content-is-unsearchable.md) | server | Three pipeline stages assume markdown; the cheapest honest fix is narrower than full support and not yet designed |
 | [Unfiltered document search has no relevance signal](cross-source-search-has-no-relevance-signal.md) | server | The `nuget-docs` tiering works around the worst case; scoring against the query is real design work not yet done |
 | [Every document search rescans every file in every source](document-search-rescans-every-file.md) | server | Unmeasured whether the cost is a real problem; an index would need sync-time invalidation |
-| [API coverage stops at the documented package set](api-coverage-stops-at-the-documented-package-set.md) | sources | A NuGet-package XML backend would close it, but package sourcing, version selection, and a signature-free record shape are all undesigned |

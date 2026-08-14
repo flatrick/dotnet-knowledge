@@ -38,9 +38,21 @@ sync_source(name, ref?)
       ref omitted  → the commit in sources.json (the vouched-for pin)
       ref: "head"  → the branch named in sources.json — opts into drift
     → returns the resolved commit and the on-disk path
+    → a source configured with apiPackages also downloads, verifies and
+      normalizes each pinned NuGet package; supplements reports each
+      package's id, version, verified sha512, frameworks and default
 
 ── API docs ──────────────────────────────────────────────────────────
-lookup_api(symbol, source?, limit?, cursor?)
+framework?, on all four: which target framework of the Roslyn source's
+    pinned NuGet supplement to query — net472, net8.0, net9.0 or
+    net10.0 — omitted selecting the cataloged default, net10.0. Every
+    result carries effectiveFramework, defaultFramework and
+    availableFrameworks; an unavailable value is a
+    framework_not_available error listing them, never an empty result.
+    Rejected as invalid_request with source: "dotnet-api-docs", whose
+    documentation is framework-neutral.
+
+lookup_api(symbol, source?, framework?, limit?, cursor?)
     symbol: "SymbolFinder" | "SymbolFinder.FindCallersAsync"
     → a bare type name returns each matching member's name and signature
       only, across every matching type; naming a member ("Type.Member")
@@ -59,7 +71,7 @@ lookup_api(symbol, source?, limit?, cursor?)
       can see the full matched set even when a page shows only some of
       their members
 
-search_api(pattern, limit?, cursor?)
+search_api(pattern, framework?, limit?, cursor?)
     → candidate fully-qualified names ONLY, no bodies
     → pattern matches anywhere in the fully-qualified name: the whole
       name ("System.Text.Json.JsonSerializer"), a namespace segment in
@@ -73,7 +85,7 @@ search_api(pattern, limit?, cursor?)
       the named namespace itself, 1 for one a namespace below it, and so
       on — the descendants always come back, and this is what separates
       them
-search_api_text(query, source?, limit?, cursor?)
+search_api_text(query, source?, framework?, limit?, cursor?)
     query: a literal, case-insensitive substring — no regex, see
       "Searching API documentation text" below
     → searches summary, remarks, returns, value, param, typeparam and
@@ -84,7 +96,8 @@ search_api_text(query, source?, limit?, cursor?)
       at 300 characters with isTruncated stating it — never bodies
     → limit: 1-100, default 20
 
-find_api_references(symbol, kind?, exact?, source?, limit?, cursor?)
+find_api_references(symbol, kind?, exact?, source?, framework?, limit?,
+    cursor?)
     symbol: a fully-qualified TYPE name — the thing being used
     kind: "parameter" | "return" | "base" | "interface" | "constraint" |
       "attribute"; omit for all
@@ -387,6 +400,40 @@ These tools must stand alone for a sandboxed agent. The `cacheDir` escape hatch 
 can reach the per-user cache with its own tools; an agent confined to its workspace cannot, and for
 it a structured search that falls short has no fallback.
 
+### Roslyn API coverage is a Git checkout plus a pinned package
+
+`roslyn-api-docs` publishes documentation for the Roslyn packages Microsoft documents there, and
+that set stops short of the packages an agent actually references.
+So the source carries a second half: `sources.json` pins one NuGet package per `apiPackages` entry —
+`Microsoft.CodeAnalysis.Workspaces.MSBuild` 5.3.0 today — by id, version and SHA-512, and
+`sync_source` downloads it, verifies the hash before opening the archive, and normalizes each
+`lib/<framework>/` assembly-and-XML pair into a deterministic corpus of its own.
+The package is never loaded or executed: signatures come from `System.Reflection.Metadata` and prose
+from the compiler-emitted XML, joined on the ECMA documentation ID they share.
+
+A compiler-emitted XML file documents one assembly per target framework, so unlike the
+framework-neutral repository documentation the supplement has as many API surfaces as the package
+has TFMs. That is what `framework` selects, and why every API result states the one it queried
+rather than leaving the caller to assume.
+
+Where the two halves document the same declaration, the repository wins: it is the curated,
+human-reviewed text, and the package's compiler XML is what fills the gaps around it. Merging is by
+canonical ECMA identity rather than by display name, so a package-only member of a repository-known
+type survives beside repository members of the same type, and one declaration is never counted
+twice against a page's limit. Every match carries its own provenance, so which half answered is
+always visible.
+
+Both halves are one generation. `sync_source` publishes the Git checkout and the normalized
+supplements together or not at all, and a query reads a complete old generation or a complete new
+one — never a checkout paired with a half-built corpus. A configured supplement that is missing
+makes the whole source unsynchronized, because a source that answers from one half while silently
+missing the other is exactly the plausible absence this server exists to avoid.
+
+For the same reason, a lookup that found nothing reports the coverage it actually searched — the
+sources, the framework, the frameworks available — and says the name may be invalid *or* outside
+that coverage. It does not send the caller to `search_api`: that tool searches the same coverage,
+so the referral would promise a completeness neither tool has.
+
 ## The provenance envelope
 
 Every payload — from every tool, including cached ones — carries:
@@ -401,6 +448,26 @@ Every payload — from every tool, including cached ones — carries:
 ```
 
 `ref` is `"pinned"` or `"head:<branch>"`. It is never absent and never inferred.
+
+API results carry a discriminated envelope instead, because a package revision and a Git revision
+are not the same kind of fact and neither can be written in the other's fields. `kind: "git"` is the
+envelope above; `kind: "nuget"` names the package, version, verified `sha512`, feed and framework:
+
+```json
+"source": {
+  "kind": "nuget",
+  "packageId": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
+  "version": "5.3.0",
+  "sha512": "eA4Xuxeic…",
+  "feed": "https://api.nuget.org/v3/index.json",
+  "framework": "net10.0",
+  "fetchedAt": "2026-08-12T18:04:11Z"
+}
+```
+
+A pagination cursor binds every participating revision — each source's Git commit, each package's
+version and hash — and the canonical framework, so re-synchronizing or switching framework mid-page
+rejects the cursor rather than silently paging a different result set.
 
 When one response contains matches from both API repositories, each match carries its own source
 envelope; provenance is never collapsed into one ambiguous top-level revision.
@@ -472,6 +539,11 @@ git -C <dir> sparse-checkout set <paths...>
 git -C <dir> fetch --depth 1 origin <pin-or-head>
 git -C <dir> checkout --detach FETCH_HEAD
 ```
+
+A package supplement is fetched over the feed's NuGet v3 `PackageBaseAddress` resource, HTTPS only
+and never through the machine's NuGet configuration or global package folder, so what the server
+answers from is the archive whose hash `sources.json` vouches for rather than whatever a local cache
+happens to hold under that id and version.
 
 ## Naming, against dotnet-mcp
 

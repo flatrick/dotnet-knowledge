@@ -19,6 +19,14 @@ public sealed class SourceCatalogTests
     }
 
     [TestMethod]
+    public void BacklogNoLongerCarriesTheApiCoverageItemThePackageSupplementCloses()
+    {
+        var index = File.ReadAllText(GetFixturePath("BacklogIndexPath"));
+
+        Assert.DoesNotContain("api-coverage-stops-at-the-documented-package-set.md", index);
+    }
+
+    [TestMethod]
     [DataRow("packageId", "")]
     [DataRow("packageId", "//evil.test/package")]
     [DataRow("packageId", "../escape")]
@@ -208,4 +216,10 @@ public sealed class SourceCatalogTests
         Assert.AreEqual("NuGet/docs.microsoft.com-nuget", catalog.Sources["nuget-docs"].Repository);
         Assert.IsTrue(catalog.Sources["nuget-docs"].Markdown);
     }
+
+    private static string GetFixturePath(string key) => typeof(SourceCatalogTests).Assembly
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), inherit: false)
+        .Cast<System.Reflection.AssemblyMetadataAttribute>()
+        .Single(attribute => attribute.Key == key).Value
+        ?? throw new InvalidOperationException($"Missing test fixture metadata '{key}'.");
 }
