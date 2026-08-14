@@ -1,8 +1,9 @@
 # Probes
 
 Throwaway programs that answer questions about the *host*, not about this repository's code. Most
-are MCP servers; six are not — two drivers that play the client, one that interrogates the
-machine's compilers, and three that run shipped package-pipeline code over real NuGet content.
+are MCP servers; ten are not — two drivers that play the client, one that interrogates the machine's
+compilers, six that run shipped package-pipeline code over real NuGet content or a known fixture,
+and one that synchronizes sources with the working tree's build.
 
 Some faults only appear when a server is launched by an MCP client, and a client is an awkward place
 to run an experiment: the tool surface is fixed, output is summarized, and a hung call looks the same
@@ -202,4 +203,87 @@ line is broken out separately because those are the packages the server would re
 ```powershell
 dotnet run --file scripts/probes/sweep-api-reader.cs
 dotnet run --file scripts/probes/sweep-api-reader.cs -- --root D:\packages --limit 200
+```
+
+## sweep-tfm-divergence.cs
+
+Not an MCP server. `diff-tfm-surface.cs` asks whether one named package's public surface differs
+between its target frameworks; this asks it of every package in a folder tree and lists the ones
+that do.
+
+**Run it before cataloging a package**, to know whether its frameworks are worth storing separately.
+Type-forwarding facades — a framework whose assembly declares nothing because the API lives in the
+platform there — are counted and excluded, since they are divergence of a degenerate kind that
+would answer the question with a case nobody queries.
+
+The measured answer is that divergence is ordinary: 65 of 321 multi-framework assemblies on one
+machine diverge with real surface on both sides. Every Roslyn package is in the other 229, which is
+what made the `framework` argument look unnecessary until a wider sample was taken.
+
+```powershell
+dotnet run --file scripts/probes/sweep-tfm-divergence.cs
+dotnet run --file scripts/probes/sweep-tfm-divergence.cs -- --root D:\packages
+```
+
+## probe-metadata-flags.cs
+
+Not an MCP server. It prints, per member, the metadata flags the compiler emitted beside the
+signature `MetadataApiReader` renders from them. Pointed at `metadata-flag-truth/`, whose every
+declaration records in a comment the modifier it was *written* with, the three columns compare
+directly and any disagreement is a defect.
+
+**Reach for this before asserting what a metadata shape means.** The reader twice rendered
+`Final|Virtual|NewSlot` as `sealed override`; that flag set is an implicit interface implementation
+and carries no modifier at all, while `sealed override` is `Final|Virtual` *without* `NewSlot`. Both
+mistakes came from reasoning about what compilers ought to emit rather than compiling something and
+looking. The second reached `Equals`, `Dispose` and `GetEnumerator` across every assembly that
+implements them.
+
+Add a case to `metadata-flag-truth/FlagTruth.cs` when a shape is in question; the fixture is the
+part worth growing.
+
+```powershell
+dotnet build scripts/probes/metadata-flag-truth/metadata-flag-truth.csproj
+dotnet run --file scripts/probes/probe-metadata-flags.cs
+dotnet run --file scripts/probes/probe-metadata-flags.cs -- --assembly D:\some\other.dll
+```
+
+## validate-api-package-catalog.cs
+
+Not an MCP server. It checks every `apiPackages` entry in `sources.json` against the shipped code
+that will act on it, and exits 1 on a finding.
+
+**Run it after editing `apiPackages`, before committing.** A wrong entry is otherwise expensive to
+find: it parses, downloads, and builds a corpus, and only fails at the end of `sync_source`. That
+happened — an entry was validated through the archive reader, corpus builder and corpus store, all
+of which passed, and committed, then failed the resync on a rule none of them run. So this
+deliberately runs both halves: `RoslynPackageCohort.Read`, which is the check that was missed, and
+then the package pipeline.
+
+It also reports each package's per-framework surface and any divergence between them, so a reviewer
+can see whether a new entry exercises the `framework` argument at all.
+
+Needs the source synchronized, because the cohort manifest is read from the checkout, and reads
+packages from the machine's NuGet folder rather than downloading.
+
+```powershell
+dotnet run --file scripts/probes/validate-api-package-catalog.cs
+```
+
+## resync-sources.cs
+
+Not an MCP server, and the one probe here that **downloads**. It drives `SourceSynchronizer.SyncAsync`
+over the cataloged sources using the working tree's build, wired exactly as `Program.cs` wires it.
+
+**This is how to resynchronize after a corpus-format or catalog change.** `sync_source` through an
+MCP client runs the user-global tool, which lags the working tree between an install and a client
+restart — so syncing that way writes the old format with the old catalog, which the new code then
+rejects as stale. The obvious route is wrong precisely when a resync is most needed.
+
+Sources carrying API packages are synced first, so a run that is going to fail fails before several
+hundred megabytes are fetched.
+
+```powershell
+dotnet run --file scripts/probes/resync-sources.cs
+dotnet run --file scripts/probes/resync-sources.cs -- roslyn-api-docs
 ```

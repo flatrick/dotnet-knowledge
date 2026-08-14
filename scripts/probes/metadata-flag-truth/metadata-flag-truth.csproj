@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A deliberately odd fixture: it exists to exhibit metadata shapes, not to be good code. The
+    analyzer rules waived here all object to the shapes the probe is here to observe.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CA1010;CA1051;CA1063;CA1067;CA1710;CA1725;CA1815;CA1816</NoWarn>
+  </PropertyGroup>
+
+</Project>
