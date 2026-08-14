@@ -301,6 +301,42 @@ public sealed class MetadataApiReaderTests
             item.Signature == "public static virtual event System.EventHandler? VirtualEvent;"));
     }
 
+    // Final|Virtual|NewSlot is what the compiler emits for a member that implicitly implements an
+    // interface, and the C# declaration carries no modifier. It is not 'sealed override', which is
+    // Final|Virtual WITHOUT NewSlot -- an override reuses its base slot, and a new slot is not one.
+    [TestMethod]
+    public void ReadRendersImplicitInterfaceImplementationsWithoutAModifier()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+        var members = corpus.Types
+            .Single(item => item.FullName == "Fixtures.ImplicitAccessors").Members;
+
+        Assert.IsTrue(
+            members.Any(item => item.Signature == "public int ImplicitProperty { get; set; }"),
+            string.Join(Environment.NewLine, members.Select(item => item.Signature)));
+        Assert.IsTrue(
+            members.Any(item => item.Signature == "public event System.EventHandler? ImplicitEvent;"),
+            string.Join(Environment.NewLine, members.Select(item => item.Signature)));
+    }
+
+    // A private setter is not part of the rendered declaration, so its vtable flags must not decide
+    // one. Comparing them rejected the ordinary '{ get; private set; }' on an interface-implementing
+    // property, which was 1190 of the 1681 skips this check produced across the NuGet cache.
+    [TestMethod]
+    public void ReadIgnoresANonVisibleAccessorWhenDerivingDeclarationModifiers()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+        var members = corpus.Types
+            .Single(item => item.FullName == "Fixtures.ImplicitAccessors").Members;
+
+        Assert.AreEqual(0, corpus.Skipped.Count);
+        Assert.IsTrue(
+            members.Any(item => item.Signature == "public int PrivateSetterProperty { get; }"),
+            string.Join(Environment.NewLine, members.Select(item => item.Signature)));
+    }
+
     [TestMethod]
     public void ReadSkipsAGetterSignatureThatDisagreesWithItsProperty()
     {

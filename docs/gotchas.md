@@ -24,6 +24,19 @@ needs more.
 
 ---
 
+### 2026-08-14 · `Final|Virtual|NewSlot` on an accessor is an interface implementation, not `sealed override` · codebase
+
+The C# compiler emits `Final|Virtual|NewSlot` for a member that *implicitly implements an interface*
+— the declaration carries no modifier at all. `sealed override` is `Final|Virtual` **without**
+`NewSlot`, because an override reuses its base slot and a new slot is by definition not one.
+`MetadataApiReader` checked `isFinal` before `isNewSlot` and rendered both alike, claiming an
+override relationship that does not exist on 3162 declarations across one machine's NuGet cache.
+Verified by compiling known source and reading back the emitted flags, not from reasoning about
+what compilers ought to do — `sealed`, `override` and "implements an interface" are three different
+things that share two bits.
+
+---
+
 ### 2026-08-06 · A guard that walks up to `.git` passes silently from a worktree · codebase
 
 `verify-project-namespaces.cs` tested `Directory.Exists(".git")` only. In a linked worktree `.git`

@@ -12,6 +12,9 @@ public static class MetadataApiReader
     private const int SchemaVersion = 3;
     private const int MaximumArrayRank = 32;
 
+    private const MethodAttributes ImplicitInterfaceImplementation =
+        MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.NewSlot;
+
     private static readonly ApiDocumentation EmptyDocumentation = new(
         null,
         Array.Empty<ApiNamedDocumentation>(),
@@ -1501,6 +1504,30 @@ public static class MetadataApiReader
             return accessibility == propertyAccessibility ? $"{keyword};" : $"{accessibility} {keyword};";
         }
 
+        /// <summary>
+        /// Collapses the flag set the compiler emits for an implicit interface implementation to
+        /// "no modifier", which is what the C# declaration says.
+        /// </summary>
+        /// <remarks>
+        /// Measured against known source rather than assumed — <c>Final|Virtual|NewSlot</c> is what
+        /// <c>public int Value { get; set; }</c> emits on a class implementing an interface that
+        /// declares <c>Value</c>. It is not <c>sealed override</c>, which is <c>Final|Virtual</c>
+        /// <em>without</em> <c>NewSlot</c>, because an override reuses its base slot and a new slot
+        /// is by definition not one. Rendering the two alike claimed an override relationship that
+        /// does not exist, and comparing the raw flags rejected an interface-implementing getter
+        /// beside an ordinary setter.
+        /// <para>
+        /// Restricted to class declarations: no interface case was observed, and a sealed default
+        /// interface member is a different question left alone.
+        /// </para>
+        /// </remarks>
+        private static MethodAttributes CollapseImplicitInterfaceImplementation(
+            MethodAttributes semantics,
+            bool isInterface) =>
+            !isInterface && semantics == ImplicitInterfaceImplementation
+                ? default
+                : semantics;
+
         private string GetAccessorDeclarationModifiers(
             TypeDefinitionHandle typeHandle,
             IEnumerable<MethodDefinitionHandle> handles,
@@ -1512,13 +1539,27 @@ public static class MetadataApiReader
                 | MethodAttributes.Final
                 | MethodAttributes.NewSlot
                 | MethodAttributes.PinvokeImpl;
-            var semantics = handles
-                .Where(handle => !handle.IsNil)
-                .Select(handle => reader.GetMethodDefinition(handle).Attributes & semanticMask)
+            var declaringType = reader.GetTypeDefinition(typeHandle);
+            var isInterface = (declaringType.Attributes & TypeAttributes.Interface) != 0;
+            var present = handles.Where(handle => !handle.IsNil).ToArray();
+            if (present.Length == 0)
+                throw new InvalidDataException($"The {position} has no getter, setter, adder, or remover.");
+
+            // Only the visible accessors decide the declaration's modifiers. A private setter beside
+            // a public getter is not part of the rendered declaration, and comparing its vtable flags
+            // rejected the ordinary '{ get; private set; }' on an interface-implementing property.
+            var visible = present
+                .Where(handle => IsVisible(
+                    reader.GetMethodDefinition(handle).Attributes & MethodAttributes.MemberAccessMask))
+                .ToArray();
+            var considered = visible.Length > 0 ? visible : present;
+
+            var semantics = considered
+                .Select(handle => CollapseImplicitInterfaceImplementation(
+                    reader.GetMethodDefinition(handle).Attributes & semanticMask,
+                    isInterface))
                 .Distinct()
                 .ToArray();
-            if (semantics.Length == 0)
-                throw new InvalidDataException($"The {position} has no getter, setter, adder, or remover.");
             if (semantics.Length != 1)
                 throw new InvalidDataException($"The accessors for {position} have incompatible modifiers.");
 
@@ -1528,8 +1569,6 @@ public static class MetadataApiReader
             var isVirtual = (attributes & MethodAttributes.Virtual) != 0;
             var isFinal = (attributes & MethodAttributes.Final) != 0;
             var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
-            var declaringType = reader.GetTypeDefinition(typeHandle);
-            var isInterface = (declaringType.Attributes & TypeAttributes.Interface) != 0;
             if ((attributes & MethodAttributes.PinvokeImpl) != 0
                 || isAbstract && !isVirtual
                 || isFinal && !isVirtual

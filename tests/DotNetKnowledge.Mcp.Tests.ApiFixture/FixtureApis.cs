@@ -97,6 +97,27 @@ public class AccessorOverride : AccessorBase
     }
 }
 
+public interface IImplicitAccessors
+{
+    int ImplicitProperty { get; }
+
+    int PrivateSetterProperty { get; }
+
+    event EventHandler? ImplicitEvent;
+}
+
+// Implicitly implementing an interface emits Final|Virtual|NewSlot on the accessor that
+// participates, while an added setter stays plain. Both declarations are ordinary C# carrying no
+// modifier: the reader rendered them "sealed override", and rejected the mixed pair outright.
+public class ImplicitAccessors : IImplicitAccessors
+{
+    public int ImplicitProperty { get; set; }
+
+    public int PrivateSetterProperty { get; private set; }
+
+    public event EventHandler? ImplicitEvent;
+}
+
 public interface IStaticAccessors
 {
     static abstract int AbstractProperty { get; }
