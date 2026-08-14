@@ -93,6 +93,7 @@ internal sealed class PackageApiDocsBackend : IApiDocsBackend
             .ToArray();
         return new ApiLookupRead(
             documented.Where(type => memberName is null || type.Members.Count > 0).ToArray(),
+            documented,
             documented.Select(type => type.FullName).ToArray(),
             _coverage);
     }
@@ -231,7 +232,7 @@ internal sealed class PackageApiDocsBackend : IApiDocsBackend
         return new ApiLookupTypeRead(type.EcmaId, documentation, members);
     }
 
-    private static ApiMemberDocumentation ReadMember(ApiCorpusMember member)
+    private ApiMemberDocumentation ReadMember(ApiCorpusMember member)
     {
         var descriptions = member.Documentation.Parameters.ToDictionary(
             item => item.Name, item => item.Text, StringComparer.Ordinal);
@@ -245,7 +246,8 @@ internal sealed class PackageApiDocsBackend : IApiDocsBackend
                     ? description
                     : null)).ToArray(),
             member.Documentation.Returns,
-            member.Documentation.Remarks);
+            member.Documentation.Remarks,
+            _provenance);
     }
 
     private void AddDocumentationHits(

@@ -13,6 +13,8 @@ namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 /// </summary>
 internal static class ApiDocsFixture
 {
+    public static readonly string[] PackageFrameworks = ["net10.0", "net472", "net8.0", "net9.0"];
+
     private static readonly DateTimeOffset PackageFetchedAt =
         new(2026, 8, 12, 10, 11, 12, TimeSpan.Zero);
 
@@ -324,6 +326,168 @@ internal static class ApiDocsFixture
         return new PackageApiDocsBackend(snapshot, definition.PackageId, framework);
     }
 
+    public static async Task<ApiDocsQueryService> CreateMergedServiceAsync(
+        string root,
+        bool reverseFixtureInsertion = false)
+    {
+        var dotnetRepository = Path.Combine(root, "dotnet-origin");
+        var dotnetPin = await CreateRepositoryAsync(
+            dotnetRepository,
+            [
+                ("xml/System/Widget.xml", WidgetXml),
+                ("xml/System/WidgetKit.xml", WidgetKitXml),
+                ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
+                ("xml/System.Widgets/Gadget.xml", GadgetXml),
+            ]);
+        var roslynRepository = Path.Combine(root, "roslyn-origin");
+        var roslynPin = await CreateRepositoryAsync(
+            roslynRepository,
+            [("dotnet/xml/System/Widget.xml", WidgetXml)]);
+
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(
+            catalogPath,
+            [
+                ApiSource("dotnet-api-docs", dotnetRepository, dotnetPin, "xml"),
+                ApiSource(
+                    "roslyn-api-docs", roslynRepository, roslynPin, "dotnet/xml", PackageDefinition()),
+            ]);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(
+            catalog,
+            cache,
+            [new FixturePackageContributor(reverseFixtureInsertion)]);
+        await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
+        await synchronizer.SyncAsync("roslyn-api-docs", requestedRef: null, CancellationToken.None);
+        return new ApiDocsQueryService(catalog, cache, synchronizer);
+    }
+
+    public static async Task<ApiDocsQueryService> CreateMultiPackageServiceAsync(
+        string root,
+        bool reverseDefinitions = false,
+        bool reverseStates = false,
+        bool disagreeOnFrameworks = false)
+    {
+        var dotnetRepository = Path.Combine(root, "dotnet-origin");
+        var dotnetPin = await CreateRepositoryAsync(
+            dotnetRepository,
+            [
+                ("xml/System/Widget.xml", WidgetXml),
+                ("xml/System/WidgetKit.xml", WidgetKitXml),
+                ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
+            ]);
+        var roslynRepository = Path.Combine(root, "roslyn-origin");
+        var roslynPin = await CreateRepositoryAsync(
+            roslynRepository,
+            [("dotnet/xml/System/Widget.xml", WidgetXml)]);
+        var definitions = MultiPackageDefinitions(disagreeOnFrameworks);
+        if (reverseDefinitions)
+            definitions = definitions.Reverse().ToArray();
+
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(
+            catalogPath,
+            [
+                ApiSource("dotnet-api-docs", dotnetRepository, dotnetPin, "xml"),
+                ApiSource("roslyn-api-docs", roslynRepository, roslynPin, "dotnet/xml", definitions),
+            ]);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(
+            catalog,
+            cache,
+            [new FixturePackageContributor(reverseFixtureInsertion: false, reverseStates)]);
+        await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
+        await synchronizer.SyncAsync("roslyn-api-docs", requestedRef: null, CancellationToken.None);
+        return new ApiDocsQueryService(catalog, cache, synchronizer);
+    }
+
+    public static async Task<ApiDocsQueryService> ReopenMultiPackageServiceAsync(
+        string root,
+        bool reverseDefinitions,
+        bool reverseStates)
+    {
+        var dotnetRepository = Path.Combine(root, "dotnet-origin");
+        var roslynRepository = Path.Combine(root, "roslyn-origin");
+        var dotnetPin = (await RunGitAsync(dotnetRepository, "rev-parse", "HEAD")).Trim();
+        var roslynPin = (await RunGitAsync(roslynRepository, "rev-parse", "HEAD")).Trim();
+        var definitions = MultiPackageDefinitions(disagreeOnFrameworks: false);
+        if (reverseDefinitions)
+            definitions = definitions.Reverse().ToArray();
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(
+            catalogPath,
+            [
+                ApiSource("dotnet-api-docs", dotnetRepository, dotnetPin, "xml"),
+                ApiSource("roslyn-api-docs", roslynRepository, roslynPin, "dotnet/xml", definitions),
+            ]);
+
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var state = cache.TryReadState("roslyn-api-docs")
+            ?? throw new InvalidOperationException("The multi-package fixture state is missing.");
+        var packages = reverseStates
+            ? state.ApiPackages.Reverse().ToArray()
+            : state.ApiPackages.OrderBy(item => item.PackageId, StringComparer.Ordinal).ToArray();
+        cache.WriteState("roslyn-api-docs", state with { ApiPackages = packages });
+        var catalog = new SourceCatalog(catalogPath);
+        return new ApiDocsQueryService(catalog, cache, new SourceSynchronizer(catalog, cache));
+    }
+
+    public static (string[] Definitions, string[] States) ReadMultiPackageOrders(string root)
+    {
+        var catalog = new SourceCatalog(Path.Combine(root, "sources.json"));
+        var definitions = catalog.Sources["roslyn-api-docs"].ApiPackages!
+            .Select(package => package.PackageId)
+            .ToArray();
+        var state = new SourceCache(Path.Combine(root, "cache")).TryReadState("roslyn-api-docs")
+            ?? throw new InvalidOperationException("The multi-package fixture state is missing.");
+        return (
+            definitions,
+            state.ApiPackages.Select(package => package.PackageId).ToArray());
+    }
+
+    public static async Task UpdateMergedPackageRevisionAsync(
+        string root,
+        string version,
+        string sha512)
+    {
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var state = cache.TryReadState("roslyn-api-docs")
+            ?? throw new InvalidOperationException("The merged fixture package state is missing.");
+        var package = state.ApiPackages.Single() with { Version = version, Sha512 = sha512 };
+        var supplements = cache.SupplementsDirectoryFor("roslyn-api-docs", state.Generation);
+        await WriteFixtureCorpusAsync(
+            supplements,
+            PackageDefinition(),
+            package,
+            "net10.0",
+            MergedPackageCorpus(),
+            reverseFixtureInsertion: false);
+        cache.WriteState(
+            "roslyn-api-docs",
+            state with { Ref = "head:main", ApiPackages = [package] });
+    }
+
+    public static async Task UpdateMergedGitRevisionAsync(string root)
+    {
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var state = cache.TryReadState("roslyn-api-docs")
+            ?? throw new InvalidOperationException("The merged fixture source state is missing.");
+        var repository = cache.RepositoryDirectoryFor("roslyn-api-docs", state.Generation);
+        await File.WriteAllTextAsync(
+            Path.Combine(repository, "dotnet", "xml", "System", "CursorOnly.xml"),
+            "<Type Name=\"CursorOnly\" FullName=\"System.CursorOnly\"><TypeSignature Language=\"DocId\" Value=\"T:System.CursorOnly\" /></Type>");
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "cursor revision");
+        var commit = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+        cache.WriteState(
+            "roslyn-api-docs",
+            state with { Ref = "head:main", Commit = commit });
+    }
+
     public static SourceSnapshot PackageSnapshot(
         string root,
         ApiPackageDefinition? definition = null,
@@ -363,7 +527,20 @@ internal static class ApiDocsFixture
         Convert.ToBase64String(Enumerable.Repeat((byte)0x5a, 64).ToArray()),
         "net10.0");
 
-    public static ApiPackageSyncState PackageState(string corpusDirectory = "fixture-package") => new(
+    private static ApiPackageDefinition[] MultiPackageDefinitions(bool disagreeOnFrameworks) =>
+    [
+        new ApiPackageDefinition(
+            "Fixture.Alpha", "Fixture.Alpha", "https://feed.test/v3/index.json", "1.0.0",
+            Convert.ToBase64String(Enumerable.Repeat((byte)0x41, 64).ToArray()), "net10.0"),
+        new ApiPackageDefinition(
+            "Fixture.Zeta", "Fixture.Zeta", "https://feed.test/v3/index.json", "2.0.0",
+            Convert.ToBase64String(Enumerable.Repeat((byte)0x5a, 64).ToArray()),
+            disagreeOnFrameworks ? "net9.0" : "net10.0"),
+    ];
+
+    public static ApiPackageSyncState PackageState(
+        string corpusDirectory = "fixture-package",
+        IReadOnlyList<string>? availableFrameworks = null) => new(
         "Fixture.Package",
         "Fixture.Package",
         "1.2.3",
@@ -371,7 +548,7 @@ internal static class ApiDocsFixture
         "https://feed.test/v3/index.json",
         PackageFetchedAt,
         "net10.0",
-        ["net10.0", "net8.0"],
+        availableFrameworks ?? ["net10.0", "net8.0"],
         corpusDirectory);
 
     public static async Task WritePackageCorpusAsync(
@@ -481,7 +658,7 @@ internal static class ApiDocsFixture
                         "Create",
                         "Method",
                         "public static System.Widget Create(string name);",
-                        [new ApiTypeUse("name", "string", ["System.String"])],
+                        [new ApiTypeUse("name", "System.String", ["System.String"])],
                         new ApiTypeUse(null, "System.Widget", ["System.Widget"]),
                         [],
                         [],
@@ -534,6 +711,34 @@ internal static class ApiDocsFixture
         ]);
     }
 
+    private static ApiCorpus MergedPackageCorpus()
+    {
+        var corpus = PackageCorpus();
+        return corpus with
+        {
+            Types = corpus.Types.Select(type => type.EcmaId == "T:System.Widget"
+                ? type with
+                {
+                    Members =
+                    [
+                        .. type.Members,
+                        new ApiCorpusMember(
+                            "M:System.Widget.PackageOnly(System.Int32)",
+                            "PackageOnly",
+                            "Method",
+                            "public void PackageOnly(int value);",
+                            [new ApiTypeUse("value", "int", ["System.Int32"])],
+                            null, [], [],
+                            new ApiDocumentation(
+                                "Exists only in the package supplement.",
+                                [new ApiNamedDocumentation("value", "The package-only value.")],
+                                [], null, null, null, [])),
+                    ],
+                }
+                : type).ToArray(),
+        };
+    }
+
     private static ApiCorpus PerturbFixtureCorpus(ApiCorpus corpus, bool reverse)
     {
         if (!reverse)
@@ -567,6 +772,109 @@ internal static class ApiDocsFixture
 
     private static ApiDocumentation EmptyPackageDocumentation() =>
         new(null, [], [], null, null, null, []);
+
+    private sealed class FixturePackageContributor(
+        bool reverseFixtureInsertion,
+        bool reverseStates = false)
+        : ISourceGenerationContributor
+    {
+        public bool AppliesTo(SourceDefinition definition) =>
+            definition.ApiPackages is { Count: > 0 };
+
+        public async Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
+            SourceDefinition definition,
+            string refLabel,
+            string repositoryDirectory,
+            string supplementsDirectory,
+            IProgress<string>? progress,
+            CancellationToken cancellationToken)
+        {
+            var states = new List<ApiPackageSyncState>();
+            foreach (var packageDefinition in definition.ApiPackages!)
+            {
+                var state = PackageStateFor(packageDefinition);
+                await WriteFixtureCorpusAsync(
+                    supplementsDirectory,
+                    packageDefinition,
+                    state,
+                    "net10.0",
+                    MergedPackageCorpus(),
+                    reverseFixtureInsertion,
+                    cancellationToken);
+                await WriteFixtureCorpusAsync(
+                    supplementsDirectory,
+                    packageDefinition,
+                    state,
+                    "net8.0",
+                    LegacyPackageCorpus(),
+                    reverseFixtureInsertion,
+                    cancellationToken);
+                foreach (var framework in new[] { "net472", "net9.0" })
+                {
+                    await WriteFixtureCorpusAsync(
+                        supplementsDirectory,
+                        packageDefinition,
+                        state,
+                        framework,
+                        new ApiCorpus(2, []),
+                        reverseFixtureInsertion,
+                        cancellationToken);
+                }
+                states.Add(state);
+            }
+
+            var canonicalStates = states
+                .OrderBy(state => state.PackageId, StringComparer.Ordinal)
+                .ToArray();
+            return reverseStates ? canonicalStates.Reverse().ToArray() : canonicalStates;
+        }
+    }
+
+    private static ApiPackageSyncState PackageStateFor(ApiPackageDefinition definition) => new(
+        definition.PackageId,
+        definition.AssemblyName,
+        definition.Version,
+        definition.Sha512,
+        definition.Feed,
+        PackageFetchedAt,
+        definition.DefaultFramework,
+        PackageFrameworks,
+        "fixture-" + definition.PackageId.ToLowerInvariant().Replace('.', '-'));
+
+    private static async Task WriteFixtureCorpusAsync(
+        string supplementsDirectory,
+        ApiPackageDefinition definition,
+        ApiPackageSyncState state,
+        string framework,
+        ApiCorpus corpus,
+        bool reverseFixtureInsertion,
+        CancellationToken cancellationToken = default)
+    {
+        var directory = Path.Combine(supplementsDirectory, state.CorpusDirectory);
+        Directory.CreateDirectory(directory);
+        await PackageApiCorpusStore.WriteAsync(
+            Path.Combine(directory, framework + ".json"),
+            definition.WithSynchronizedContent(state.Version, state.Sha512),
+            framework,
+            PackageApiCorpusBuilder.NormalizeForStorage(
+                PerturbFixtureCorpus(corpus, reverseFixtureInsertion)),
+            cancellationToken);
+    }
+
+    private static ApiCorpus LegacyPackageCorpus() => new(2,
+    [
+        new ApiCorpusType(
+            "T:System.LegacyWidget", "LegacyWidget", "System.LegacyWidget", null,
+            [], [], [], EmptyPackageDocumentation(), []),
+        new ApiCorpusType(
+            "T:System.WidgetTrait", "WidgetTrait", "System.WidgetTrait", null,
+            [], [], [], EmptyPackageDocumentation(), []),
+        new ApiCorpusType(
+            "T:System.LegacyTraitedWidget", "LegacyTraitedWidget", "System.LegacyTraitedWidget", null,
+            [], [],
+            [new ApiAttributeUse("[System.WidgetTrait]", "System.WidgetTraitAttribute", [])],
+            EmptyPackageDocumentation(), []),
+    ]);
 
     /// <summary>
     /// A source holding both an attribute type whose C# short form names nothing else and one whose
@@ -712,7 +1020,16 @@ internal static class ApiDocsFixture
         string name,
         string repository,
         string pin,
-        string sparse) =>
+        string sparse,
+        ApiPackageDefinition? package = null) =>
+        ApiSource(name, repository, pin, sparse, package is null ? [] : [package]);
+
+    private static KeyValuePair<string, object> ApiSource(
+        string name,
+        string repository,
+        string pin,
+        string sparse,
+        IReadOnlyList<ApiPackageDefinition> packages) =>
         new(name, new
         {
             repository = "test/" + name,
@@ -721,5 +1038,6 @@ internal static class ApiDocsFixture
             head = "main",
             sparse = new[] { sparse },
             purpose = "Test API docs.",
+            apiPackages = packages,
         });
 }

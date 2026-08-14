@@ -43,6 +43,7 @@ internal sealed class RepositoryApiDocsBackend : IApiDocsBackend
             documented.Select(type => type.DeclarationId), "type");
         return new ApiLookupRead(
             documented.Where(type => memberName is null || type.Members.Count > 0).ToArray(),
+            documented,
             documented.Select(type => type.FullName).ToArray(),
             _coverage);
     }
@@ -552,7 +553,7 @@ internal sealed class RepositoryApiDocsBackend : IApiDocsBackend
         var typeId = ReadRootDeclarationId(root, fullName);
         var members = root.Descendants("Member")
             .Where(member => memberName is null || MemberNameMatches(member.Attribute("MemberName")?.Value, memberName))
-            .Select(member => ReadMember(member, typeId))
+            .Select(member => ReadMember(member, typeId, provenance))
             .Where(member => member is not null)
             .Cast<ApiLookupMemberRead>()
             .ToArray();
@@ -569,7 +570,10 @@ internal sealed class RepositoryApiDocsBackend : IApiDocsBackend
             members);
     }
 
-    private static ApiLookupMemberRead? ReadMember(XElement member, string typeDeclarationId)
+    private static ApiLookupMemberRead? ReadMember(
+        XElement member,
+        string typeDeclarationId,
+        GitProvenance provenance)
     {
         var signature = member.Elements("MemberSignature")
             .LastOrDefault(element => string.Equals(element.Attribute("Language")?.Value, "C#", StringComparison.Ordinal))
@@ -591,7 +595,8 @@ internal sealed class RepositoryApiDocsBackend : IApiDocsBackend
             DocumentationTextRenderer.Render(docs?.Element("summary")),
             parameters,
             DocumentationTextRenderer.Render(docs?.Element("returns")),
-            DocumentationTextRenderer.Render(docs?.Element("remarks")));
+            DocumentationTextRenderer.Render(docs?.Element("remarks")),
+            provenance);
         return new ApiLookupMemberRead(
             ReadMemberDeclarationId(member, typeDeclarationId),
             documentation);

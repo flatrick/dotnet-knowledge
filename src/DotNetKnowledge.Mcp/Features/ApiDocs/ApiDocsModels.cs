@@ -45,7 +45,8 @@ public sealed record ApiMemberDocumentation(
     string? Summary,
     IReadOnlyList<ApiParameterDocumentation>? Parameters,
     string? Returns,
-    string? Remarks);
+    string? Remarks,
+    ApiProvenance Source);
 
 /// <summary>
 /// Which reading of the requested symbol produced a match, and therefore how much of each member
@@ -81,7 +82,10 @@ public sealed record ApiLookupResult(
     [property: JsonIgnore] ApiLookupOutcome Outcome,
     IReadOnlyList<string> ResolvedTypeNames,
     bool IsPartial,
-    string? NextPageToken);
+    string? NextPageToken,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
 
 /// <param name="NamespaceDepth">
 /// How many namespace segments sit between the namespace the pattern named and the type — 0 for a
@@ -120,7 +124,10 @@ public sealed record ApiSearchResult(
     bool IsPartial,
     string? NextPageToken,
     IReadOnlyList<ApiProvenance> SearchedSources,
-    ApiSearchNote? Note = null);
+    ApiSearchNote? Note,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
 
 /// <param name="MoreFromSymbol">
 /// How many further matches this symbol had that the per-symbol cap dropped from the result set, set
@@ -140,7 +147,10 @@ public sealed record ApiTextSearchResult(
     IReadOnlyList<ApiTextHit> Hits,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<ApiProvenance> SearchedSources);
+    IReadOnlyList<ApiProvenance> SearchedSources,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
 
 /// <summary>
 /// How a declaration uses the type asked about. These are different questions wearing one word:
@@ -215,7 +225,33 @@ public sealed record ApiReferenceResult(
     ApiReferenceNote? Note,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<ApiProvenance> SearchedSources);
+    IReadOnlyList<ApiProvenance> SearchedSources,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
+
+public sealed class FrameworkNotAvailableException : ArgumentException
+{
+    public FrameworkNotAvailableException(
+        string requestedFramework,
+        string defaultFramework,
+        IReadOnlyList<string> availableFrameworks)
+        : base(
+            $"Framework '{requestedFramework}' is not available. "
+                + $"Use '{defaultFramework}' or one of: {string.Join(", ", availableFrameworks)}.",
+            "framework")
+    {
+        RequestedFramework = requestedFramework;
+        DefaultFramework = defaultFramework;
+        AvailableFrameworks = availableFrameworks;
+    }
+
+    public string RequestedFramework { get; }
+
+    public string DefaultFramework { get; }
+
+    public IReadOnlyList<string> AvailableFrameworks { get; }
+}
 
 public sealed class SourceNotSyncedException : InvalidOperationException
 {

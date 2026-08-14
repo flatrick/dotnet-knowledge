@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotNetKnowledge.Mcp.Sources;
+using DotNetKnowledge.Mcp.Text;
 
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
@@ -26,43 +27,59 @@ public sealed class ApiDocsQueryService
         _synchronizer = synchronizer;
     }
 
-    public async Task<ApiLookupResult> LookupAsync(
+    public Task<ApiLookupResult> LookupAsync(
         string symbol,
         string? source,
         int limit,
         string? cursor,
+        CancellationToken cancellationToken) =>
+        LookupCoreAsync(
+            symbol, source, framework: null, limit, cursor, legacyCursorScope: true, cancellationToken);
+
+    public async Task<ApiLookupResult> LookupAsync(
+        string symbol,
+        string? source,
+        string? framework,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken) =>
+        await LookupCoreAsync(
+            symbol, source, framework, limit, cursor, legacyCursorScope: false, cancellationToken)
+            .ConfigureAwait(false);
+
+    private async Task<ApiLookupResult> LookupCoreAsync(
+        string symbol,
+        string? source,
+        string? framework,
+        int limit,
+        string? cursor,
+        bool legacyCursorScope,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
         ValidateSymbol(symbol);
         if (limit is < 1 or > 100)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
-        var sourceNames = ResolveSourceNames(source);
-        var matches = new List<ApiLookupTypeRead>();
-        var resolvedTypeNames = new List<string>();
-        var searchedSources = new List<ApiProvenance>();
-
-        foreach (var sourceName in sourceNames)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            ApiLookupRead read;
-            try
-            {
-                read = await _synchronizer.ReadCurrentSourceAsync(
-                    sourceName,
-                    snapshot => new RepositoryApiDocsBackend(sourceName, snapshot)
-                        .Lookup(symbol, cancellationToken),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException exception)
-            {
-                throw new SourceNotSyncedException(sourceName, exception);
-            }
-
-            searchedSources.AddRange(read.Coverage.SearchedSources);
-            matches.AddRange(read.Matches);
-            resolvedTypeNames.AddRange(read.ResolvedTypeNames);
-        }
+        var sourceNames = ResolveSourceNames(source, framework);
+        var composition = await ReadComposedAsync(
+            sourceNames,
+            framework,
+            backend => backend.Lookup(symbol, cancellationToken),
+            read => read.Coverage,
+            cancellationToken).ConfigureAwait(false);
+        var includedDeclarations = composition.Reads
+            .SelectMany(read => read.Matches)
+            .Select(match => match.DeclarationId)
+            .ToHashSet(StringComparer.Ordinal);
+        var matches = composition.Reads
+            .SelectMany(read => read.ResolvedTypes)
+            .GroupBy(match => match.DeclarationId, StringComparer.Ordinal)
+            .Where(group => includedDeclarations.Contains(group.Key))
+            .Select(group => MergeLookupType(group))
+            .ToArray();
+        var resolvedTypeNames = composition.Reads
+            .SelectMany(read => read.ResolvedTypeNames)
+            .ToArray();
 
         var ordered = matches
             .OrderBy(match => match.FullName, StringComparer.Ordinal)
@@ -70,7 +87,7 @@ public sealed class ApiDocsQueryService
             .ToArray();
         var outcome = ordered.Length > 0
             ? ApiLookupOutcome.Found
-            : resolvedTypeNames.Count > 0
+            : resolvedTypeNames.Length > 0
                 ? ApiLookupOutcome.MemberNotFound
                 : ApiLookupOutcome.TypeNotFound;
         var distinctTypeNames = resolvedTypeNames.Distinct(StringComparer.Ordinal)
@@ -92,10 +109,13 @@ public sealed class ApiDocsQueryService
                 : [(Type: type, Member: (ApiLookupMemberRead?)null)])
             .ToArray();
 
-        var revisions = searchedSources
+        var revisions = composition.SearchedSources
             .Select(searched => searched.RevisionKey)
             .ToArray();
-        var offset = DecodeCursor(cursor, "lookup", symbol, revisions);
+        var scope = legacyCursorScope
+            ? symbol
+            : RequestScope(symbol, source, composition.EffectiveFramework);
+        var offset = DecodeCursor(cursor, "lookup", scope, revisions);
         if (offset > pairs.Length)
             throw new ArgumentException("cursor points beyond the available result set.", nameof(cursor));
 
@@ -120,18 +140,53 @@ public sealed class ApiDocsQueryService
 
         return new ApiLookupResult(
             paged,
-            searchedSources,
+            composition.SearchedSources,
             outcome,
             distinctTypeNames,
             isPartial,
-            isPartial ? EncodeCursor("lookup", symbol, nextOffset, revisions) : null);
+            isPartial ? EncodeCursor("lookup", scope, nextOffset, revisions) : null,
+            composition.EffectiveFramework,
+            composition.DefaultFramework,
+            composition.AvailableFrameworks);
     }
 
     private static ApiMemberDocumentation ToSignature(ApiMemberDocumentation member) =>
-        new(member.Name, member.Signature, Summary: null, Parameters: null, Returns: null, Remarks: null);
+        new(
+            member.Name,
+            member.Signature,
+            Summary: null,
+            Parameters: null,
+            Returns: null,
+            Remarks: null,
+            member.Source);
+
+    private static ApiLookupTypeRead MergeLookupType(IEnumerable<ApiLookupTypeRead> declarations)
+    {
+        var candidates = declarations.ToArray();
+        var winner = candidates[0];
+        var members = candidates
+            .SelectMany(candidate => candidate.Members)
+            .DistinctBy(member => member.DeclarationId, StringComparer.Ordinal)
+            .ToArray();
+        return new ApiLookupTypeRead(
+            winner.DeclarationId,
+            winner.Documentation with
+            {
+                Members = members.Select(member => member.Documentation).ToArray(),
+            },
+            members);
+    }
+
+    public Task<ApiSearchResult> SearchAsync(
+        string pattern,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken) =>
+        SearchAsync(pattern, framework: null, limit, cursor, cancellationToken);
 
     public async Task<ApiSearchResult> SearchAsync(
         string pattern,
+        string? framework,
         int limit,
         string? cursor,
         CancellationToken cancellationToken)
@@ -140,33 +195,22 @@ public sealed class ApiDocsQueryService
         if (limit is < 1 or > 100)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
 
-        var items = new List<ApiSearchItem>();
-        var searchedSources = new List<ApiProvenance>();
-        foreach (var sourceName in ResolveSourceNames(source: null))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            ApiSearchRead read;
-            try
-            {
-                read = await _synchronizer.ReadCurrentSourceAsync(
-                    sourceName,
-                    snapshot => new RepositoryApiDocsBackend(sourceName, snapshot)
-                        .Search(pattern, cancellationToken),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException exception)
-            {
-                throw new SourceNotSyncedException(sourceName, exception);
-            }
+        var composition = await ReadComposedAsync(
+            ResolveSourceNames(source: null, framework),
+            framework,
+            backend => backend.Search(pattern, cancellationToken),
+            read => read.Coverage,
+            cancellationToken).ConfigureAwait(false);
+        var items = composition.Reads
+            .SelectMany(read => read.Items)
+            .DistinctBy(item => item.Name, StringComparer.Ordinal)
+            .ToArray();
 
-            searchedSources.AddRange(read.Coverage.SearchedSources);
-            items.AddRange(read.Items);
-        }
-
-        var revisions = searchedSources
+        var revisions = composition.SearchedSources
             .Select(source => source.RevisionKey)
             .ToArray();
-        var offset = DecodeCursor(cursor, "search", pattern, revisions);
+        var scope = RequestScope(pattern, composition.EffectiveFramework);
+        var offset = DecodeCursor(cursor, "search", scope, revisions);
 
         var ordered = ApiSearchRanking.Order(items, pattern);
         if (offset > ordered.Count)
@@ -178,9 +222,12 @@ public sealed class ApiDocsQueryService
         return new ApiSearchResult(
             Items: page,
             IsPartial: isPartial,
-            NextPageToken: isPartial ? EncodeCursor("search", pattern, nextOffset, revisions) : null,
-            SearchedSources: searchedSources,
-            Note: DottedMissNote(pattern, ordered.Count));
+            NextPageToken: isPartial ? EncodeCursor("search", scope, nextOffset, revisions) : null,
+            SearchedSources: composition.SearchedSources,
+            Note: DottedMissNote(pattern, ordered.Count),
+            EffectiveFramework: composition.EffectiveFramework,
+            DefaultFramework: composition.DefaultFramework,
+            AvailableFrameworks: composition.AvailableFrameworks);
     }
 
     // search_api matches type names, not members: a Type.Member name, or a generic type's full name
@@ -213,9 +260,18 @@ public sealed class ApiDocsQueryService
     /// comes back; regex is deliberately not offered, because the cheap prefilter that makes a
     /// whole-corpus scan affordable cannot be a sound superset of an arbitrary pattern.
     /// </remarks>
+    public Task<ApiTextSearchResult> SearchTextAsync(
+        string query,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken) =>
+        SearchTextAsync(query, source, framework: null, limit, cursor, cancellationToken);
+
     public async Task<ApiTextSearchResult> SearchTextAsync(
         string query,
         string? source,
+        string? framework,
         int limit,
         string? cursor,
         CancellationToken cancellationToken)
@@ -224,43 +280,32 @@ public sealed class ApiDocsQueryService
         if (limit is < 1 or > 100)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 100.");
 
-        var hits = new List<ApiTextHit>();
-        var searchedSources = new List<ApiProvenance>();
-        foreach (var sourceName in ResolveSourceNames(source))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            ApiTextRead read;
-            try
-            {
-                read = await _synchronizer.ReadCurrentSourceAsync(
-                    sourceName,
-                    snapshot => new RepositoryApiDocsBackend(sourceName, snapshot)
-                        .SearchText(query, cancellationToken),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException exception)
-            {
-                throw new SourceNotSyncedException(sourceName, exception);
-            }
+        var composition = await ReadComposedAsync(
+            ResolveSourceNames(source, framework),
+            framework,
+            backend => backend.SearchText(query, cancellationToken),
+            read => read.Coverage,
+            cancellationToken).ConfigureAwait(false);
 
-            searchedSources.AddRange(read.Coverage.SearchedSources);
-            hits.AddRange(read.Hits.Select(hit => hit.Hit));
-        }
-
-        var revisions = searchedSources
+        var revisions = composition.SearchedSources
             .Select(item => item.RevisionKey)
             .ToArray();
         // Serialized rather than concatenated, so a query ending in the source name cannot
         // forge the scope of a different request.
-        var scope = JsonSerializer.Serialize(new[] { query, source ?? string.Empty });
+        var scope = RequestScope(query, source, composition.EffectiveFramework);
         var offset = DecodeCursor(cursor, "search-text", scope, revisions);
 
         // Overloads each carry their own Docs under one MemberName, so identical prose on
         // Create(a) and Create(a, b) would otherwise arrive as two hits a caller cannot tell apart.
         // Prose that genuinely differs between overloads survives, because the text is part of the
         // key.
-        var deduplicated = hits
-            .DistinctBy(hit => (hit.Symbol, hit.Element, hit.Text, hit.Source.RevisionKey));
+        var deduplicated = composition.Reads
+            .SelectMany(read => read.Hits)
+            .DistinctBy(hit => (
+                hit.DeclarationId,
+                hit.Element,
+                Text: DocumentationText.Normalize(hit.Text, collapseWhitespace: true) ?? string.Empty))
+            .Select(hit => hit.Hit);
         var ordered = ApiTextRanking.CollapsePerSymbol(
             ApiTextRanking.Order(deduplicated, query),
             TextHitsPerSymbol);
@@ -274,14 +319,28 @@ public sealed class ApiDocsQueryService
             Hits: page,
             IsPartial: isPartial,
             NextPageToken: isPartial ? EncodeCursor("search-text", scope, nextOffset, revisions) : null,
-            SearchedSources: searchedSources);
+            SearchedSources: composition.SearchedSources,
+            EffectiveFramework: composition.EffectiveFramework,
+            DefaultFramework: composition.DefaultFramework,
+            AvailableFrameworks: composition.AvailableFrameworks);
     }
+
+    public Task<ApiReferenceResult> FindReferencesAsync(
+        string symbol,
+        string? kind,
+        bool? exact,
+        string? source,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken) =>
+        FindReferencesAsync(symbol, kind, exact, source, framework: null, limit, cursor, cancellationToken);
 
     public async Task<ApiReferenceResult> FindReferencesAsync(
         string symbol,
         string? kind,
         bool? exact,
         string? source,
+        string? framework,
         int limit,
         string? cursor,
         CancellationToken cancellationToken)
@@ -297,30 +356,25 @@ public sealed class ApiDocsQueryService
                 nameof(kind));
         }
 
-        var hits = new List<ApiReferenceHit>();
-        var searchedSources = new List<ApiProvenance>();
+        var composition = await ReadComposedAsync(
+            ResolveSourceNames(source, framework),
+            framework,
+            backend => backend.FindReferences(symbol, cancellationToken),
+            read => read.Coverage,
+            cancellationToken).ConfigureAwait(false);
+        var deduplicated = composition.Reads
+            .SelectMany(read => read.Items)
+            .DistinctBy(hit => (
+                hit.DeclarationId,
+                hit.Kind,
+                ParameterName: hit.ParameterName ?? string.Empty,
+                TypeExpression: hit.TypeExpression ?? string.Empty))
+            .ToArray();
+        var hits = deduplicated.Select(hit => hit.Hit).ToArray();
         string? siblingType = null;
         var siblingApplications = 0;
-        foreach (var sourceName in ResolveSourceNames(source))
+        foreach (var read in composition.Reads)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            ApiReferenceRead read;
-            try
-            {
-                read = await _synchronizer.ReadCurrentSourceAsync(
-                    sourceName,
-                    snapshot => new RepositoryApiDocsBackend(sourceName, snapshot)
-                        .FindReferences(symbol, cancellationToken),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException exception)
-            {
-                throw new SourceNotSyncedException(sourceName, exception);
-            }
-
-            searchedSources.AddRange(read.Coverage.SearchedSources);
-            hits.AddRange(read.Items.Select(hit => hit.Hit));
-
             // One source resolving the sibling is enough to name it; the counts add up across the
             // sources that were actually searched.
             siblingType ??= read.SiblingType;
@@ -337,11 +391,15 @@ public sealed class ApiDocsQueryService
             Constraint: hits.Count(hit => hit.Kind == ApiReferenceKind.Constraint),
             Attribute: hits.Count(hit => hit.Kind == ApiReferenceKind.Attribute));
 
-        var revisions = searchedSources
+        var revisions = composition.SearchedSources
             .Select(item => item.RevisionKey)
             .ToArray();
-        var scope = JsonSerializer.Serialize(
-            new[] { symbol, kind ?? string.Empty, exact?.ToString() ?? string.Empty, source ?? string.Empty });
+        var scope = RequestScope(
+            symbol,
+            kind,
+            exact?.ToString(),
+            source,
+            composition.EffectiveFramework);
         var offset = DecodeCursor(cursor, "references", scope, revisions);
 
         var ordered = hits
@@ -371,10 +429,13 @@ public sealed class ApiDocsQueryService
                         + "applications, which are excluded here."),
             IsPartial: isPartial,
             NextPageToken: isPartial ? EncodeCursor("references", scope, nextOffset, revisions) : null,
-            SearchedSources: searchedSources);
+            SearchedSources: composition.SearchedSources,
+            EffectiveFramework: composition.EffectiveFramework,
+            DefaultFramework: composition.DefaultFramework,
+            AvailableFrameworks: composition.AvailableFrameworks);
     }
 
-    private string[] ResolveSourceNames(string? source)
+    private string[] ResolveSourceNames(string? source, string? framework)
     {
         if (source is not null)
         {
@@ -383,6 +444,13 @@ public sealed class ApiDocsQueryService
                 throw new ArgumentException(
                     "source must be \"dotnet-api-docs\" or \"roslyn-api-docs\".",
                     nameof(source));
+            }
+            if (framework is not null
+                && string.Equals(source, "dotnet-api-docs", StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "framework applies only to the roslyn-api-docs package supplement.",
+                    nameof(framework));
             }
 
             return [source];
@@ -393,6 +461,133 @@ public sealed class ApiDocsQueryService
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
     }
+
+    private async Task<ComposedReads<T>> ReadComposedAsync<T>(
+        IReadOnlyList<string> sourceNames,
+        string? requestedFramework,
+        Func<IApiDocsBackend, T> reader,
+        Func<T, ApiQueryCoverage> coverage,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        var repositoryReads = new List<T>();
+        var packageReads = new List<T>();
+        foreach (var sourceName in sourceNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SourceReads<T> sourceReads;
+            try
+            {
+                sourceReads = await _synchronizer.ReadCurrentSourceAsync(
+                    sourceName,
+                    snapshot =>
+                    {
+                        var repository = reader(new RepositoryApiDocsBackend(sourceName, snapshot));
+                        var packages = new List<T>();
+                        if (string.Equals(sourceName, "roslyn-api-docs", StringComparison.Ordinal))
+                        {
+                            foreach (var package in OrderPackages(snapshot.Definition.ApiPackages ?? []))
+                            {
+                                if (package is null)
+                                    throw new InvalidDataException("The API package definition cannot be null.");
+                                var framework = ResolveFramework(snapshot, package.PackageId, requestedFramework);
+                                packages.Add(reader(new PackageApiDocsBackend(
+                                    snapshot, package.PackageId, framework)));
+                            }
+                        }
+                        return new SourceReads<T>(repository, packages);
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new SourceNotSyncedException(sourceName, exception);
+            }
+
+            repositoryReads.Add(sourceReads.Repository);
+            packageReads.AddRange(sourceReads.Packages);
+        }
+
+        var reads = repositoryReads.Concat(packageReads).ToArray();
+        var searchedSources = reads
+            .SelectMany(read => coverage(read).SearchedSources)
+            .ToArray();
+        var packageCoverages = packageReads.Select(coverage).ToArray();
+        if (packageCoverages.Length == 0)
+        {
+            return new ComposedReads<T>(
+                reads, searchedSources, null, null, null);
+        }
+
+        var frameworkCoverage = packageCoverages[0];
+        if (packageCoverages.Skip(1).Any(item =>
+                !string.Equals(
+                    item.EffectiveFramework,
+                    frameworkCoverage.EffectiveFramework,
+                    StringComparison.Ordinal)
+                || !string.Equals(
+                    item.DefaultFramework,
+                    frameworkCoverage.DefaultFramework,
+                    StringComparison.Ordinal)
+                || !(item.AvailableFrameworks ?? []).SequenceEqual(
+                    frameworkCoverage.AvailableFrameworks ?? [],
+                    StringComparer.Ordinal)))
+        {
+            throw new InvalidDataException(
+                "Participating API package supplements do not expose the same framework selection.");
+        }
+
+        return new ComposedReads<T>(
+            reads,
+            searchedSources,
+            frameworkCoverage.EffectiveFramework,
+            frameworkCoverage.DefaultFramework,
+            frameworkCoverage.AvailableFrameworks);
+    }
+
+    private static string ResolveFramework(
+        SourceSnapshot snapshot,
+        string packageId,
+        string? requestedFramework)
+    {
+        var states = (snapshot.State.ApiPackages ?? [])
+            .Where(state => state is not null
+                && string.Equals(state.PackageId, packageId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (states.Length != 1)
+        {
+            throw new InvalidDataException(
+                $"The synchronized snapshot must contain exactly one API package state named '{packageId}'.");
+        }
+
+        var state = states[0];
+        if (state.AvailableFrameworks is null || state.AvailableFrameworks.Count == 0)
+            throw new InvalidDataException("The synchronized API package has no available frameworks.");
+        var effective = requestedFramework ?? state.DefaultFramework;
+        var canonical = state.AvailableFrameworks.FirstOrDefault(item =>
+            string.Equals(item, effective, StringComparison.OrdinalIgnoreCase));
+        if (canonical is null)
+        {
+            throw new FrameworkNotAvailableException(
+                effective,
+                state.DefaultFramework,
+                state.AvailableFrameworks.ToArray());
+        }
+        return canonical;
+    }
+
+    private static IOrderedEnumerable<ApiPackageDefinition> OrderPackages(
+        IEnumerable<ApiPackageDefinition> packages) =>
+        packages
+            .OrderBy(package => package?.PackageId, StringComparer.Ordinal)
+            .ThenBy(package => package?.AssemblyName, StringComparer.Ordinal)
+            .ThenBy(package => package?.Version, StringComparer.Ordinal)
+            .ThenBy(package => package?.Sha512, StringComparer.Ordinal)
+            .ThenBy(package => package?.Feed, StringComparer.Ordinal)
+            .ThenBy(package => package?.DefaultFramework, StringComparer.Ordinal);
+
+    private static string RequestScope(params string?[] values) =>
+        JsonSerializer.Serialize(values.Select(value => value ?? string.Empty));
 
     private static void ValidateSymbol(string symbol)
     {
@@ -454,5 +649,16 @@ public sealed class ApiDocsQueryService
         string Scope,
         int Offset,
         IReadOnlyList<string> Revisions);
+
+    private sealed record SourceReads<T>(T Repository, IReadOnlyList<T> Packages)
+        where T : class;
+
+    private sealed record ComposedReads<T>(
+        IReadOnlyList<T> Reads,
+        IReadOnlyList<ApiProvenance> SearchedSources,
+        string? EffectiveFramework,
+        string? DefaultFramework,
+        IReadOnlyList<string>? AvailableFrameworks)
+        where T : class;
 
 }

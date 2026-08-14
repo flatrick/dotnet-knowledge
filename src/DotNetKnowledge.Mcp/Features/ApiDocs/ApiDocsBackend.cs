@@ -19,6 +19,7 @@ internal sealed record ApiQueryCoverage(
 
 internal sealed record ApiLookupRead(
     IReadOnlyList<ApiLookupTypeRead> Matches,
+    IReadOnlyList<ApiLookupTypeRead> ResolvedTypes,
     IReadOnlyList<string> ResolvedTypeNames,
     ApiQueryCoverage Coverage);
 
