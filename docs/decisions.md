@@ -24,6 +24,20 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · The framework argument is kept, but the evidence is measured, not cataloged
+
+Corrects the entry below, whose conclusion holds and whose premise did not: `Microsoft.Build.Framework`
+**cannot** be cataloged. `apiPackages` is Roslyn-cohort-specific twice over —
+`ApiPackageGenerationContributor.AppliesToSource` hardcodes the `dotnet/roslyn-api-docs` repository,
+and `RoslynPackageCohort.Read` requires every cataloged package to carry the version the checkout's
+cohort manifest names, which is 5.3.0. An MSBuild package versioned 18.4.0 fails that check at sync
+time. The divergence measurement stands on its own — it was taken by running the shipped reader over
+the package on disk, which needs no catalog entry — so the argument is still kept and the removal is
+still rejected. Cataloging a package outside the cohort is a feature, not a configuration change:
+`docs/backlog/api-packages-are-limited-to-the-roslyn-cohort.md`.
+
+---
+
 ### 2026-08-14 · The framework argument is kept: a cataloged package's surface really does differ
 
 `Microsoft.Build.Framework` 18.4.0 is cataloged beside the Roslyn workspace package, and its

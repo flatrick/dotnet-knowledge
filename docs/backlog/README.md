@@ -14,3 +14,4 @@ file when the item is resolved; `git log` is the record.
 | [Unfiltered document search has no relevance signal](cross-source-search-has-no-relevance-signal.md) | server | The `nuget-docs` tiering works around the worst case; scoring against the query is real design work not yet done |
 | [Every document search rescans every file in every source](document-search-rescans-every-file.md) | server | Unmeasured whether the cost is a real problem; an index would need sync-time invalidation |
 | [Every API query revalidates the checkout with git](every-api-query-revalidates-the-checkout.md) | server | The validation is what makes an answer trustworthy; which of the three commands costs the second is unmeasured |
+| [API package supplements are limited to the Roslyn cohort](api-packages-are-limited-to-the-roslyn-cohort.md) | sources | The cohort check is worth keeping for cohort packages; an opt-out needs deciding together with what a package outside it merges against |
