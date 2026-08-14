@@ -1,8 +1,8 @@
 # Probes
 
 Throwaway programs that answer questions about the *host*, not about this repository's code. Most
-are MCP servers; four are not — two drivers that play the client, one that interrogates the
-machine's compilers, and one that runs the shipped package pipeline over a real NuGet archive.
+are MCP servers; five are not — two drivers that play the client, one that interrogates the
+machine's compilers, and two that run shipped package-pipeline code over real NuGet content.
 
 Some faults only appear when a server is launched by an MCP client, and a client is an awkward place
 to run an experiment: the tool surface is fixed, output is summarized, and a hung call looks the same
@@ -160,4 +160,25 @@ offline tests and by re-running this probe when the pin moves.
 
 ```powershell
 dotnet run --file scripts/probes/probe-api-package-supplement.cs -- --package "$env:USERPROFILE\.nuget\packages\microsoft.codeanalysis.workspaces.msbuild\5.3.0\microsoft.codeanalysis.workspaces.msbuild.5.3.0.nupkg"
+```
+
+## diff-tfm-surface.cs
+
+Not an MCP server. It runs the shipped `MetadataApiReader.Read` over every
+`lib/<framework>/<assembly>.dll` of one extracted package and diffs the public type and member sets
+pairwise, printing each pair as `IDENTICAL` or with the declarations that differ. It exits 1 when any
+pair differs, so it can be run over a set of packages and the interesting one picked out by exit
+code.
+
+It answers whether a package's public API surface actually differs between its target frameworks —
+the question the server's `framework` argument exists to serve. A compiler XML file that differs per
+framework does not settle it, because the difference is routinely internal and never reaches a
+public-API corpus.
+
+**It says nothing about any package it is not run against**, which is the whole of its limitation:
+the finding it supports is a claim about packages in general drawn from the few measured so far.
+`docs/backlog/framework-selection-has-no-observable-effect.md` carries those measurements.
+
+```powershell
+dotnet run --file scripts/probes/diff-tfm-surface.cs -- --package "$env:USERPROFILE\.nuget\packages\microsoft.codeanalysis.common\5.6.0" --assembly Microsoft.CodeAnalysis
 ```
