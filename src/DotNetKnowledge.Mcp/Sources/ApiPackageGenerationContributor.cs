@@ -115,7 +115,8 @@ public sealed class ApiPackageGenerationContributor(
                     package.Download.FetchedAt,
                     package.CatalogDefinition.DefaultFramework,
                     result.AvailableFrameworks,
-                    relativeCorpusDirectory));
+                    relativeCorpusDirectory,
+                    PackageApiCorpusStore.SchemaVersion));
             }
 
             cancellationToken.ThrowIfCancellationRequested();

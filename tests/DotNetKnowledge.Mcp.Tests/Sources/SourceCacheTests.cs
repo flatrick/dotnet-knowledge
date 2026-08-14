@@ -1,3 +1,4 @@
+using DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 using DotNetKnowledge.Mcp.Sources;
 
 namespace DotNetKnowledge.Mcp.Tests.Sources;
@@ -143,7 +144,8 @@ public sealed class SourceCacheTests
                         FetchedAt: new DateTimeOffset(2026, 8, 4, 12, 31, 0, TimeSpan.Zero),
                         DefaultFramework: "net9.0",
                         AvailableFrameworks: ["net8.0", "net9.0"],
-                        CorpusDirectory: "packages/microsoft.codeanalysis.common/5.0.0/net9.0")
+                        CorpusDirectory: "packages/microsoft.codeanalysis.common/5.0.0/net9.0",
+                        CorpusSchemaVersion: PackageApiCorpusStore.SchemaVersion)
                 ]);
 
             cache.WriteState("csharplang", state);
@@ -170,6 +172,7 @@ public sealed class SourceCacheTests
             Assert.AreEqual(expectedPackage.DefaultFramework, actualPackage.DefaultFramework);
             Assert.AreSequenceEqual(expectedPackage.AvailableFrameworks, actualPackage.AvailableFrameworks);
             Assert.AreEqual(expectedPackage.CorpusDirectory, actualPackage.CorpusDirectory);
+            Assert.AreEqual(expectedPackage.CorpusSchemaVersion, actualPackage.CorpusSchemaVersion);
         }
         finally
         {
@@ -177,6 +180,100 @@ public sealed class SourceCacheTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    // A corpus this build cannot read makes the source unsynchronized, so the caller is routed to
+    // sync_source rather than meeting a schema error mid-query. State written before the field
+    // existed has no version at all, which is the case that matters on upgrade.
+    [TestMethod]
+    [DataRow(0, DisplayName = "written before the field existed")]
+    [DataRow(PackageApiCorpusStore.SchemaVersion - 1, DisplayName = "written by an older build")]
+    public void StateWithAStaleCorpusSchemaReadsAsIncomplete(int corpusSchemaVersion)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var cache = new SourceCache(root);
+            cache.WriteState("roslyn-api-docs", StateWithCorpusSchema(corpusSchemaVersion));
+
+            Assert.IsNull(
+                cache.TryReadState("roslyn-api-docs"),
+                "A corpus version this build cannot read must read as unsynchronized.");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StateWithTheCurrentCorpusSchemaReadsAsComplete()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var cache = new SourceCache(root);
+            cache.WriteState(
+                "roslyn-api-docs",
+                StateWithCorpusSchema(PackageApiCorpusStore.SchemaVersion));
+
+            Assert.IsNotNull(cache.TryReadState("roslyn-api-docs"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // A source without corpora is unaffected by a corpus format change, so a supplement bump never
+    // re-clones an unrelated checkout -- dotnet-api-docs alone is 771 MB.
+    [TestMethod]
+    public void StateWithoutApiPackagesIsUnaffectedByTheCorpusSchema()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var cache = new SourceCache(root);
+            cache.WriteState("csharplang", StateWithCorpusSchema(null));
+
+            Assert.IsNotNull(cache.TryReadState("csharplang"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static SourceSyncState StateWithCorpusSchema(int? corpusSchemaVersion) => new(
+        SchemaVersion: SourceSyncState.CurrentSchemaVersion,
+        Name: "roslyn-api-docs",
+        Repository: "dotnet/roslyn",
+        Url: "https://github.com/dotnet/roslyn.git",
+        Ref: "pinned",
+        Commit: "0123456789012345678901234567890123456789",
+        FetchedAt: new DateTimeOffset(2026, 8, 4, 12, 30, 0, TimeSpan.Zero),
+        SparsePaths: ["docs"],
+        Generation: "generation-1",
+        ApiPackages: corpusSchemaVersion is null
+            ? []
+            : [
+                new ApiPackageSyncState(
+                    PackageId: "Microsoft.CodeAnalysis.Common",
+                    AssemblyName: "Microsoft.CodeAnalysis",
+                    Version: "5.0.0",
+                    Sha512: Convert.ToBase64String(new byte[64]),
+                    Feed: "https://api.nuget.org/v3/index.json",
+                    FetchedAt: new DateTimeOffset(2026, 8, 4, 12, 31, 0, TimeSpan.Zero),
+                    DefaultFramework: "net9.0",
+                    AvailableFrameworks: ["net8.0", "net9.0"],
+                    CorpusDirectory: "packages/microsoft.codeanalysis.common/5.0.0/net9.0",
+                    CorpusSchemaVersion: corpusSchemaVersion.Value)
+            ]);
 
     [TestMethod]
     public void IsSyncedReturnsFalseForRepositoryWithoutCompletionState()

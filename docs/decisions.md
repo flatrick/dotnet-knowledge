@@ -24,6 +24,21 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · A stale corpus is recorded per API package, not by bumping the sync-state schema
+
+`ApiPackageSyncState.CorpusSchemaVersion` carries the format each package's corpora were written in,
+and `SourceCache.IsComplete` rejects state this build cannot read — so the source reports
+unsynchronized and every tool routes to `SourceNotSyncedException`, which already names
+`sync_source`. Rejected: bumping `SourceSyncState.CurrentSchemaVersion`, the obvious move and the
+one the generation-layout change used, because only `roslyn-api-docs` has `apiPackages` and it would
+re-clone all six sources — 1.4 GB, including `dotnet-api-docs` at 771 MB — for a change to one
+source's supplements. Also rejected: leaving the mismatch to surface mid-query as `source_invalid`,
+which reports a corrupt cache when the truth is an old one and never names the remedy. State written
+before the field has no version, deserializes to 0, and so reads as stale — the upgrade case needs
+no migration.
+
+---
+
 ### 2026-08-14 · An undecodable attribute argument costs the attribute, not the declaration
 
 `ReadAttributes` catches `InvalidDataException` around the decode and records a `kind: "attribute"`

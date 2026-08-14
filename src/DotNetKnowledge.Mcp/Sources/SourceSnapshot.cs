@@ -29,4 +29,7 @@ public sealed record ApiPackageSyncState(
     DateTimeOffset FetchedAt,
     string DefaultFramework,
     IReadOnlyList<string> AvailableFrameworks,
-    string CorpusDirectory);
+    string CorpusDirectory,
+    // Absent from state written before the field existed, which deserializes to 0 and so reads as
+    // stale -- exactly the signal wanted, and only for a source that actually has corpora.
+    int CorpusSchemaVersion);

@@ -35,7 +35,12 @@ internal sealed record PackageApiCorpusLimits(
 
 public static class PackageApiCorpusStore
 {
-    private const int SchemaVersion = 3;
+    /// <summary>
+    /// The corpus format this build reads and writes. Recorded into the sync state so a cache
+    /// written by an older build reads as unsynchronized for that source alone, rather than
+    /// answering queries with a schema error the caller has to interpret.
+    /// </summary>
+    public const int SchemaVersion = 3;
     private const int MaximumConfiguredJsonDepth = 64;
     private static readonly object CacheLock = new();
     private static readonly Dictionary<CacheKey, CacheEntry> Cache = [];

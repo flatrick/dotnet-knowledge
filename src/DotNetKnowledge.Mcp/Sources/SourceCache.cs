@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 
 namespace DotNetKnowledge.Mcp.Sources;
 
@@ -74,7 +75,15 @@ public sealed class SourceCache
         && state.SparsePaths is { Count: > 0 }
         && state.SparsePaths.All(path => !string.IsNullOrWhiteSpace(path))
         && IsSimpleName(state.Generation)
-        && state.ApiPackages is not null;
+        && state.ApiPackages is not null
+        // A corpus this build cannot read makes the source unsynchronized, not merely awkward to
+        // query: the remedy is sync_source either way, and saying so here is what routes the caller
+        // to it instead of to a schema error raised mid-query. Sources without corpora are
+        // unaffected, so a supplement format change never re-clones an unrelated checkout.
+        // A null element is left to the backend, which already rejects one and is tested for it;
+        // widening this check to cover that would move a guarantee rather than add one.
+        && state.ApiPackages.All(package =>
+            package is null || package.CorpusSchemaVersion == PackageApiCorpusStore.SchemaVersion);
 
     private static bool IsSimpleName(string? value) =>
         !string.IsNullOrWhiteSpace(value)

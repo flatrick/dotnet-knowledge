@@ -540,7 +540,8 @@ internal static class ApiDocsFixture
 
     public static ApiPackageSyncState PackageState(
         string corpusDirectory = "fixture-package",
-        IReadOnlyList<string>? availableFrameworks = null) => new(
+        IReadOnlyList<string>? availableFrameworks = null,
+        int corpusSchemaVersion = PackageApiCorpusStore.SchemaVersion) => new(
         "Fixture.Package",
         "Fixture.Package",
         "1.2.3",
@@ -549,7 +550,8 @@ internal static class ApiDocsFixture
         PackageFetchedAt,
         "net10.0",
         availableFrameworks ?? ["net10.0", "net8.0"],
-        corpusDirectory);
+        corpusDirectory,
+        corpusSchemaVersion);
 
     public static async Task WritePackageCorpusAsync(
         string root,
@@ -839,7 +841,8 @@ internal static class ApiDocsFixture
         PackageFetchedAt,
         definition.DefaultFramework,
         PackageFrameworks,
-        "fixture-" + definition.PackageId.ToLowerInvariant().Replace('.', '-'));
+        "fixture-" + definition.PackageId.ToLowerInvariant().Replace('.', '-'),
+        PackageApiCorpusStore.SchemaVersion);
 
     private static async Task WriteFixtureCorpusAsync(
         string supplementsDirectory,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Diagnostics;
+using DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 using DotNetKnowledge.Mcp.Features.Sources;
 using DotNetKnowledge.Mcp.Sources;
 using ModelContextProtocol;
@@ -938,7 +939,8 @@ public sealed class SourcesToolTests
                     FetchedAt: DateTimeOffset.UnixEpoch,
                     DefaultFramework: defaultFramework,
                     AvailableFrameworks: [defaultFramework],
-                    CorpusDirectory: "corpus/fixture.package"),
+                    CorpusDirectory: "corpus/fixture.package",
+                    CorpusSchemaVersion: PackageApiCorpusStore.SchemaVersion),
             ]);
     }
 }
