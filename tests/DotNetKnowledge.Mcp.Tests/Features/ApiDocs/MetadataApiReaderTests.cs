@@ -23,6 +23,8 @@ public sealed class MetadataApiReaderTests
     private static readonly string[] ExpectedUriTypeNames = ["System.Uri"];
     private static readonly string[] ExpectedStreamTypeNames = ["System.IO.Stream"];
     private static readonly string[] ExpectedAttributeTargetsTypeNames = ["System.AttributeTargets"];
+    private static readonly string[] ExpectedEditorBrowsableArgumentTypeNames =
+        ["System.ComponentModel.EditorBrowsableState"];
     private static readonly string[] ExpectedNullableInterfaces =
         ["Fixtures.INullableMarker<System.Uri?>"];
     private static readonly string[] ExpectedGalleryBaseTypeNames = ["Fixtures.GalleryBase"];
@@ -31,6 +33,58 @@ public sealed class MetadataApiReaderTests
         ["Fixtures.NullableBase", "System.String", "System.Uri", "System.ValueTuple"];
     private static readonly string[] ExpectedHierarchyInterfaceTypeNames =
         ["Fixtures.GenericOuter.GenericInner", "Fixtures.IHierarchy", "System.String", "System.Uri"];
+
+    // Each of the next three shapes ships in a core Roslyn package and aborted the entire corpus
+    // build, so one undecodable member cost the coverage of a whole package.
+    [TestMethod]
+    public void ReadAcceptsOperatorsTakingTheirOperandsByReadOnlyReference()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+
+        var operators = corpus.Types
+            .Single(item => item.FullName == "Fixtures.InteropShapeGallery")
+            .Members.Where(item => item.Kind == "operator")
+            .ToArray();
+
+        Assert.AreEqual(
+            "M:Fixtures.InteropShapeGallery.op_Equality(Fixtures.InteropShapeGallery@,Fixtures.InteropShapeGallery@)",
+            operators.Single(item => item.Signature
+                == "public static bool operator ==(in Fixtures.InteropShapeGallery left, in Fixtures.InteropShapeGallery right);")
+                .EcmaId);
+    }
+
+    [TestMethod]
+    public void ReadDecodesAttributeArgumentsTypedAsAnEnumFromAnotherAssembly()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+
+        var hidden = corpus.Types
+            .Single(item => item.FullName == "Fixtures.InteropShapeGallery")
+            .Members.Single(item => item.Name == "Hidden");
+
+        var attribute = hidden.Attributes.Single(item =>
+            item.AttributeType == "System.ComponentModel.EditorBrowsableAttribute");
+        CollectionAssert.AreEqual(
+            ExpectedEditorBrowsableArgumentTypeNames,
+            attribute.ArgumentTypeNames.ToArray());
+    }
+
+    [TestMethod]
+    public void ReadDecodesNullableSignaturesCarryingAnExternalEnumTypeArgument()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+
+        var lookup = corpus.Types
+            .Single(item => item.FullName == "Fixtures.InteropShapeGallery")
+            .Members.Single(item => item.Name == "Lookup");
+
+        Assert.AreEqual(
+            "public System.Collections.Generic.Dictionary<string, System.DayOfWeek>? Lookup();",
+            lookup.Signature);
+    }
 
     [TestMethod]
     public void ReadReturnsVisibleDeclarationsWithCSharpSignatures()
@@ -616,19 +670,26 @@ public sealed class MetadataApiReaderTests
         }
     }
 
+    // Renaming an ordinary method is no longer enough to make one: the CLI marks an operator with
+    // SpecialName, so the mutation sets that flag too and the operator rules are still enforced.
     [TestMethod]
     public void ReadRejectsUnknownInstanceAndWrongArityOperators()
     {
-        var mutations = new (string Current, string Replacement)[]
+        var mutations = new (string Type, string Current, string Replacement)[]
         {
-            ("BogusApi", "op_Bogus"),
-            ("IncrementApi", "op_Increment"),
-            ("AdditionApi", "op_Addition"),
-            ("ExplicitApi", "op_Explicit"),
+            ("SignatureGallery`1", "BogusApi", "op_Bogus"),
+            ("SignatureGallery`1", "IncrementApi", "op_Increment"),
+            ("SignatureGallery`1", "AdditionApi", "op_Addition"),
+            ("SignatureGallery`1", "ExplicitApi", "op_Explicit"),
         };
         foreach (var mutation in mutations)
         {
             var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+            ChangeMethodAttributes(
+                bytes,
+                mutation.Type,
+                mutation.Current,
+                attributes => attributes | MethodAttributes.SpecialName);
             ReplaceMetadataString(bytes, mutation.Current, mutation.Replacement);
 
             using var stream = new MemoryStream(bytes);
@@ -636,6 +697,24 @@ public sealed class MetadataApiReaderTests
                 MetadataApiReader.Read(stream));
             StringAssert.Contains(exception.Message, mutation.Replacement);
         }
+    }
+
+    // Roslyn's SyntaxList<T> ships exactly this: a public static method named op_Implicit with no
+    // SpecialName flag. It is an ordinary method, and reading it as a malformed operator rejected
+    // the assembly it lives in.
+    [TestMethod]
+    public void ReadTreatsAnOperatorNamedMethodWithoutSpecialNameAsAnOrdinaryMethod()
+    {
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ReplaceMetadataString(bytes, "BogusApi", "op_Bogus");
+
+        using var stream = new MemoryStream(bytes);
+        var corpus = MetadataApiReader.Read(stream);
+
+        var member = corpus.Types
+            .Single(item => item.FullName == "Fixtures.SignatureGallery<T>")
+            .Members.Single(item => item.Name == "op_Bogus");
+        Assert.AreEqual("method", member.Kind);
     }
 
     [TestMethod]

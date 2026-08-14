@@ -400,3 +400,59 @@ public unsafe class SignatureGallery<T> : GalleryBase, IGallery<T>
 
     internal sealed class InternalNested;
 }
+
+/// <summary>
+/// Shapes that real Microsoft assemblies contain and repository-authored fixtures did not.
+/// Every member here is legal C# that the compiler accepts; each one previously aborted the whole
+/// corpus build, which cost the coverage of an entire package rather than of one member.
+/// </summary>
+public readonly struct InteropShapeGallery
+{
+    private readonly int _value;
+
+    /// <summary>Creates a gallery.</summary>
+    /// <param name="value">The value.</param>
+    public InteropShapeGallery(int value) => _value = value;
+
+    /// <summary>The value.</summary>
+    public int Value => _value;
+
+    // 'in' is the one by-reference form an operator may take: 'ref', 'out' and 'ref readonly' are
+    // all CS0631, and a by-reference return does not parse. Roslyn's own Workspaces assembly ships
+    // these, so rejecting them rejected the package.
+    /// <summary>Compares two galleries.</summary>
+    /// <param name="left">The left gallery.</param>
+    /// <param name="right">The right gallery.</param>
+    /// <returns>True when equal.</returns>
+    public static bool operator ==(in InteropShapeGallery left, in InteropShapeGallery right) =>
+        left.Value == right.Value;
+
+    /// <summary>Compares two galleries for inequality.</summary>
+    /// <param name="left">The left gallery.</param>
+    /// <param name="right">The right gallery.</param>
+    /// <returns>True when unequal.</returns>
+    public static bool operator !=(in InteropShapeGallery left, in InteropShapeGallery right) =>
+        !(left == right);
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj) =>
+        obj is InteropShapeGallery other && other.Value == Value;
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => Value;
+
+    // The argument's type is an enum defined in another assembly, so its underlying type cannot be
+    // found among this assembly's own type definitions. [EditorBrowsable] is ubiquitous in shipping
+    // libraries.
+    /// <summary>A member hidden from editor completion.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public void Hidden()
+    {
+    }
+
+    // A nullable-annotated signature carrying an external enum as a type argument. Value types take
+    // no NullableAttribute entry, so a decoder that expects one for every position runs out.
+    /// <summary>Looks up days by name.</summary>
+    /// <returns>The lookup, or null.</returns>
+    public System.Collections.Generic.Dictionary<string, System.DayOfWeek>? Lookup() => null;
+}

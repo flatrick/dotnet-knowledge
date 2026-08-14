@@ -29,6 +29,12 @@ public static class MetadataApiReader
         "System.Runtime.CompilerServices.NullableAttribute",
         "System.Runtime.CompilerServices.NullableContextAttribute",
         "System.Runtime.CompilerServices.TupleElementNamesAttribute",
+        // These name the compiler-generated state machine implementing an async or iterator method.
+        // The type they point at is a private implementation detail with a name that is not even
+        // expressible in C# -- '<ScheduleTask>d__38`1' -- so it is not API, and decoding it aborted
+        // every assembly containing a public async method.
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute",
+        "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
     };
 
     private static readonly IReadOnlyDictionary<string, string> OperatorNames =
@@ -89,6 +95,46 @@ public static class MetadataApiReader
         (8192, "ReturnValue"),
         (16384, "GenericParameter"),
     ];
+
+    // A custom attribute blob stores an enum argument in its underlying type's width, so decoding
+    // one requires knowing that width. For an enum this assembly defines, it is read from the
+    // metadata; for an enum another assembly defines, it cannot be known without resolving that
+    // assembly, which this reader will not do. These are the framework enums that appear as
+    // attribute arguments, with the widths verified against the running framework rather than
+    // assumed -- EventKeywords is Int64 and EventChannel is Byte, so a blanket Int32 would misread
+    // the blob and every argument after it.
+    private static readonly Dictionary<string, PrimitiveTypeCode> WellKnownEnumUnderlyingTypes =
+        new(StringComparer.Ordinal)
+        {
+            ["System.AttributeTargets"] = PrimitiveTypeCode.Int32,
+            ["System.ComponentModel.EditorBrowsableState"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.DebuggerBrowsableState"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.Tracing.EventActivityOptions"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.Tracing.EventChannel"] = PrimitiveTypeCode.Byte,
+            ["System.Diagnostics.Tracing.EventCommand"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.Tracing.EventKeywords"] = PrimitiveTypeCode.Int64,
+            ["System.Diagnostics.Tracing.EventLevel"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.Tracing.EventManifestOptions"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.Tracing.EventOpcode"] = PrimitiveTypeCode.Int32,
+            ["System.Diagnostics.Tracing.EventTask"] = PrimitiveTypeCode.Int32,
+            ["System.Reflection.MethodImplAttributes"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.CompilerServices.CompilationRelaxations"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.CompilerServices.MethodCodeType"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.CompilerServices.MethodImplOptions"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.ConstrainedExecution.Cer"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.ConstrainedExecution.Consistency"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.CallingConvention"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.CharSet"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.ClassInterfaceType"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.ComInterfaceType"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.DllImportSearchPath"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.GCHandleType"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.LayoutKind"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.UnmanagedType"] = PrimitiveTypeCode.Int32,
+            ["System.Runtime.InteropServices.VarEnum"] = PrimitiveTypeCode.Int32,
+            ["System.Security.SecurityRuleSet"] = PrimitiveTypeCode.Byte,
+        };
 
     private static readonly HashSet<string> ByReferenceModifierTypes = new(StringComparer.Ordinal)
     {
@@ -294,9 +340,16 @@ public static class MetadataApiReader
             var signature = method.DecodeSignature(typeProvider, context);
             var rawName = reader.GetString(method.Name);
             var isConstructor = rawName is ".ctor" or ".cctor";
+            // The CLI marks an operator with SpecialName; the name alone does not make one. Roslyn's
+            // own SyntaxList<T> and SeparatedSyntaxList<T> ship a public static 'op_Implicit'
+            // without it, so treating every op_-prefixed method as an operator both misdescribed an
+            // ordinary method and rejected the whole assembly for failing operator rules.
+            var isOperator = !isConstructor
+                && rawName.StartsWith("op_", StringComparison.Ordinal)
+                && (method.Attributes & MethodAttributes.SpecialName) != 0;
             if (isConstructor)
                 ValidateConstructor(typeHandle, method, signature, methodParameters.Length, rawName);
-            else if (rawName.StartsWith("op_", StringComparison.Ordinal))
+            else if (isOperator)
                 ValidateOperator(typeHandle, method, signature, methodParameters.Length, rawName);
             var parametersBySequence = method.GetParameters()
                 .ToDictionary(item => (int)reader.GetParameter(item).SequenceNumber);
@@ -356,8 +409,7 @@ public static class MetadataApiReader
                 $"return type of '{reader.GetString(method.Name)}'",
                 requireByReference: true);
             var returnTupleNames = ReadTupleNames(returnAttributes);
-            var isOperator = rawName.StartsWith("op_", StringComparison.Ordinal);
-            var isConversion = IsConversionOperator(rawName);
+            var isConversion = isOperator && IsConversionOperator(rawName);
             var kind = isConstructor ? "constructor" : isOperator ? "operator" : "method";
             var displayName = isConstructor
                 ? StripArity(reader.GetString(reader.GetTypeDefinition(typeHandle).Name))
@@ -781,6 +833,17 @@ public static class MetadataApiReader
             if (argumentValue is ImmutableArray<CustomAttributeTypedArgument<DecodedType>> elements)
             {
                 return $"new[] {{ {string.Join(", ", elements.Select(item => RenderAttributeArgument(item.Type, item.Value, argumentTypeNames)))} }}";
+            }
+
+            // An enum another assembly defines. Its member names cannot be recovered without
+            // resolving that assembly, so the value renders as the number the blob actually holds,
+            // but the type is known and is recorded -- otherwise a search by argument type would
+            // report the attribute as having none.
+            if (argumentType.Kind == DecodedTypeKind.Named
+                && argumentType.CanonicalName is { } externalEnumName
+                && WellKnownEnumUnderlyingTypes.ContainsKey(externalEnumName))
+            {
+                argumentTypeNames.Add(externalEnumName);
             }
 
             return argumentValue switch
@@ -1489,11 +1552,24 @@ public static class MetadataApiReader
                 throw new InvalidDataException($"Operator '{name}' cannot be generic.");
             if (IsPlainVoid(signature.ReturnType))
                 throw new InvalidDataException($"Operator '{name}' cannot return System.Void.");
-            if (ContainsByReference(signature.ReturnType)
-                || signature.ParameterTypes.Any(ContainsByReference))
+            // An operand may be passed by read-only reference: 'in' is legal on an operator and is
+            // the only by-reference form that is -- plain 'ref', 'out' and 'ref readonly' are all
+            // CS0631. Roslyn's own Workspaces assembly ships 'in' operands, and rejecting them
+            // rejected the entire package. A by-reference return stays rejected, because a
+            // by-reference operator return does not parse in any C# version.
+            if (ContainsByReference(signature.ReturnType))
             {
                 throw new InvalidDataException(
-                    $"Operator '{name}' cannot have a by-reference return or parameter type.");
+                    $"Operator '{name}' cannot have a by-reference return type.");
+            }
+            for (var index = 0; index < signature.ParameterTypes.Length; index++)
+            {
+                if (ContainsByReference(signature.ParameterTypes[index])
+                    && !IsReadOnlyOperand(method, index, signature.ParameterTypes[index]))
+                {
+                    throw new InvalidDataException(
+                        $"Operator '{name}' cannot have a by-reference parameter type unless it is read-only.");
+                }
             }
 
             var expectedParameterCount = UnaryOperatorNames.Contains(name) ? 1 : 2;
@@ -1505,8 +1581,10 @@ public static class MetadataApiReader
 
             var declaringType = GetDeclaredSelfType(typeHandle);
             var isConversion = IsConversionOperator(name);
+            // An 'in' operand reaches here as a by-reference type, so the operand shape is compared
+            // against what it references rather than against the reference itself.
             var hasDeclaringParameter = signature.ParameterTypes.Any(type =>
-                HaveSameSignatureShape(type, declaringType));
+                HaveSameSignatureShape(UnwrapByReference(type), declaringType));
             if (isConversion
                 ? !hasDeclaringParameter && !HaveSameSignatureShape(signature.ReturnType, declaringType)
                 : !hasDeclaringParameter)
@@ -1781,6 +1859,14 @@ public static class MetadataApiReader
                 return type with { TypeArguments = nullableArguments.MoveToImmutable() };
             }
 
+            // A non-generic value type is skipped entirely by the encoding: it can never be
+            // annotated, so the compiler emits no flag for it and consuming one here would shift
+            // every later position by one. A *generic* value type is not skipped -- it carries an
+            // explicit 0 ahead of its arguments -- so only the argument-less case returns early.
+            // https://github.com/dotnet/roslyn/blob/main/docs/features/nullable-metadata.md
+            if (type.Kind == DecodedTypeKind.Named && type.IsValueType)
+                return type;
+
             byte annotation;
             if (transform is { IsSingle: true })
             {
@@ -2033,6 +2119,30 @@ public static class MetadataApiReader
             return (attributes & ParameterAttributes.In) != 0 || IsReadOnlyByReference(type)
                 ? "ref readonly "
                 : "ref ";
+        }
+
+        // On a non-virtual method the compiler encodes 'in' as a plain by-reference type and records
+        // the read-only-ness on the parameter row -- ParameterAttributes.In plus [IsReadOnly] -- so
+        // the modreq form alone misses it. Both spellings are accepted because a virtual or
+        // interface member does carry the modreq, where it is part of the signature's identity.
+        private bool IsReadOnlyOperand(MethodDefinition method, int index, DecodedType type)
+        {
+            if (IsReadOnlyByReference(type))
+                return true;
+
+            foreach (var handle in method.GetParameters())
+            {
+                var parameter = reader.GetParameter(handle);
+                if (parameter.SequenceNumber != index + 1)
+                    continue;
+
+                return (parameter.Attributes & ParameterAttributes.In) != 0
+                    || HasAttribute(
+                        parameter.GetCustomAttributes(),
+                        "System.Runtime.CompilerServices.IsReadOnlyAttribute");
+            }
+
+            return false;
         }
 
         private static bool IsReadOnlyByReference(DecodedType type) =>
@@ -2444,9 +2554,9 @@ public static class MetadataApiReader
 
         public PrimitiveTypeCode GetUnderlyingEnumType(DecodedType type)
         {
-            if (type.CanonicalName == "System.AttributeTargets")
-                return PrimitiveTypeCode.Int32;
-
+            // This assembly's own definition wins: a target framework without a given framework
+            // enum is routinely served by a locally compiled polyfill of the same name, and the
+            // local metadata is authoritative about the local shape.
             foreach (var handle in reader.TypeDefinitions)
             {
                 if (GetDefinitionTypeName(handle) != type.CanonicalName)
@@ -2461,6 +2571,12 @@ public static class MetadataApiReader
                     return GetPrimitiveTypeCode(underlying.CanonicalName);
                 }
             }
+            if (type.CanonicalName is { } canonicalName
+                && WellKnownEnumUnderlyingTypes.TryGetValue(canonicalName, out var wellKnown))
+            {
+                return wellKnown;
+            }
+
             throw new InvalidDataException(
                 $"Cannot determine the underlying type of external enum '{type.CanonicalName}' without resolving its assembly.");
         }
