@@ -355,6 +355,65 @@ public sealed class SourceSynchronizerTests
     }
 
     [TestMethod]
+    public void PublishingAGenerationReclaimsTheLegacySourceDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var legacyDirectory = Path.Combine(root, "csharplang");
+        Directory.CreateDirectory(legacyDirectory);
+        File.WriteAllText(Path.Combine(legacyDirectory, "stranded"), "pre-generation content");
+
+        try
+        {
+            SourceSynchronizer.ReclaimLegacySourceDirectory(
+                legacyDirectory,
+                path => Directory.Delete(path, recursive: true));
+
+            Assert.IsFalse(Directory.Exists(legacyDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ReclaimingTheLegacySourceDirectoryToleratesALockedTree()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var legacyDirectory = Path.Combine(root, "csharplang");
+        Directory.CreateDirectory(legacyDirectory);
+
+        try
+        {
+            SourceSynchronizer.ReclaimLegacySourceDirectory(
+                legacyDirectory,
+                _ => throw new IOException("fixture failure"));
+
+            Assert.IsTrue(
+                Directory.Exists(legacyDirectory),
+                "A locked legacy tree must leave the space in use, not fail a published sync.");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ReclaimingAnAbsentLegacySourceDirectoryDoesNothing()
+    {
+        var deleted = new List<string>();
+
+        SourceSynchronizer.ReclaimLegacySourceDirectory(
+            Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}", "csharplang"),
+            deleted.Add);
+
+        Assert.AreEqual(0, deleted.Count);
+    }
+
+    [TestMethod]
     public void GenerationPruningIgnoresDirectoryDiscoveryFailures()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

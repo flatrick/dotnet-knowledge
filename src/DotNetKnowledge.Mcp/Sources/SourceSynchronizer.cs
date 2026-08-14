@@ -314,6 +314,7 @@ public sealed class SourceSynchronizer
             published = true;
 
             PruneGenerationDirectories(name, generation);
+            ReclaimLegacySourceDirectory(name);
 
             var repositoryDirectory = _cache.RepositoryDirectoryFor(name, generation);
 
@@ -428,6 +429,33 @@ public sealed class SourceSynchronizer
                         : RepositoryReadinessPollInterval,
                     cancellationToken)
                 .ConfigureAwait(false);
+        }
+    }
+
+    private void ReclaimLegacySourceDirectory(string name) =>
+        ReclaimLegacySourceDirectory(_cache.DirectoryFor(name), DeleteDirectory);
+
+    /// <summary>
+    /// Removes the pre-generation <c>&lt;cacheRoot&gt;/&lt;source&gt;</c> tree once a generation is
+    /// published. Publication is what proves the old tree unreferenced: the new one is complete and
+    /// nothing reads the old path again. Reclaiming here rather than leaving it is deliberate — the
+    /// cache sits outside any repository, so nothing else on the machine would ever collect it.
+    /// </summary>
+    internal static void ReclaimLegacySourceDirectory(
+        string legacyDirectory,
+        Action<string> deleteDirectory)
+    {
+        if (!Directory.Exists(legacyDirectory))
+            return;
+
+        try
+        {
+            deleteDirectory(legacyDirectory);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort, exactly like generation pruning: a locked file leaves the space in use
+            // rather than failing a synchronization that has already succeeded.
         }
     }
 
