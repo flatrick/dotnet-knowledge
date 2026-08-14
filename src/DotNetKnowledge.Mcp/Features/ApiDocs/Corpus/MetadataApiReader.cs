@@ -272,7 +272,7 @@ public static class MetadataApiReader
                 baseType,
                 interfaces,
                 constraints,
-                ReadAttributes(definition.GetCustomAttributes()),
+                ReadAttributes(definition.GetCustomAttributes(), handle, memberName: null),
                 EmptyDocumentation,
                 members);
         }
@@ -551,7 +551,7 @@ public static class MetadataApiReader
                         returnPrefix + RenderCSharp(UnwrapByReference(returnType), returnTupleNames),
                         CollectTypeNames(returnType)),
                 constraints,
-                ReadAttributes(method.GetCustomAttributes()),
+                ReadAttributes(method.GetCustomAttributes(), typeHandle, rawName),
                 EmptyDocumentation);
         }
 
@@ -626,7 +626,7 @@ public static class MetadataApiReader
                 parameterUses,
                 new ApiTypeUse(null, returnPrefix + returnDisplay, CollectTypeNames(returnType)),
                 Array.Empty<ApiTypeUse>(),
-                ReadAttributes(property.GetCustomAttributes()),
+                ReadAttributes(property.GetCustomAttributes(), typeHandle, name),
                 EmptyDocumentation);
         }
 
@@ -659,7 +659,7 @@ public static class MetadataApiReader
                 Array.Empty<ApiTypeUse>(),
                 new ApiTypeUse(null, display, CollectTypeNames(eventType)),
                 Array.Empty<ApiTypeUse>(),
-                ReadAttributes(eventDefinition.GetCustomAttributes()),
+                ReadAttributes(eventDefinition.GetCustomAttributes(), typeHandle, name),
                 EmptyDocumentation);
         }
 
@@ -698,7 +698,7 @@ public static class MetadataApiReader
                 Array.Empty<ApiTypeUse>(),
                 new ApiTypeUse(null, display, CollectTypeNames(fieldType)),
                 Array.Empty<ApiTypeUse>(),
-                ReadAttributes(field.GetCustomAttributes()),
+                ReadAttributes(field.GetCustomAttributes(), typeHandle, name),
                 EmptyDocumentation);
         }
 
@@ -858,7 +858,22 @@ public static class MetadataApiReader
             return string.Concat(clauses);
         }
 
-        private ApiAttributeUse[] ReadAttributes(CustomAttributeHandleCollection handles)
+        /// <summary>
+        /// Reads the attributes applied to one declaration. An attribute whose arguments cannot be
+        /// decoded costs that attribute and is recorded, rather than costing the declaration it
+        /// decorates.
+        /// </summary>
+        /// <remarks>
+        /// The two commonest causes are not defects and cannot be fixed here: an argument typed as
+        /// an enum from another assembly has no determinable width without resolving that assembly,
+        /// which this server never does, and a serialized <c>System.Type</c> argument can name a
+        /// constructed form the reader does not parse. Both describe the decoration, not the
+        /// signature, so the signature is the thing worth keeping.
+        /// </remarks>
+        private ApiAttributeUse[] ReadAttributes(
+            CustomAttributeHandleCollection handles,
+            TypeDefinitionHandle typeHandle,
+            string? memberName)
         {
             var attributes = new List<ApiAttributeUse>();
             foreach (var handle in handles)
@@ -868,26 +883,36 @@ public static class MetadataApiReader
                 if (SignatureAttributes.Contains(attributeType))
                     continue;
 
-                CustomAttributeValue<DecodedType> value;
+                var arguments = new List<string>();
+                var argumentTypeNames = new HashSet<string>(StringComparer.Ordinal);
                 try
                 {
-                    value = attribute.DecodeValue(typeProvider);
+                    // The decode itself is inside the boundary: the type provider resolves enum
+                    // widths and serialized type names while reading the blob, so this is where the
+                    // undecodable argument surfaces, not in the rendering below.
+                    var value = attribute.DecodeValue(typeProvider);
+                    foreach (var argument in value.FixedArguments)
+                    {
+                        arguments.Add(RenderAttributeArgument(argument.Type, argument.Value, argumentTypeNames));
+                    }
+
+                    foreach (var argument in value.NamedArguments)
+                    {
+                        arguments.Add($"{argument.Name} = {RenderAttributeArgument(argument.Type, argument.Value, argumentTypeNames)}");
+                    }
                 }
                 catch (Exception exception) when (exception is BadImageFormatException or InvalidOperationException)
                 {
                     throw new InvalidDataException($"Could not decode attribute '{attributeType}'.", exception);
                 }
-
-                var arguments = new List<string>();
-                var argumentTypeNames = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var argument in value.FixedArguments)
+                catch (InvalidDataException exception)
                 {
-                    arguments.Add(RenderAttributeArgument(argument.Type, argument.Value, argumentTypeNames));
-                }
-
-                foreach (var argument in value.NamedArguments)
-                {
-                    arguments.Add($"{argument.Name} = {RenderAttributeArgument(argument.Type, argument.Value, argumentTypeNames)}");
+                    skipped.Add(new ApiSkippedDeclaration(
+                        "attribute",
+                        GetSkipTypeName(typeHandle),
+                        memberName,
+                        $"Attribute '{attributeType}' was dropped: {exception.Message}"));
+                    continue;
                 }
 
                 var applicationType = RemoveAttributeSuffix(GetAttributeDisplayType(attribute));
@@ -1293,11 +1318,7 @@ public static class MetadataApiReader
                 if (getterName != $"get_{propertyName}")
                     throw new InvalidDataException($"Property getter '{getterName}' has an unsupported name.");
                 var getterSignature = getter.DecodeSignature(typeProvider, context);
-                ValidateAccessorHeader(
-                    getter,
-                    getterSignature,
-                    getterName,
-                    propertySignature.Header.IsInstance);
+                ValidateAccessorHeader(getter, getterSignature, getterName);
                 ValidateSignatureType(
                     getterSignature.ReturnType,
                     propertySignature.ReturnType,
@@ -1315,11 +1336,7 @@ public static class MetadataApiReader
                 if (setterName != $"set_{propertyName}")
                     throw new InvalidDataException($"Property setter '{setterName}' has an unsupported name.");
                 var setterSignature = setter.DecodeSignature(typeProvider, context);
-                ValidateAccessorHeader(
-                    setter,
-                    setterSignature,
-                    setterName,
-                    propertySignature.Header.IsInstance);
+                ValidateAccessorHeader(setter, setterSignature, setterName);
                 ValidateRootModifiers(
                     setterSignature.ReturnType,
                     InitAccessorModifierTypes,
@@ -1382,11 +1399,22 @@ public static class MetadataApiReader
             ValidateSignatureType(signature.ParameterTypes[0], eventType, $"parameter of '{name}'");
         }
 
+        /// <summary>
+        /// Validates an accessor against itself. Deliberately not against its property's signature
+        /// header: that blob's <c>HASTHIS</c> bit is decorative, and real producers get it wrong.
+        /// </summary>
+        /// <remarks>
+        /// Every disagreement measured across one machine's NuGet cache — 295 of them, all in COM
+        /// interop assemblies — had the property blob claiming static while the accessor's blob and
+        /// its <see cref="MethodAttributes.Static"/> flag agreed on instance. The accessor is what
+        /// the runtime dispatches on, so it is the authority; comparing the two tested a producer
+        /// quirk and cost the declaration. Accessor-versus-accessor staticness is still checked, by
+        /// <c>GetAccessorDeclarationModifiers</c>, whose mask includes <c>Static</c>.
+        /// </remarks>
         private static void ValidateAccessorHeader(
             MethodDefinition method,
             MethodSignature<DecodedType> signature,
-            string name,
-            bool? declarationIsInstance = null)
+            string name)
         {
             if ((method.Attributes & MethodAttributes.SpecialName) == 0)
                 throw new InvalidDataException($"Accessor '{name}' is not marked special-name.");
@@ -1402,12 +1430,6 @@ public static class MetadataApiReader
             var isStatic = (method.Attributes & MethodAttributes.Static) != 0;
             if (signature.Header.IsInstance == isStatic)
                 throw new InvalidDataException($"Accessor '{name}' has an incompatible calling convention.");
-            if (declarationIsInstance is not null
-                && signature.Header.IsInstance != declarationIsInstance.Value)
-            {
-                throw new InvalidDataException(
-                    $"Accessor '{name}' has staticness incompatible with its property declaration.");
-            }
         }
 
         private static void ValidateAccessorParameters(

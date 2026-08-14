@@ -45,6 +45,10 @@ var readCount = 0;
 var refusedCount = 0;
 var otherCount = 0;
 var skippedCount = 0;
+var skippedAttributes = 0;
+var skippedDeclarations = 0;
+var typeCount = 0;
+var memberCount = 0;
 var byReason = new Dictionary<string, (int Count, string Example)>(StringComparer.Ordinal);
 var bySkipReason = new Dictionary<string, (int Count, string Example)>(StringComparer.Ordinal);
 var readPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -83,9 +87,17 @@ foreach (var packageDirectory in Directory
                     // A declaration the reader cannot model no longer costs the assembly, so the
                     // refusal rate alone would now read as complete coverage. The skips are where
                     // that cost moved, and they are the number to watch.
+                    typeCount += corpus.Types.Count;
+                    memberCount += corpus.Types.Sum(item => item.Members.Count);
                     foreach (var declaration in corpus.Skipped)
                     {
                         skippedCount++;
+                        // An attribute skip costs decoration and keeps the declaration; a type or
+                        // member skip costs the declaration itself. Summing them would hide which.
+                        if (string.Equals(declaration.Kind, "attribute", StringComparison.Ordinal))
+                            skippedAttributes++;
+                        else
+                            skippedDeclarations++;
                         skippedPackages.Add(packageId);
                         Record(
                             bySkipReason,
@@ -123,7 +135,10 @@ var firstPartyTotal = readPackages.Concat(refusedPackages)
 Console.WriteLine($"assemblies read      : {readCount}");
 Console.WriteLine($"assemblies refused   : {refusedCount}");
 Console.WriteLine($"other errors         : {otherCount}");
-Console.WriteLine($"declarations skipped : {skippedCount} across {skippedPackages.Count} packages");
+Console.WriteLine($"types / members read  : {typeCount} / {memberCount}");
+Console.WriteLine($"skips                : {skippedCount} across {skippedPackages.Count} packages");
+Console.WriteLine($"  declarations lost  : {skippedDeclarations}");
+Console.WriteLine($"  attributes dropped : {skippedAttributes} (declaration kept)");
 Console.WriteLine($"packages clean       : {readPackages.Except(refusedPackages, StringComparer.OrdinalIgnoreCase).Count()}");
 Console.WriteLine($"packages with refusal: {refusedPackages.Count}");
 // The server reads only packages an operator catalogs, which are realistically first-party, so this

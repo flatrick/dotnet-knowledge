@@ -24,6 +24,19 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · An undecodable attribute argument costs the attribute, not the declaration
+
+`ReadAttributes` catches `InvalidDataException` around the decode and records a `kind: "attribute"`
+skip, keeping the declaration. Rejected: resolving referenced assemblies to learn an external enum's
+width, which this server refuses to do by design and which the operator's cache may not even
+contain; and rendering the attribute without its arguments, which is the quiet truncation
+`docs/design/mcp-tool-surface.md` forbids. Attributes are decoration and the signature is the value,
+so the signature is what survives. Extends
+[the skip decision below](#2026-08-14--an-undecodable-declaration-is-skipped-and-reported-not-fixed-one-shape-at-a-time)
+from declarations to their decoration: 1252 attributes now drop where 1180 declarations were lost.
+
+---
+
 ### 2026-08-14 · An undecodable declaration is skipped and reported, not fixed one shape at a time
 
 `MetadataApiReader` catches `InvalidDataException` per type and per member, records the declaration

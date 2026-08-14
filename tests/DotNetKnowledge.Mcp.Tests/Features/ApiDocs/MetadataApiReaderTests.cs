@@ -736,14 +736,27 @@ public sealed class MetadataApiReaderTests
         StringAssert.Contains(skipped.Reason, "calling convention", StringComparison.OrdinalIgnoreCase);
     }
 
+    // The property blob's HASTHIS bit is decorative and real producers get it wrong -- every one of
+    // the 295 disagreements measured across the NuGet cache had the blob claiming static while the
+    // accessor and its Static flag agreed on instance. The accessor is what the runtime dispatches
+    // on, so it decides, and clearing the property's bit changes nothing.
     [TestMethod]
-    public void ReadSkipsAPropertyWhoseStaticnessDisagreesWithItsAccessor()
+    public void ReadDerivesPropertyStaticnessFromItsAccessorNotItsSignatureBlob()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangePropertySignatureHeader(bytes, "SignatureGallery`1", "AccessorProbe", 0x28, 0x08);
 
-        var skipped = AssertSkipped(bytes, "AccessorProbe");
-        StringAssert.Contains(skipped.Reason, "static", StringComparison.OrdinalIgnoreCase);
+        using var stream = new MemoryStream(bytes);
+        var corpus = MetadataApiReader.Read(stream);
+
+        Assert.AreEqual(0, corpus.Skipped.Count);
+        var member = corpus.Types
+            .Single(item => item.FullName == "Fixtures.SignatureGallery<T>")
+            .Members.Single(item => item.Name == "AccessorProbe");
+        StringAssert.StartsWith(member.Signature, "public ");
+        Assert.IsFalse(
+            member.Signature.Contains("static", StringComparison.Ordinal),
+            $"The accessor is an instance method, so the declaration is too: {member.Signature}");
     }
 
     [TestMethod]
@@ -964,12 +977,12 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadSkipsAnUnknownExternalEnumWithItsIdentity()
+    public void ReadDropsAnAttributeWithAnUnknownExternalEnumAndKeepsTheDeclaration()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMetadataString(bytes, "AttributeTargets", "DayOfWeek");
 
-        AssertSkipped(bytes, "System.DayOfWeek");
+        AssertAttributeDroppedWithoutLosingDeclarations(bytes, "System.DayOfWeek");
     }
 
     [TestMethod]
@@ -982,12 +995,12 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadSkipsACompoundSerializedSystemTypeArgument()
+    public void ReadDropsAnAttributeWithACompoundSerializedTypeAndKeepsTheDeclaration()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceFirstUtf8Occurrence(bytes, "System.Uri", "System.Ur*");
 
-        AssertSkipped(bytes, "unsupported compound type form");
+        AssertAttributeDroppedWithoutLosingDeclarations(bytes, "unsupported compound type form");
     }
 
     // The point of skipping: one member the reader cannot model used to cost the coverage of every
@@ -1027,6 +1040,40 @@ public sealed class MetadataApiReaderTests
             MetadataApiReader.Read(stream));
 
         StringAssert.Contains(exception.Message, "managed metadata");
+    }
+
+    /// <summary>
+    /// Asserts that an undecodable attribute argument costs the attribute and nothing else: the
+    /// skip is reported as an attribute, and every type and member the clean assembly produced is
+    /// still there. An enum from another assembly has no determinable width without resolving that
+    /// assembly, which this server never does, so the decoration is unreadable and the signature
+    /// beneath it is not.
+    /// </summary>
+    private static void AssertAttributeDroppedWithoutLosingDeclarations(
+        byte[] bytes,
+        string expectedInReason)
+    {
+        using var clean = File.OpenRead(FixtureAssemblyPath);
+        var expected = MetadataApiReader.Read(clean);
+
+        using var stream = new MemoryStream(bytes);
+        var corpus = MetadataApiReader.Read(stream);
+
+        var matches = corpus.Skipped
+            .Where(item => item.Reason.Contains(expectedInReason, StringComparison.Ordinal))
+            .ToArray();
+        Assert.IsTrue(
+            matches.Length > 0,
+            $"No skip mentioned '{expectedInReason}'. Skipped: "
+            + string.Join(" | ", corpus.Skipped.Select(item => item.Reason)));
+        Assert.IsTrue(
+            matches.All(item => item.Kind == "attribute"),
+            "An undecodable attribute argument must cost the attribute, not the declaration.");
+
+        Assert.AreEqual(expected.Types.Count, corpus.Types.Count);
+        Assert.AreEqual(
+            expected.Types.Sum(item => item.Members.Count),
+            corpus.Types.Sum(item => item.Members.Count));
     }
 
     /// <summary>

@@ -53,13 +53,21 @@ framework?, on all four: which target framework of the Roslyn source's
     documentation is framework-neutral.
 
 skippedDeclarations, on all four: present only when the queried package
-    corpus omits declarations the metadata reader could not model, and
+    corpus omits something the metadata reader could not model, and
     absent otherwise. declarations is the total; reasons is a capped
     histogram of the reader's messages with the declaration names
     collapsed, and reasonsArePartial states when the cap dropped one.
     A skipped declaration is indistinguishable from one that was never
     declared unless the payload says so — the same guarantee isPartial
     gives a capped result set, applied to the corpus itself.
+    Two things are skippable, and a reason beginning "Attribute '...'
+    was dropped" is the smaller one: the declaration is present and
+    complete, and only that attribute is missing from its attribute
+    list — so find_api_references may under-report that attribute while
+    lookup_api still answers fully. Anything else means the declaration
+    itself is absent. Attributes are the common case, because an enum
+    argument from an unresolved assembly has no determinable width and
+    this server never resolves one.
 
 lookup_api(symbol, source?, framework?, limit?, cursor?)
     symbol: "SymbolFinder" | "SymbolFinder.FindCallersAsync"
