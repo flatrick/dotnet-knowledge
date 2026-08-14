@@ -69,6 +69,19 @@ directory: a synced pin must survive cache cleaners (`docs/decisions.md`).
 
 Implemented: `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
 `find_api_references`, `search_docs`, `get_doc` and `get_doc_outline`.
+
+`roslyn-api-docs` answers from two halves. Beside the Git checkout, `sources.json` pins one NuGet
+package per `apiPackages` entry; `sync_source` verifies its SHA-512, reads each `lib/<framework>/`
+assembly with `System.Reflection.Metadata` — never loading it — joins the compiler XML onto that
+metadata by ECMA documentation ID, and publishes checkout and corpora as one generation under
+`.generations/<source>/<generation>/`. `Features/ApiDocs/` splits accordingly:
+`RepositoryApiDocsBackend` and `PackageApiDocsBackend` answer the same four reads and
+`ApiDocsQueryService` merges them, repository first so its declarations win on overlap, deduplicating
+by canonical ECMA identity rather than display name. The four API tools take an optional `framework`
+— `net472`, `net8.0`, `net9.0`, `net10.0`, defaulting to the cataloged `net10.0` — because a
+compiler XML file documents one target framework at a time, and every result reports the framework
+it queried. Provenance is a discriminated union from here on: `GitProvenance` and `NuGetProvenance`
+under `kind`, and cursors bind every participating revision plus the canonical framework.
 Bundled-example queries are future work. The intended surface for all of them is in `docs/design/mcp-tool-surface.md`; known
 defects are one file each in `docs/backlog/`.
 

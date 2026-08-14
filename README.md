@@ -48,6 +48,14 @@ dotnet run --project src/DotNetKnowledge.Mcp
 Upstream documentation is fetched explicitly — call `list_sources` to see what is available and
 where it is cached, then `sync_source` before an API lookup.
 
+`roslyn-api-docs` synchronizes two things as one generation: the pinned documentation checkout, and
+a pinned NuGet package — `Microsoft.CodeAnalysis.Workspaces.MSBuild` 5.3.0 — whose compiler XML and
+assembly metadata are normalized into a queryable corpus per target framework. The four API tools
+take an optional `framework` (`net472`, `net8.0`, `net9.0`, `net10.0`, defaulting to `net10.0`) to
+choose which of the package's surfaces to answer from, and report the one they queried. Where both
+halves document the same declaration the repository text wins; every match states whether it came
+from Git or from the package, naming the commit or the verified package hash.
+
 Fetched sources land in a per-user cache shared by every checkout and client on the machine:
 `%LOCALAPPDATA%\dotnet-knowledge\sources` on Windows,
 `$XDG_DATA_HOME/dotnet-knowledge/sources` (default `~/.local/share/...`) on Linux, and
@@ -69,6 +77,8 @@ The server's source, API-doc, and doc tools are implemented and work under an MC
 `list_sources`, `sync_source`, `search_api`, `lookup_api`, `search_api_text`,
 `find_api_references`, `search_docs`, `get_doc`, and `get_doc_outline`
 all answer correctly over stdio, including a first sync of a large upstream repository.
+API answers about Roslyn draw on the pinned `Microsoft.CodeAnalysis.Workspaces.MSBuild` package
+beside the documentation checkout, selectable per target framework.
 
 Bundled-example queries remain future work; their intended surface is recorded in
 [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).

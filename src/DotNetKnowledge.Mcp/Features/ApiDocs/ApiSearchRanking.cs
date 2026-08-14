@@ -24,7 +24,7 @@ public static class ApiSearchRanking
             .ThenBy(item => NameTier(item, leaf))
             .ThenBy(item => NamespaceSegmentCount(item.Name))
             .ThenBy(item => item.Name, StringComparer.Ordinal)
-            .ThenBy(item => item.Source.Repo, StringComparer.Ordinal)
+            .ThenBy(item => item.Source.RevisionKey, StringComparer.Ordinal)
             .ToArray();
     }
 

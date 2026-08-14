@@ -1,8 +1,8 @@
 # Probes
 
 Throwaway programs that answer questions about the *host*, not about this repository's code. Most
-are MCP servers; three are not — two drivers that play the client, and one that interrogates the
-machine's compilers.
+are MCP servers; six are not — two drivers that play the client, one that interrogates the
+machine's compilers, and three that run shipped package-pipeline code over real NuGet content.
 
 Some faults only appear when a server is launched by an MCP client, and a client is an awkward place
 to run an experiment: the tool surface is fixed, output is summarized, and a hung call looks the same
@@ -138,4 +138,68 @@ Missing binaries are reported, not guessed at. Windows only.
 
 ```bash
 dotnet run --file scripts/probes/probe-preferreduilang.cs
+```
+
+## probe-api-package-supplement.cs
+
+Not an MCP server. It runs the **shipped** package pipeline — `PackageArchiveReader.ReadAssets`,
+`PackageApiCorpusBuilder.BuildAsync`, `PackageApiCorpusStore.Read` — over one `.nupkg` the operator
+already has on disk, and prints the package id and version, the SHA-512 it computed with whether
+that matches the catalog's pin, the frameworks found and built, the cataloged default, and
+`MSBuildWorkspace`'s member count and `Create` overload signatures.
+
+It answers whether the real `Microsoft.CodeAnalysis.Workspaces.MSBuild` package has the layout,
+assembly names and documentation IDs the server assumes. The automated suite exercises the same code
+against repository-authored fixtures, which cannot answer that: a fixture is built to the
+assumption rather than against it.
+
+**It proves compatibility with one local copy of one package at one version, and nothing else.** It
+never downloads, so it says nothing about the NuGet client, the feed, or hash verification on the
+wire; and nothing about layouts a future package version might ship. Those stay covered by the
+offline tests and by re-running this probe when the pin moves.
+
+```powershell
+dotnet run --file scripts/probes/probe-api-package-supplement.cs -- --package "$env:USERPROFILE\.nuget\packages\microsoft.codeanalysis.workspaces.msbuild\5.3.0\microsoft.codeanalysis.workspaces.msbuild.5.3.0.nupkg"
+```
+
+## diff-tfm-surface.cs
+
+Not an MCP server. It runs the shipped `MetadataApiReader.Read` over every
+`lib/<framework>/<assembly>.dll` of one extracted package and diffs the public type and member sets
+pairwise, printing each pair as `IDENTICAL` or with the declarations that differ. It exits 1 when any
+pair differs, so it can be run over a set of packages and the interesting one picked out by exit
+code.
+
+It answers whether a package's public API surface actually differs between its target frameworks —
+the question the server's `framework` argument exists to serve. A compiler XML file that differs per
+framework does not settle it, because the difference is routinely internal and never reaches a
+public-API corpus.
+
+**It says nothing about any package it is not run against**, which is the whole of its limitation:
+the finding it supports is a claim about packages in general drawn from the few measured so far.
+`docs/backlog/framework-selection-has-no-observable-effect.md` carries those measurements.
+
+```powershell
+dotnet run --file scripts/probes/diff-tfm-surface.cs -- --package "$env:USERPROFILE\.nuget\packages\microsoft.codeanalysis.common\5.6.0" --assembly Microsoft.CodeAnalysis
+```
+
+## sweep-api-reader.cs
+
+Not an MCP server. It runs the shipped `MetadataApiReader.Read` over every `lib/<framework>/*.dll` in
+a package folder tree — the machine's NuGet cache by default — and reports how many assemblies it
+reads, how many it refuses, and the refusal reasons grouped with the declaration names collapsed
+out. It exits 1 when anything was refused.
+
+It answers whether the set of metadata shapes the reader does not model is small and nearly closed
+or open-ended, which is what decides between fixing shapes one at a time and making an undecodable
+declaration stop costing the whole package.
+`docs/backlog/undecodable-metadata-fails-the-whole-package.md` carries the measurement.
+
+**The rate is a property of whatever that machine happens to have restored**, not of NuGet as a
+whole, and a cache full of one ecosystem's packages will read as that ecosystem. The first-party
+line is broken out separately because those are the packages the server would realistically catalog.
+
+```powershell
+dotnet run --file scripts/probes/sweep-api-reader.cs
+dotnet run --file scripts/probes/sweep-api-reader.cs -- --root D:\packages --limit 200
 ```

@@ -120,11 +120,11 @@ public sealed class DocsQueryService
             note);
     }
 
-    private async Task<(List<DocLineHit> Hits, List<SourceProvenance> SearchedSources)> CollectHitsAsync(
+    private async Task<(List<DocLineHit> Hits, List<GitProvenance> SearchedSources)> CollectHitsAsync(
         string query, Regex? compiledPattern, string[] sourceNames, CancellationToken cancellationToken)
     {
         var hits = new List<DocLineHit>();
-        var searchedSources = new List<SourceProvenance>();
+        var searchedSources = new List<GitProvenance>();
 
         foreach (var sourceName in sourceNames)
         {
@@ -134,8 +134,13 @@ public sealed class DocsQueryService
             {
                 read = await _synchronizer.ReadCurrentSourceAsync(
                     sourceName,
-                    (definition, state, directory) =>
-                        ReadSearchSource(directory, definition, state, query, compiledPattern, cancellationToken),
+                    snapshot => ReadSearchSource(
+                        snapshot.RepositoryDirectory,
+                        snapshot.Definition,
+                        snapshot.State,
+                        query,
+                        compiledPattern,
+                        cancellationToken),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
@@ -248,7 +253,7 @@ public sealed class DocsQueryService
         return new DocNormalizationNote(first.Message + " " + second.Message);
     }
 
-    private async Task<(string Text, SourceProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
         ReadDocumentAsync(string source, string path, CancellationToken cancellationToken)
     {
         try
@@ -279,7 +284,7 @@ public sealed class DocsQueryService
         }
     }
 
-    private async Task<(string Text, SourceProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
         ReadDocumentAttemptAsync(string source, string path, CancellationToken cancellationToken)
     {
         DocumentRead read;
@@ -287,7 +292,12 @@ public sealed class DocsQueryService
         {
             read = await _synchronizer.ReadCurrentSourceAsync(
                 source,
-                (definition, state, directory) => ReadDocument(directory, source, path, definition, state),
+                snapshot => ReadDocument(
+                    snapshot.RepositoryDirectory,
+                    source,
+                    path,
+                    snapshot.Definition,
+                    snapshot.State),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidOperationException exception)
@@ -298,7 +308,7 @@ public sealed class DocsQueryService
         return (read.Text, read.Provenance, path, null);
     }
 
-    private sealed record DocumentRead(string Text, SourceProvenance Provenance);
+    private sealed record DocumentRead(string Text, GitProvenance Provenance);
 
     private static DocumentRead ReadDocument(
         string directory, string source, string path, SourceDefinition definition, SourceSyncState state)
@@ -307,7 +317,7 @@ public sealed class DocsQueryService
         return new DocumentRead(File.ReadAllText(fullPath), ToProvenance(definition, state));
     }
 
-    private sealed record SourceSearchRead(SourceProvenance Provenance, IReadOnlyList<DocLineHit> Hits);
+    private sealed record SourceSearchRead(GitProvenance Provenance, IReadOnlyList<DocLineHit> Hits);
 
     private static SourceSearchRead ReadSearchSource(
         string directory,
@@ -398,11 +408,10 @@ public sealed class DocsQueryService
         }
     }
 
-    private static SourceProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
+    private static GitProvenance ToProvenance(SourceDefinition definition, SourceSyncState state) =>
         new(definition.Repository, state.Ref, state.Commit, state.FetchedAt);
 
-    private static string RevisionKey(SourceProvenance provenance) =>
-        provenance.Repo + "@" + provenance.Ref + "@" + provenance.Commit;
+    private static string RevisionKey(GitProvenance provenance) => provenance.RevisionKey;
 
     private static string EncodeScope(params object[] values) => JsonSerializer.Serialize(values);
 

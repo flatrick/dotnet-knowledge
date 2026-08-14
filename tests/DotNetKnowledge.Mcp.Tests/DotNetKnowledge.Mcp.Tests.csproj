@@ -17,9 +17,24 @@
     <ProjectReference
       Include="..\DotNetKnowledge.Mcp.Tests.GitRunnerHost\DotNetKnowledge.Mcp.Tests.GitRunnerHost.csproj"
       ReferenceOutputAssembly="false" />
+    <ProjectReference
+      Include="..\DotNetKnowledge.Mcp.Tests.ApiFixture\DotNetKnowledge.Mcp.Tests.ApiFixture.csproj"
+      ReferenceOutputAssembly="false" />
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>GitRunnerHostPath</_Parameter1>
       <_Parameter2>$(MSBuildThisFileDirectory)..\DotNetKnowledge.Mcp.Tests.GitRunnerHost\bin\$(Configuration)\net10.0\DotNetKnowledge.Mcp.Tests.GitRunnerHost.dll</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ApiFixtureAssemblyPath</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)..\DotNetKnowledge.Mcp.Tests.ApiFixture\bin\$(Configuration)\net10.0\DotNetKnowledge.Mcp.Tests.ApiFixture.dll</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BacklogIndexPath</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)..\..\docs\backlog\README.md</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ApiFixtureXmlPath</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)..\DotNetKnowledge.Mcp.Tests.ApiFixture\bin\$(Configuration)\net10.0\DotNetKnowledge.Mcp.Tests.ApiFixture.xml</_Parameter2>
     </AssemblyAttribute>
   </ItemGroup>
 </Project>

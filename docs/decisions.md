@@ -24,6 +24,59 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · The package hash is verified against the downloaded bytes, not fetched from the feed
+
+`NuGetPackageClient` requests only resources the v3 `PackageBaseAddress` defines — the service index
+and the `.nupkg` — and compares the catalog SHA-512 to the bytes that arrived. Rejected: fetching
+`{package}.nupkg.sha512`, which 404s on every real feed because it is not a flat-container resource
+at all but a file NuGet's client writes into the machine's global packages folder, the one place
+this server refuses to read. It also added nothing: the catalog hash was already the trust anchor,
+and for a `head` ref there is no anchor but TLS either way.
+
+---
+
+### 2026-08-14 · API provenance is a discriminated union, and Git wins on overlap
+
+API payloads carry `ApiProvenance` under `kind` — `git` with repo/ref/commit, `nuget` with
+package/version/verified sha512/feed/framework — and merging keyed on canonical ECMA identity adds
+the repository's declarations first, so its curated text beats the package's compiler XML while
+package-only members survive beside it. Rejected: one flattened envelope with optional fields, which
+would let a caller read a package answer as a commit-pinned one; and package-wins, which would
+replace reviewed prose with the terser emitted form.
+
+---
+
+### 2026-08-14 · Framework is a query parameter, with an explicit cataloged default
+
+A compiler-emitted XML file documents one target framework, so all four API tools take an optional
+`framework` over the package's `net472`, `net8.0`, `net9.0` and `net10.0`, defaulting to the
+cataloged `net10.0`, and every result reports `effectiveFramework` beside the default and the
+available set. Rejected: normalizing every TFM into one merged surface, which would answer for a
+framework the caller is not building against and hide that it had done so; and requiring the
+argument, which makes the common case ceremony.
+
+---
+
+### 2026-08-14 · The API package is normalized at sync into a corpus, not read at query time
+
+`sync_source` joins `System.Reflection.Metadata` signatures to the compiler XML by ECMA
+documentation ID and writes one deterministic JSON corpus per framework, published with the Git
+checkout as a single generation. Rejected: opening the `.nupkg` per query, which puts archive and
+metadata decoding on every call and gives no place to validate the join once; and loading the
+assembly for reflection, which executes vendor code the server has no reason to run.
+
+---
+
+### 2026-08-14 · The server pins its own NuGet packages, ignoring the machine's
+
+`sources.json` carries id, version and SHA-512, and the download goes to the feed's v3
+`PackageBaseAddress` over HTTPS with the hash verified before the archive is opened. Rejected:
+reading `~/.nuget/packages`, which makes the answer depend on what the machine happens to have
+restored and on NuGet configuration this server does not control — and a pinned answer sourced from
+an unpinned place is not pinned.
+
+---
+
 ### 2026-08-09 · A caller-input encoding miss gets one normalized retry, not a global filter
 
 `get_doc`'s `section` and `path`, `get_doc_outline`'s `path`, and `search_docs`'s non-regex `query`,

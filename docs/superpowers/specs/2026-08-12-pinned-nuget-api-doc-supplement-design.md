@@ -141,9 +141,11 @@ generic constraints, arrays, pointers, nullable metadata, tuples, and `ref`/`in`
 Unsupported or malformed metadata fails normalization instead of emitting an approximate
 signature.
 
-One deterministic corpus file is stored per framework. A process-local cache may retain a decoded
-corpus keyed by package ID, version, hash, and framework; that cache is an optimization and never a
-source of identity.
+One deterministic schema-version-2 corpus file is stored per framework. Schema 2 retains both the
+rendered base/interface expression and its canonical contained type identities. A schema mismatch
+requires source resynchronization; generated corpus files are not migrated. A process-local cache
+may retain a decoded corpus keyed by package ID, version, hash, and framework; that cache is an
+optimization and never a source of identity.
 
 ## Tool contract
 

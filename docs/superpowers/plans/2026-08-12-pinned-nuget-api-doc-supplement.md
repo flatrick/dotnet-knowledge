@@ -314,8 +314,8 @@ Expected: compilation fails because the corpus reader is absent.
 ```csharp
 public sealed record ApiCorpus(int SchemaVersion, IReadOnlyList<ApiCorpusType> Types);
 public sealed record ApiCorpusType(
-    string EcmaId, string Name, string FullName, string? BaseType,
-    IReadOnlyList<string> Interfaces, IReadOnlyList<ApiTypeUse> Constraints,
+    string EcmaId, string Name, string FullName, ApiTypeUse? BaseType,
+    IReadOnlyList<ApiTypeUse> Interfaces, IReadOnlyList<ApiTypeUse> Constraints,
     IReadOnlyList<ApiAttributeUse> Attributes, ApiDocumentation Documentation,
     IReadOnlyList<ApiCorpusMember> Members);
 public sealed record ApiCorpusMember(
@@ -323,6 +323,8 @@ public sealed record ApiCorpusMember(
     IReadOnlyList<ApiTypeUse> Parameters, ApiTypeUse? ReturnType,
     IReadOnlyList<ApiTypeUse> Constraints, IReadOnlyList<ApiAttributeUse> Attributes,
     ApiDocumentation Documentation);
+public sealed record ApiTypeUse(
+    string? Name, string TypeExpression, IReadOnlyList<string> TypeNames);
 public sealed record ApiDocumentation(
     string? Summary, IReadOnlyList<ApiNamedDocumentation> Parameters,
     IReadOnlyList<ApiNamedDocumentation> TypeParameters, string? Returns,
@@ -385,7 +387,7 @@ Parse with `DtdProcessing.Prohibit` and `XmlResolver = null`. Index by exact ord
 
 - [ ] **Step 5: Implement deterministic storage**
 
-Define `PackageCorpusBuildResult(IReadOnlyList<string> AvailableFrameworks, IReadOnlyDictionary<string, string> CorpusFiles)`. Sort types by `FullName`, members by `EcmaId`, and all set-like lists ordinally. Write compact schema-version-1 JSON through a temporary file. Validate package ID/version/hash/framework on read, reject schema mismatch, and cache by those four identity values.
+Define `PackageCorpusBuildResult(IReadOnlyList<string> AvailableFrameworks, IReadOnlyDictionary<string, string> CorpusFiles)`. Sort types by `FullName`, members by `EcmaId`, and all set-like lists ordinally. Write compact schema-version-2 JSON through a temporary file. Validate package ID/version/hash/framework and the complete normalized graph on read, reject schema mismatch with a resynchronization-required error, and cache by those four identity values.
 
 - [ ] **Step 6: Pass tests and commit**
 

@@ -16,6 +16,15 @@ public sealed class ApiDocsTool
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    private const string FrameworkDescription =
+        "Part of the Roslyn coverage comes from a pinned NuGet package, which declares one API " +
+        "surface per target framework; pass framework to choose which - net472, net8.0, net9.0 or " +
+        "net10.0 - and omit it for the cataloged default. Every response reports the " +
+        "effectiveFramework it queried beside defaultFramework and availableFrameworks, and an " +
+        "unavailable value returns framework_not_available listing them rather than an empty " +
+        "result. The repository-sourced documentation is framework-neutral, so framework applies " +
+        "to the package half of the coverage only and is rejected with source: \"dotnet-api-docs\".";
+
     [McpServerTool(Name = "lookup_api", ReadOnly = true, Idempotent = true)]
     [Description(
         "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
@@ -24,12 +33,13 @@ public sealed class ApiDocsTool
         "because the tier is decided per source, so one source resolving the string as a type " +
         "never collapses another's member match. Pass source to restrict the lookup to " +
         "dotnet-api-docs or roslyn-api-docs, and limit/cursor to page. Returns provenance with " +
-        "every match.")]
+        "every match. " + FrameworkDescription)]
     public static async Task<string> LookupApi(
         string symbol,
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
         string? source = null,
+        string? framework = null,
         int? limit = null,
         string? cursor = null)
     {
@@ -38,6 +48,7 @@ public sealed class ApiDocsTool
             var result = await service.LookupAsync(
                 symbol,
                 source,
+                framework,
                 limit ?? 20,
                 cursor,
                 cancellationToken).ConfigureAwait(false);
@@ -46,9 +57,10 @@ public sealed class ApiDocsTool
             // the caller to search_api, which will confirm the type and contradict the error.
             if (result.Outcome != ApiLookupOutcome.Found)
             {
-                // Directing a caller to search_api is right when the type was not found and wrong
-                // when the type resolved: search_api enumerates file names and never opens a
-                // document, so no search of it can surface a member.
+                // A resolved type with no matching member is answerable with another lookup, and a
+                // name that resolved to nothing is not answerable at all: search_api searches the
+                // same coverage this lookup already reports, so sending the caller there would
+                // promise a completeness neither tool has.
                 var memberMissing = result.Outcome == ApiLookupOutcome.MemberNotFound;
                 return JsonSerializer.Serialize(
                     new
@@ -57,11 +69,14 @@ public sealed class ApiDocsTool
                         message = memberMissing
                             ? $"No member of '{string.Join("', '", result.ResolvedTypeNames)}' matches "
                                 + $"'{symbol}'. Call lookup_api with just the type name to list its members."
-                            : $"API symbol '{symbol}' was not found in the selected synchronized source(s). "
-                                + "Call search_api with a type-name fragment to find candidates.",
+                            : $"API symbol '{symbol}' was not found in the stated synchronized coverage; "
+                                + "the name may be invalid or its package may be outside that coverage.",
                         symbol,
                         resolvedTypes = memberMissing ? result.ResolvedTypeNames : null,
                         searchedSources = result.SearchedSources,
+                        effectiveFramework = result.EffectiveFramework,
+                        defaultFramework = result.DefaultFramework,
+                        availableFrameworks = result.AvailableFrameworks,
                     },
                     WriteOptions);
             }
@@ -88,6 +103,10 @@ public sealed class ApiDocsTool
                     message = exception.Message,
                 },
                 WriteOptions);
+        }
+        catch (FrameworkNotAvailableException exception)
+        {
+            return SerializeFrameworkNotAvailable(exception);
         }
         catch (ArgumentException exception)
         {
@@ -132,11 +151,13 @@ public sealed class ApiDocsTool
         "Returns fully-qualified candidate names only, with provenance and explicit pagination; " +
         "call lookup_api for documentation bodies. This tool matches type names, not members: a " +
         "dotted pattern that matched nothing carries a note pointing at lookup_api for a Type.Member " +
-        "name, or at searching the simple name for a generic type's full name.")]
+        "name, or at searching the simple name for a generic type's full name. " +
+        FrameworkDescription)]
     public static async Task<string> SearchApi(
         string pattern,
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
+        string? framework = null,
         int? limit = null,
         string? cursor = null)
     {
@@ -144,6 +165,7 @@ public sealed class ApiDocsTool
         {
             var result = await service.SearchAsync(
                 pattern,
+                framework,
                 limit ?? 20,
                 cursor,
                 cancellationToken).ConfigureAwait(false);
@@ -169,6 +191,10 @@ public sealed class ApiDocsTool
                     message = exception.Message,
                 },
                 WriteOptions);
+        }
+        catch (FrameworkNotAvailableException exception)
+        {
+            return SerializeFrameworkNotAvailable(exception);
         }
         catch (ArgumentException exception)
         {
@@ -209,12 +235,13 @@ public sealed class ApiDocsTool
         "returned symbol to lookup_api for the full entry. Hits are ranked (summaries first, " +
         "whole-word matches above mid-word ones), and at most two per symbol are returned; when a " +
         "symbol had more, its last kept hit reports moreFromSymbol and lookup_api on that symbol " +
-        "reaches them. Regex is not supported here.")]
+        "reaches them. Regex is not supported here. " + FrameworkDescription)]
     public static async Task<string> SearchApiText(
         string query,
         ApiDocsQueryService service,
         CancellationToken cancellationToken,
         string? source = null,
+        string? framework = null,
         int? limit = null,
         string? cursor = null)
     {
@@ -223,6 +250,7 @@ public sealed class ApiDocsTool
             var result = await service.SearchTextAsync(
                 query,
                 source,
+                framework,
                 limit ?? 20,
                 cursor,
                 cancellationToken).ConfigureAwait(false);
@@ -248,6 +276,10 @@ public sealed class ApiDocsTool
                     message = exception.Message,
                 },
                 WriteOptions);
+        }
+        catch (FrameworkNotAvailableException exception)
+        {
+            return SerializeFrameworkNotAvailable(exception);
         }
         catch (ArgumentException exception)
         {
@@ -306,7 +338,7 @@ public sealed class ApiDocsTool
         "excluded, and the call that reaches them - so the exclusion is never a silent zero. " +
         "Every response carries per-kind totals for the WHOLE result set, so a widely-used type is " +
         "visibly widely used rather than silently paginated. " +
-        "Prose mentions are search_api_text's job, not this tool's.")]
+        "Prose mentions are search_api_text's job, not this tool's. " + FrameworkDescription)]
     public static async Task<string> FindApiReferences(
         string symbol,
         ApiDocsQueryService service,
@@ -314,6 +346,7 @@ public sealed class ApiDocsTool
         string? kind = null,
         bool? exact = null,
         string? source = null,
+        string? framework = null,
         int? limit = null,
         string? cursor = null)
     {
@@ -324,6 +357,7 @@ public sealed class ApiDocsTool
                 kind,
                 exact,
                 source,
+                framework,
                 limit ?? 20,
                 cursor,
                 cancellationToken).ConfigureAwait(false);
@@ -349,6 +383,10 @@ public sealed class ApiDocsTool
                     message = exception.Message,
                 },
                 WriteOptions);
+        }
+        catch (FrameworkNotAvailableException exception)
+        {
+            return SerializeFrameworkNotAvailable(exception);
         }
         catch (ArgumentException exception)
         {
@@ -377,6 +415,20 @@ public sealed class ApiDocsTool
             return SerializeSourceInvalid(exception);
         }
     }
+
+    // The frameworks are data the caller cannot guess and cannot discover from the failure
+    // otherwise, so the remedy travels as fields rather than as prose inside the message.
+    private static string SerializeFrameworkNotAvailable(FrameworkNotAvailableException exception) =>
+        JsonSerializer.Serialize(
+            new
+            {
+                error = "framework_not_available",
+                message = exception.Message,
+                requestedFramework = exception.RequestedFramework,
+                defaultFramework = exception.DefaultFramework,
+                availableFrameworks = exception.AvailableFrameworks,
+            },
+            WriteOptions);
 
     private static string SerializeSourceInvalid(Exception exception) =>
         JsonSerializer.Serialize(

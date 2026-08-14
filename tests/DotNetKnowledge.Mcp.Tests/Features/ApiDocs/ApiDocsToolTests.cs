@@ -42,7 +42,7 @@ public sealed class ApiDocsToolTests
     }
 
     [TestMethod]
-    public async Task LookupApiReturnsNotFoundAndNamesSearchApiWhenTypeDoesNotExist()
+    public async Task LookupApiReturnsNotFoundWhenTypeDoesNotExist()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
 
@@ -58,7 +58,8 @@ public sealed class ApiDocsToolTests
 
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual("not_found", document.RootElement.GetProperty("error").GetString());
-            StringAssert.Contains(document.RootElement.GetProperty("message").GetString(), "search_api");
+            StringAssert.Contains(
+                document.RootElement.GetProperty("message").GetString(), "synchronized coverage");
         }
         finally
         {
@@ -109,14 +110,17 @@ public sealed class ApiDocsToolTests
         {
             var service = await CreateWidgetServiceAsync(root);
             var whole = await service.LookupAsync(
-                "Widget", "dotnet-api-docs", limit: 100, cursor: null, CancellationToken.None);
+                "Widget", "dotnet-api-docs", framework: null,
+                limit: 100, cursor: null, CancellationToken.None);
 
             // Paging runs over one flat member sequence, with a placeholder slot for a type
             // carrying no members, so this is the offset one past the last page's last item.
             var end = whole.Matches.Sum(match => Math.Max(1, match.Members.Count));
-            var pin = (await RunGitAsync(Path.Combine(root, "origin"), "rev-parse", "HEAD")).Trim();
             var atTheEnd = ApiDocsQueryService.EncodeCursor(
-                "lookup", "Widget", end, [$"test/dotnet-api-docs@pinned@{pin}"]);
+                "lookup",
+                ApiDocsQueryService.RequestScope("Widget", "dotnet-api-docs", whole.EffectiveFramework),
+                end,
+                whole.SearchedSources.Select(source => source.RevisionKey).ToArray());
 
             var json = await ApiDocsTool.LookupApi(
                 "Widget",
@@ -247,6 +251,155 @@ public sealed class ApiDocsToolTests
             // declared in System itself cannot otherwise express it.
             Assert.AreEqual(0, items["System.Widget"].GetProperty("namespaceDepth").GetInt32());
             Assert.AreEqual(1, items["System.Widgets.Gadget"].GetProperty("namespaceDepth").GetInt32());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task EveryApiToolReportsTheFrameworkItActuallyQueried()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+
+            var responses = new[]
+            {
+                await ApiDocsTool.LookupApi(
+                    "LegacyWidget", service, CancellationToken.None,
+                    source: "roslyn-api-docs", framework: "net8.0"),
+                await ApiDocsTool.SearchApi(
+                    "LegacyWidget", service, CancellationToken.None, framework: "net8.0"),
+                await ApiDocsTool.SearchApiText(
+                    "widget", service, CancellationToken.None,
+                    source: "roslyn-api-docs", framework: "net8.0"),
+                await ApiDocsTool.FindApiReferences(
+                    "System.WidgetTraitAttribute", service, CancellationToken.None,
+                    source: "roslyn-api-docs", framework: "net8.0"),
+            };
+
+            foreach (var response in responses)
+            {
+                using var document = JsonDocument.Parse(response);
+                Assert.IsFalse(
+                    document.RootElement.TryGetProperty("error", out var error),
+                    $"an available framework is not an error, but {error} was returned.");
+                Assert.AreEqual(
+                    "net8.0", document.RootElement.GetProperty("effectiveFramework").GetString());
+                Assert.AreEqual(
+                    "net10.0", document.RootElement.GetProperty("defaultFramework").GetString());
+                CollectionAssert.AreEqual(
+                    PackageFrameworks,
+                    document.RootElement.GetProperty("availableFrameworks")
+                        .EnumerateArray()
+                        .Select(item => item.GetString())
+                        .ToArray());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task EveryApiToolReportsAnUnavailableFrameworkAsAStructuredFailure()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+
+            var responses = new[]
+            {
+                await ApiDocsTool.LookupApi(
+                    "Widget", service, CancellationToken.None,
+                    source: "roslyn-api-docs", framework: "net7.0"),
+                await ApiDocsTool.SearchApi(
+                    "Widget", service, CancellationToken.None, framework: "net7.0"),
+                await ApiDocsTool.SearchApiText(
+                    "widget", service, CancellationToken.None,
+                    source: "roslyn-api-docs", framework: "net7.0"),
+                await ApiDocsTool.FindApiReferences(
+                    "System.String", service, CancellationToken.None,
+                    source: "roslyn-api-docs", framework: "net7.0"),
+            };
+
+            foreach (var response in responses)
+            {
+                using var document = JsonDocument.Parse(response);
+                Assert.AreEqual(
+                    "framework_not_available", document.RootElement.GetProperty("error").GetString());
+                Assert.AreEqual(
+                    "net7.0", document.RootElement.GetProperty("requestedFramework").GetString());
+                Assert.AreEqual(
+                    "net10.0", document.RootElement.GetProperty("defaultFramework").GetString());
+                CollectionAssert.AreEqual(
+                    PackageFrameworks,
+                    document.RootElement.GetProperty("availableFrameworks")
+                        .EnumerateArray()
+                        .Select(item => item.GetString())
+                        .ToArray());
+            }
+
+            // A framework-neutral source is a caller mistake about the source, not about the
+            // framework, so it keeps the generic remedy rather than listing package frameworks.
+            var neutral = await ApiDocsTool.LookupApi(
+                "Widget", service, CancellationToken.None,
+                source: "dotnet-api-docs", framework: "net8.0");
+            using var neutralDocument = JsonDocument.Parse(neutral);
+            Assert.AreEqual(
+                "invalid_request", neutralDocument.RootElement.GetProperty("error").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task LookupApiReportsAbsenceAgainstStatedCoverageRatherThanCompleteness()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+
+            var json = await ApiDocsTool.LookupApi(
+                "System.MissingWidget", service, CancellationToken.None, source: "roslyn-api-docs");
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("not_found", document.RootElement.GetProperty("error").GetString());
+            var message = document.RootElement.GetProperty("message").GetString();
+            StringAssert.Contains(message, "stated synchronized coverage");
+            // search_api enumerates the same coverage this lookup already searched, so sending the
+            // caller there promises a completeness neither tool has.
+            Assert.DoesNotContain("search_api", message);
+            Assert.AreEqual(
+                "net10.0", document.RootElement.GetProperty("effectiveFramework").GetString());
+            Assert.AreEqual(
+                "net10.0", document.RootElement.GetProperty("defaultFramework").GetString());
+            CollectionAssert.AreEqual(
+                PackageFrameworks,
+                document.RootElement.GetProperty("availableFrameworks")
+                    .EnumerateArray()
+                    .Select(item => item.GetString())
+                    .ToArray());
+            var searchedSources = document.RootElement.GetProperty("searchedSources")
+                .EnumerateArray()
+                .Select(item => item.GetProperty("kind").GetString())
+                .ToArray();
+            CollectionAssert.Contains(searchedSources, "git");
+            CollectionAssert.Contains(searchedSources, "nuget");
         }
         finally
         {

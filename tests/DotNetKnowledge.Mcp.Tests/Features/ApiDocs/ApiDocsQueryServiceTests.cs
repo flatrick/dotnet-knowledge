@@ -21,6 +21,10 @@ public sealed class ApiDocsQueryServiceTests
         "System.String[]",
         "System.Collections.Generic.IEnumerable<System.String>",
     ];
+    private static readonly string[] ExpectedCanonicalPackageOrder =
+        ["Fixture.Alpha", "Fixture.Zeta"];
+    private static readonly string[] ExpectedReversedPackageOrder =
+        ["Fixture.Zeta", "Fixture.Alpha"];
 
     [TestMethod]
     public async Task SearchAsyncReturnsDeterministicPagesWithoutBodies()
@@ -59,9 +63,9 @@ public sealed class ApiDocsQueryServiceTests
                 first.Items.Select(item => item.Name).ToArray());
             Assert.IsTrue(first.IsPartial);
             Assert.IsNotNull(first.NextPageToken);
-            Assert.AreEqual("test/dotnet-api-docs", first.Items[0].Source.Repo);
+            Assert.AreEqual("test/dotnet-api-docs", ((GitProvenance)first.Items[0].Source).Repo);
             Assert.HasCount(1, first.SearchedSources);
-            Assert.AreEqual(pin, first.SearchedSources[0].Commit);
+            Assert.AreEqual(pin, ((GitProvenance)first.SearchedSources[0]).Commit);
 
             var malformedCursor = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
                     "{\"Version\":1,\"Pattern\":\"Widget\",\"Offset\":0}"))
@@ -129,9 +133,10 @@ public sealed class ApiDocsQueryServiceTests
             Assert.AreEqual("The widget name.", member.Parameters![0].Description);
             Assert.AreEqual("The new widget.", member.Returns);
             Assert.AreEqual("Names are case-sensitive.", member.Remarks);
-            Assert.AreEqual("test/dotnet-api-docs", match.Source.Repo);
-            Assert.AreEqual("pinned", match.Source.Ref);
-            Assert.AreEqual(pin, match.Source.Commit);
+            var source = (GitProvenance)match.Source;
+            Assert.AreEqual("test/dotnet-api-docs", source.Repo);
+            Assert.AreEqual("pinned", source.Ref);
+            Assert.AreEqual(pin, source.Commit);
 
             var missing = await service.LookupAsync(
                 "System.MissingWidget",
@@ -141,7 +146,7 @@ public sealed class ApiDocsQueryServiceTests
                 CancellationToken.None);
             Assert.IsEmpty(missing.Matches);
             Assert.HasCount(1, missing.SearchedSources);
-            Assert.AreEqual(pin, missing.SearchedSources[0].Commit);
+            Assert.AreEqual(pin, ((GitProvenance)missing.SearchedSources[0]).Commit);
 
             foreach (var maliciousSymbol in new[] { "../Widget", "..\\Widget", "System.*", "C:\\Widget" })
             {
@@ -282,7 +287,7 @@ public sealed class ApiDocsQueryServiceTests
             Assert.AreEqual("summary", bySummary[0].Element);
             Assert.AreEqual("Creates a widget.", bySummary[0].Text);
             Assert.IsFalse(bySummary[0].IsTruncated);
-            Assert.AreEqual("test/dotnet-api-docs", bySummary[0].Source.Repo);
+            Assert.AreEqual("test/dotnet-api-docs", ((GitProvenance)bySummary[0].Source).Repo);
 
             // Remarks are searched. Leaving them out would answer "no" to a question whose answer
             // is in the corpus.
@@ -748,10 +753,10 @@ public sealed class ApiDocsQueryServiceTests
             await RunGitAsync(repository, "config", "user.name", "Tests");
             await File.WriteAllTextAsync(
                 Path.Combine(namespaceDirectory, "Holder.xml"),
-                "<Type Name=\"Holder\" FullName=\"System.Holder\" />");
+                "<Type Name=\"Holder\" FullName=\"System.Holder\"><TypeSignature Language=\"DocId\" Value=\"T:System.Holder\" /></Type>");
             await File.WriteAllTextAsync(
                 Path.Combine(namespaceDirectory, "Holder`1.xml"),
-                "<Type Name=\"Holder`1\" FullName=\"System.Holder&lt;T&gt;\" />");
+                "<Type Name=\"Holder`1\" FullName=\"System.Holder&lt;T&gt;\"><TypeSignature Language=\"DocId\" Value=\"T:System.Holder`1\" /></Type>");
             await RunGitAsync(repository, "add", ".");
             await RunGitAsync(repository, "commit", "-m", "docs");
             var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
@@ -776,5 +781,447 @@ public sealed class ApiDocsQueryServiceTests
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
+    }
+
+    [TestMethod]
+    public async Task FrameworkSelectionIsCanonicalAndCoveredAcrossEveryOperation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+
+            var lookupDefault = await service.LookupAsync(
+                "StringDerived", "roslyn-api-docs", framework: null,
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            AssertFrameworkCoverage(
+                "net10.0", lookupDefault.EffectiveFramework, lookupDefault.DefaultFramework,
+                lookupDefault.AvailableFrameworks);
+            Assert.IsInstanceOfType<NuGetProvenance>(lookupDefault.Matches.Single().Source);
+
+            var lookupCase = await service.LookupAsync(
+                "LegacyWidget", "roslyn-api-docs", "NET8.0",
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            AssertFrameworkCoverage(
+                "net8.0", lookupCase.EffectiveFramework, lookupCase.DefaultFramework,
+                lookupCase.AvailableFrameworks);
+
+            var searchDefault = await service.SearchAsync(
+                "StringDerived", framework: null, limit: 20, cursor: null,
+                cancellationToken: CancellationToken.None);
+            AssertFrameworkCoverage(
+                "net10.0", searchDefault.EffectiveFramework, searchDefault.DefaultFramework,
+                searchDefault.AvailableFrameworks);
+            Assert.AreEqual("System.StringDerived", searchDefault.Items.Single().Name);
+
+            var searchCase = await service.SearchAsync(
+                "LegacyWidget", "NET8.0", limit: 20, cursor: null,
+                cancellationToken: CancellationToken.None);
+            AssertFrameworkCoverage(
+                "net8.0", searchCase.EffectiveFramework, searchCase.DefaultFramework,
+                searchCase.AvailableFrameworks);
+            Assert.AreEqual("System.LegacyWidget", searchCase.Items.Single().Name);
+
+            var textDefault = await service.SearchTextAsync(
+                "Needle", "roslyn-api-docs", framework: null,
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            AssertFrameworkCoverage(
+                "net10.0", textDefault.EffectiveFramework, textDefault.DefaultFramework,
+                textDefault.AvailableFrameworks);
+            Assert.IsNotEmpty(textDefault.Hits);
+
+            var textCase = await service.SearchTextAsync(
+                "missing", "roslyn-api-docs", "NET8.0",
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.IsEmpty(textCase.Hits);
+            AssertFrameworkCoverage(
+                "net8.0", textCase.EffectiveFramework, textCase.DefaultFramework,
+                textCase.AvailableFrameworks);
+
+            var referencesDefault = await service.FindReferencesAsync(
+                "System.String", kind: null, exact: null, source: "roslyn-api-docs", framework: null,
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            AssertFrameworkCoverage(
+                "net10.0", referencesDefault.EffectiveFramework, referencesDefault.DefaultFramework,
+                referencesDefault.AvailableFrameworks);
+            Assert.IsNotEmpty(referencesDefault.Hits);
+
+            var referencesCase = await service.FindReferencesAsync(
+                "System.String", kind: null, exact: null, source: "roslyn-api-docs", framework: "NET8.0",
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.IsNotEmpty(referencesCase.Hits);
+            Assert.IsTrue(referencesCase.Hits.All(hit => hit.Source is GitProvenance));
+            AssertFrameworkCoverage(
+                "net8.0", referencesCase.EffectiveFramework, referencesCase.DefaultFramework,
+                referencesCase.AvailableFrameworks);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task FrameworkValidationRejectsUnknownValuesAndFrameworkNeutralSourceFilters()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+            var unknownCalls = new Func<Task>[]
+            {
+                () => service.LookupAsync(
+                    "Widget", "roslyn-api-docs", "net7.0", 20, null, CancellationToken.None),
+                () => service.SearchAsync("Widget", "net7.0", 20, null, CancellationToken.None),
+                () => service.SearchTextAsync(
+                    "widget", "roslyn-api-docs", "net7.0", 20, null, CancellationToken.None),
+                () => service.FindReferencesAsync(
+                    "System.String", null, null, "roslyn-api-docs", "net7.0",
+                    20, null, CancellationToken.None),
+            };
+            foreach (var call in unknownCalls)
+            {
+                var error = await Assert.ThrowsExactlyAsync<FrameworkNotAvailableException>(call);
+                Assert.AreEqual("net7.0", error.RequestedFramework);
+                Assert.AreEqual("net10.0", error.DefaultFramework);
+                CollectionAssert.AreEqual(PackageFrameworks, error.AvailableFrameworks.ToArray());
+            }
+
+            var neutralCalls = new Func<Task>[]
+            {
+                () => service.LookupAsync(
+                    "Widget", "dotnet-api-docs", "net8.0", 20, null, CancellationToken.None),
+                () => service.SearchTextAsync(
+                    "widget", "dotnet-api-docs", "net8.0", 20, null, CancellationToken.None),
+                () => service.FindReferencesAsync(
+                    "System.String", null, null, "dotnet-api-docs", "net8.0",
+                    20, null, CancellationToken.None),
+            };
+            foreach (var call in neutralCalls)
+            {
+                var error = await Assert.ThrowsExactlyAsync<ArgumentException>(call);
+                Assert.AreEqual("framework", error.ParamName);
+            }
+
+            var allSourceSearch = await service.SearchAsync(
+                "Widget", "net8.0", limit: 100, cursor: null,
+                cancellationToken: CancellationToken.None);
+            Assert.IsTrue(allSourceSearch.Items.Any(item => item.Name == "System.Widget"
+                && item.Source is GitProvenance));
+            Assert.IsTrue(allSourceSearch.Items.Any(item => item.Name == "System.LegacyWidget"
+                && item.Source is NuGetProvenance));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task CompleteBackendReadsMergeWithGitPrecedenceAndStableDeduplication()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var reversedRoot = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+            var reversed = await CreateMergedServiceAsync(reversedRoot, reverseFixtureInsertion: true);
+
+            var lookup = await service.LookupAsync(
+                "Widget", "roslyn-api-docs", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.HasCount(1, lookup.Matches);
+            Assert.IsInstanceOfType<GitProvenance>(lookup.Matches.Single().Source);
+            Assert.HasCount(5, lookup.Matches.Single().Members);
+            var create = lookup.Matches.Single().Members.Single(member => member.Name == "Create");
+            Assert.IsInstanceOfType<GitProvenance>(create.Source);
+            var packageOnly = lookup.Matches.Single().Members.Single(
+                member => member.Name == "PackageOnly");
+            Assert.AreEqual("Fixture.Package", ((NuGetProvenance)packageOnly.Source).PackageId);
+
+            var packageOnlyMember = await service.LookupAsync(
+                "Widget.PackageOnly", "roslyn-api-docs", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.AreEqual(ApiLookupOutcome.Found, packageOnlyMember.Outcome);
+            Assert.HasCount(1, packageOnlyMember.Matches);
+            Assert.IsInstanceOfType<GitProvenance>(packageOnlyMember.Matches.Single().Source);
+            Assert.AreEqual(
+                "Fixture.Package",
+                ((NuGetProvenance)packageOnlyMember.Matches.Single().Members.Single().Source).PackageId);
+
+            var firstLookupPage = await service.LookupAsync(
+                "Widget", "roslyn-api-docs", framework: null,
+                limit: 4, cursor: null, cancellationToken: CancellationToken.None);
+            var secondLookupPage = await service.LookupAsync(
+                "Widget", "roslyn-api-docs", framework: null,
+                limit: 4, cursor: firstLookupPage.NextPageToken,
+                cancellationToken: CancellationToken.None);
+            Assert.IsTrue(firstLookupPage.IsPartial);
+            Assert.IsFalse(secondLookupPage.IsPartial);
+            Assert.AreEqual(
+                5,
+                firstLookupPage.Matches.Sum(match => match.Members.Count)
+                    + secondLookupPage.Matches.Sum(match => match.Members.Count));
+            var packageOnlyLookup = await service.LookupAsync(
+                "StringDerived", "roslyn-api-docs", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.IsInstanceOfType<NuGetProvenance>(packageOnlyLookup.Matches.Single().Source);
+
+            var search = await service.SearchAsync(
+                "Widget", framework: null, limit: 100, cursor: null,
+                cancellationToken: CancellationToken.None);
+            Assert.HasCount(1, search.Items.Where(item => item.Name == "System.Widget"));
+            Assert.IsInstanceOfType<GitProvenance>(
+                search.Items.Single(item => item.Name == "System.Widget").Source);
+            Assert.IsTrue(search.Items.Any(item => item.Name == "System.WidgetSealAttribute"
+                && item.Source is NuGetProvenance));
+            var reversedSearch = await reversed.SearchAsync(
+                "Widget", framework: null, limit: 100, cursor: null,
+                cancellationToken: CancellationToken.None);
+            CollectionAssert.AreEqual(
+                search.Items.Select(item => item.Name).ToArray(),
+                reversedSearch.Items.Select(item => item.Name).ToArray());
+
+            var text = await service.SearchTextAsync(
+                "Creates a widget", source: null, framework: null,
+                limit: 1, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.HasCount(1, text.Hits);
+            Assert.IsFalse(text.IsPartial);
+            Assert.IsInstanceOfType<GitProvenance>(text.Hits.Single().Source);
+
+            var references = await service.FindReferencesAsync(
+                "System.String", kind: null, exact: null, source: null, framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.HasCount(16, references.Hits);
+            Assert.AreEqual(6, references.Totals.Parameter);
+            Assert.AreEqual(3, references.Totals.Return);
+            Assert.AreEqual(2, references.Totals.Base);
+            Assert.AreEqual(2, references.Totals.Interface);
+            Assert.AreEqual(1, references.Totals.Constraint);
+            Assert.AreEqual(2, references.Totals.Attribute);
+            Assert.HasCount(1, references.Hits.Where(hit => hit.Symbol == "System.Widget.Create"
+                && hit.Kind == ApiReferenceKind.Parameter));
+            Assert.IsInstanceOfType<GitProvenance>(references.Hits.Single(hit =>
+                hit.Symbol == "System.Widget.Create" && hit.Kind == ApiReferenceKind.Parameter).Source);
+            Assert.IsTrue(references.Hits.Any(hit => hit.Symbol == "System.StringDerived"
+                && hit.Source is NuGetProvenance));
+
+            var filtered = await service.FindReferencesAsync(
+                "System.String", ApiReferenceKind.Base, exact: null, source: null, framework: null,
+                limit: 1, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.HasCount(1, filtered.Hits);
+            Assert.AreEqual(references.Totals, filtered.Totals);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+            if (Directory.Exists(reversedRoot))
+                DeleteDirectory(reversedRoot);
+        }
+    }
+
+    [TestMethod]
+    public async Task MultiPackageOrderIsCanonicalForWinnersCoverageAndCursors()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var reversed = await CreateMultiPackageServiceAsync(
+                root, reverseDefinitions: true, reverseStates: true);
+            var reversedOrders = ReadMultiPackageOrders(root);
+            CollectionAssert.AreEqual(ExpectedReversedPackageOrder, reversedOrders.Definitions);
+            CollectionAssert.AreEqual(ExpectedReversedPackageOrder, reversedOrders.States);
+            var lookup = await reversed.LookupAsync(
+                "StringDerived", "roslyn-api-docs", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.AreEqual("Fixture.Alpha", ((NuGetProvenance)lookup.Matches.Single().Source).PackageId);
+            Assert.IsTrue(lookup.Matches.Single().Members.All(member =>
+                ((NuGetProvenance)member.Source).PackageId == "Fixture.Alpha"));
+
+            var text = await reversed.SearchTextAsync(
+                "Needle", "roslyn-api-docs", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.IsTrue(text.Hits.Where(hit => hit.Source is NuGetProvenance).All(hit =>
+                ((NuGetProvenance)hit.Source).PackageId == "Fixture.Alpha"));
+            CollectionAssert.AreEqual(
+                ExpectedCanonicalPackageOrder,
+                text.SearchedSources.OfType<NuGetProvenance>()
+                    .Select(source => source.PackageId).ToArray());
+
+            var first = await reversed.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: null,
+                cancellationToken: CancellationToken.None);
+            Assert.IsNotNull(first.NextPageToken);
+            var reversedCoverage = first.SearchedSources.Select(source => source.RevisionKey).ToArray();
+
+            var forward = await ReopenMultiPackageServiceAsync(
+                root, reverseDefinitions: false, reverseStates: false);
+            var forwardOrders = ReadMultiPackageOrders(root);
+            CollectionAssert.AreEqual(ExpectedCanonicalPackageOrder, forwardOrders.Definitions);
+            CollectionAssert.AreEqual(ExpectedCanonicalPackageOrder, forwardOrders.States);
+            var forwardFirst = await forward.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: null,
+                cancellationToken: CancellationToken.None);
+            CollectionAssert.AreEqual(
+                reversedCoverage,
+                forwardFirst.SearchedSources.Select(source => source.RevisionKey).ToArray());
+            Assert.AreEqual(first.Items.Single().Name, forwardFirst.Items.Single().Name);
+            Assert.AreEqual(
+                first.Items.Single().Source.RevisionKey,
+                forwardFirst.Items.Single().Source.RevisionKey);
+            var forwardLookup = await forward.LookupAsync(
+                "StringDerived", "roslyn-api-docs", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.AreEqual(
+                lookup.Matches.Single().Source.RevisionKey,
+                forwardLookup.Matches.Single().Source.RevisionKey);
+            CollectionAssert.AreEqual(
+                lookup.Matches.Single().Members.Select(member => member.Source.RevisionKey).ToArray(),
+                forwardLookup.Matches.Single().Members.Select(member => member.Source.RevisionKey).ToArray());
+
+            var continued = await forward.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: first.NextPageToken,
+                cancellationToken: CancellationToken.None);
+            Assert.IsNotEmpty(continued.Items);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task MultiPackageFrameworkDisagreementFailsClosed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMultiPackageServiceAsync(root, disagreeOnFrameworks: true);
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => service.SearchAsync(
+                "Widget", framework: null, limit: 20, cursor: null,
+                cancellationToken: CancellationToken.None));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => service.SearchAsync(
+                "Widget", framework: "net10.0", limit: 20, cursor: null,
+                cancellationToken: CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task CursorsBindCanonicalFrameworkAndEveryParticipatingRevision()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+            var initial = await service.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: null,
+                cancellationToken: CancellationToken.None);
+            Assert.IsNotNull(initial.NextPageToken);
+
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.SearchAsync(
+                "Widget", "net8.0", limit: 1, cursor: initial.NextPageToken,
+                cancellationToken: CancellationToken.None));
+
+            var changedHash = Convert.ToBase64String(Enumerable.Repeat((byte)0x61, 64).ToArray());
+            await UpdateMergedPackageRevisionAsync(root, "1.2.3", changedHash);
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: initial.NextPageToken,
+                cancellationToken: CancellationToken.None));
+
+            var afterHash = await service.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: null,
+                cancellationToken: CancellationToken.None);
+            await UpdateMergedPackageRevisionAsync(root, "1.2.4", changedHash);
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: afterHash.NextPageToken,
+                cancellationToken: CancellationToken.None));
+
+            var afterVersion = await service.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: null,
+                cancellationToken: CancellationToken.None);
+            await UpdateMergedGitRevisionAsync(root);
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.SearchAsync(
+                "Widget", framework: null, limit: 1, cursor: afterVersion.NextPageToken,
+                cancellationToken: CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task EmptyResultsRetainAllGitAndNuGetCoverage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateMergedServiceAsync(root);
+            var lookup = await service.LookupAsync(
+                "MissingType", source: null, framework: null,
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            var search = await service.SearchAsync(
+                "MissingType", framework: null, limit: 20, cursor: null,
+                cancellationToken: CancellationToken.None);
+            var text = await service.SearchTextAsync(
+                "definitely absent prose", source: null, framework: null,
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+            var references = await service.FindReferencesAsync(
+                "System.DefinitelyMissing", kind: null, exact: null, source: null, framework: null,
+                limit: 20, cursor: null, cancellationToken: CancellationToken.None);
+
+            AssertHonestMergedCoverage(lookup.SearchedSources, lookup.EffectiveFramework);
+            AssertHonestMergedCoverage(search.SearchedSources, search.EffectiveFramework);
+            AssertHonestMergedCoverage(text.SearchedSources, text.EffectiveFramework);
+            AssertHonestMergedCoverage(references.SearchedSources, references.EffectiveFramework);
+            Assert.AreEqual(ApiLookupOutcome.TypeNotFound, lookup.Outcome);
+            Assert.IsEmpty(search.Items);
+            Assert.IsEmpty(text.Hits);
+            Assert.IsEmpty(references.Hits);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    private static void AssertFrameworkCoverage(
+        string expectedEffective,
+        string? effective,
+        string? defaultFramework,
+        IReadOnlyList<string>? availableFrameworks)
+    {
+        Assert.AreEqual(expectedEffective, effective);
+        Assert.AreEqual("net10.0", defaultFramework);
+        CollectionAssert.AreEqual(PackageFrameworks, availableFrameworks!.ToArray());
+    }
+
+    private static void AssertHonestMergedCoverage(
+        IReadOnlyList<ApiProvenance> searchedSources,
+        string? effectiveFramework)
+    {
+        Assert.HasCount(3, searchedSources);
+        Assert.HasCount(2, searchedSources.OfType<GitProvenance>());
+        Assert.HasCount(1, searchedSources.OfType<NuGetProvenance>());
+        Assert.AreEqual("net10.0", effectiveFramework);
     }
 }

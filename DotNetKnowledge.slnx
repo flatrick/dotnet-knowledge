@@ -2,6 +2,7 @@
   <Project Path="src/DotNetKnowledge.Mcp/DotNetKnowledge.Mcp.csproj" />
   <Project Path="src/DotNetKnowledge.Markdown/DotNetKnowledge.Markdown.csproj" />
   <Project Path="tests/DotNetKnowledge.Mcp.Tests/DotNetKnowledge.Mcp.Tests.csproj" />
+  <Project Path="tests/DotNetKnowledge.Mcp.Tests.ApiFixture/DotNetKnowledge.Mcp.Tests.ApiFixture.csproj" />
   <Project Path="tests/DotNetKnowledge.Mcp.Tests.GitRunnerHost/DotNetKnowledge.Mcp.Tests.GitRunnerHost.csproj" />
   <Project Path="tests/DotNetKnowledge.Markdown.Tests/DotNetKnowledge.Markdown.Tests.csproj" />
 </Solution>

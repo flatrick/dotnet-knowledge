@@ -1,12 +1,39 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 
-public sealed record SourceProvenance(
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(GitProvenance), "git")]
+[JsonDerivedType(typeof(NuGetProvenance), "nuget")]
+public abstract record ApiProvenance
+{
+    [JsonIgnore]
+    public abstract string RevisionKey { get; }
+}
+
+public sealed record GitProvenance(
     string Repo,
     string Ref,
     string Commit,
-    DateTimeOffset FetchedAt);
+    DateTimeOffset FetchedAt) : ApiProvenance
+{
+    [JsonIgnore]
+    public override string RevisionKey => JsonSerializer.Serialize(new { kind = "git", Repo, Ref, Commit });
+}
+
+public sealed record NuGetProvenance(
+    string PackageId,
+    string Version,
+    string Sha512,
+    string Feed,
+    string Framework,
+    DateTimeOffset FetchedAt) : ApiProvenance
+{
+    [JsonIgnore]
+    public override string RevisionKey => JsonSerializer.Serialize(
+        new { kind = "nuget", PackageId, Version, Sha512, Feed, Framework });
+}
 
 public sealed record ApiParameterDocumentation(
     string Name,
@@ -18,7 +45,8 @@ public sealed record ApiMemberDocumentation(
     string? Summary,
     IReadOnlyList<ApiParameterDocumentation>? Parameters,
     string? Returns,
-    string? Remarks);
+    string? Remarks,
+    ApiProvenance Source);
 
 /// <summary>
 /// Which reading of the requested symbol produced a match, and therefore how much of each member
@@ -34,7 +62,7 @@ public static class ApiLookupDetail
 public sealed record ApiTypeDocumentation(
     string FullName,
     IReadOnlyList<ApiMemberDocumentation> Members,
-    SourceProvenance Source,
+    ApiProvenance Source,
     string Detail);
 
 /// <summary>
@@ -50,11 +78,14 @@ public enum ApiLookupOutcome
 
 public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
-    IReadOnlyList<SourceProvenance> SearchedSources,
+    IReadOnlyList<ApiProvenance> SearchedSources,
     [property: JsonIgnore] ApiLookupOutcome Outcome,
     IReadOnlyList<string> ResolvedTypeNames,
     bool IsPartial,
-    string? NextPageToken);
+    string? NextPageToken,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
 
 /// <param name="NamespaceDepth">
 /// How many namespace segments sit between the namespace the pattern named and the type — 0 for a
@@ -66,7 +97,7 @@ public sealed record ApiSearchItem(
     string Name,
     string MatchedOn,
     int? NamespaceDepth,
-    SourceProvenance Source);
+    ApiProvenance Source);
 
 /// <summary>
 /// Which part of a fully-qualified name a search pattern matched. A caller that asked for a type
@@ -92,8 +123,11 @@ public sealed record ApiSearchResult(
     IReadOnlyList<ApiSearchItem> Items,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources,
-    ApiSearchNote? Note = null);
+    IReadOnlyList<ApiProvenance> SearchedSources,
+    ApiSearchNote? Note,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
 
 /// <param name="MoreFromSymbol">
 /// How many further matches this symbol had that the per-symbol cap dropped from the result set, set
@@ -106,14 +140,17 @@ public sealed record ApiTextHit(
     string Element,
     string Text,
     bool IsTruncated,
-    SourceProvenance Source,
+    ApiProvenance Source,
     int? MoreFromSymbol = null);
 
 public sealed record ApiTextSearchResult(
     IReadOnlyList<ApiTextHit> Hits,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<ApiProvenance> SearchedSources,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
 
 /// <summary>
 /// How a declaration uses the type asked about. These are different questions wearing one word:
@@ -152,7 +189,7 @@ public sealed record ApiReferenceHit(
     string? AttributeType,
     bool IsExact,
     string? Signature,
-    SourceProvenance Source);
+    ApiProvenance Source);
 
 /// <summary>
 /// Per-kind counts over the whole result set, not the page. A ubiquitous type has tens of thousands
@@ -188,7 +225,33 @@ public sealed record ApiReferenceResult(
     ApiReferenceNote? Note,
     bool IsPartial,
     string? NextPageToken,
-    IReadOnlyList<SourceProvenance> SearchedSources);
+    IReadOnlyList<ApiProvenance> SearchedSources,
+    string? EffectiveFramework,
+    string? DefaultFramework,
+    IReadOnlyList<string>? AvailableFrameworks);
+
+public sealed class FrameworkNotAvailableException : ArgumentException
+{
+    public FrameworkNotAvailableException(
+        string requestedFramework,
+        string defaultFramework,
+        IReadOnlyList<string> availableFrameworks)
+        : base(
+            $"Framework '{requestedFramework}' is not available. "
+                + $"Use '{defaultFramework}' or one of: {string.Join(", ", availableFrameworks)}.",
+            "framework")
+    {
+        RequestedFramework = requestedFramework;
+        DefaultFramework = defaultFramework;
+        AvailableFrameworks = availableFrameworks;
+    }
+
+    public string RequestedFramework { get; }
+
+    public string DefaultFramework { get; }
+
+    public IReadOnlyList<string> AvailableFrameworks { get; }
+}
 
 public sealed class SourceNotSyncedException : InvalidOperationException
 {

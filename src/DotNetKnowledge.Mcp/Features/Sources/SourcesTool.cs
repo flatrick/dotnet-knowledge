@@ -97,6 +97,7 @@ public sealed class SourcesTool
             throw new TimeoutException($"{name}: {exception.Message}", exception);
         }
 
+        var supplements = MapSupplements(definition.ApiPackages, state?.ApiPackages, state?.Ref);
         return new SourceStatus(
             Name: name,
             Repository: definition.Repository,
@@ -104,11 +105,14 @@ public sealed class SourcesTool
             Url: definition.Url,
             Pin: definition.Pin,
             HeadBranch: definition.Head,
-            Synced: state is not null,
+            Synced: state is not null && supplements.All(supplement => supplement.Synced),
             CurrentRef: state?.Ref,
             CurrentCommit: state?.Commit,
             FetchedAt: state?.FetchedAt,
-            CacheDir: cache.DirectoryFor(name));
+            CacheDir: state is null
+                ? cache.DirectoryFor(name)
+                : cache.RepositoryDirectoryFor(name, state.Generation),
+            Supplements: supplements);
     }
 
     [McpServerTool(Name = "sync_source", Destructive = true, Idempotent = true)]
@@ -123,13 +127,11 @@ public sealed class SourcesTool
         CancellationToken cancellationToken,
         string? @ref = null)
     {
-        // Five known stages, so the client sees liveness with a real denominator rather than a
-        // spinner. The SDK supplies a no-op reporter when the client sent no progress token.
-        var stages = new[] { "clone", "sparse-checkout", "fetch", "checkout", "validate" };
-        var stageProgress = new StageReporter(name, stages.Length, progress);
-
         try
         {
+            // The SDK supplies a no-op reporter when the client sent no progress token. Package
+            // supplements add their three stages to the five-stage Git synchronization.
+            var stageProgress = new StageReporter(name, synchronizer.GetStageCount(name), progress);
             var result = await synchronizer
                 .SyncAsync(name, @ref, cancellationToken, stageProgress)
                 .ConfigureAwait(false);
@@ -145,6 +147,7 @@ public sealed class SourcesTool
                         commit = result.Commit,
                         fetchedAt = result.FetchedAt,
                     },
+                    supplements = MapSupplements(result.ConfiguredApiPackages, result.ApiPackages, result.Ref),
                 },
                 WriteOptions);
         }
@@ -192,7 +195,15 @@ public sealed class SourcesTool
                 },
                 WriteOptions);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        // HttpRequestException covers the feed, which is the one dependency that cannot be checked
+        // in advance. InvalidDataException is not an IOException, and it is what every check in the
+        // package pipeline raises — hash mismatch included — so without it the security-relevant
+        // failure would reach the caller as an unhandled crash with no stated cause.
+        catch (Exception exception) when (exception
+            is IOException
+            or UnauthorizedAccessException
+            or HttpRequestException
+            or InvalidDataException)
         {
             return JsonSerializer.Serialize(
                 new
@@ -225,6 +236,115 @@ public sealed class SourcesTool
             });
     }
 
+    private static SupplementStatus[] MapSupplements(
+        IReadOnlyList<ApiPackageDefinition>? definitions,
+        IReadOnlyList<ApiPackageSyncState>? synchronizedPackages,
+        string? synchronizedRef)
+    {
+        var states = synchronizedPackages ?? [];
+        return (definitions ?? [])
+            .Select(definition =>
+            {
+                var state = FindValidatedState(definition, states, synchronizedRef);
+                return new SupplementStatus(
+                    PackageId: definition.PackageId,
+                    AssemblyName: state?.AssemblyName ?? definition.AssemblyName,
+                    Feed: state?.Feed ?? definition.Feed,
+                    Version: state?.Version ?? definition.Version,
+                    Sha512: state?.Sha512 ?? definition.Sha512,
+                    Synced: state is not null,
+                    FetchedAt: state?.FetchedAt,
+                    DefaultFramework: state?.DefaultFramework ?? definition.DefaultFramework,
+                    AvailableFrameworks: state?.AvailableFrameworks ?? []);
+            })
+            .ToArray();
+    }
+
+    private static ApiPackageSyncState? FindValidatedState(
+        ApiPackageDefinition definition,
+        IReadOnlyList<ApiPackageSyncState> states,
+        string? synchronizedRef)
+    {
+        var matches = states
+            .Where(state => state is not null && string.Equals(
+                state.PackageId,
+                definition.PackageId,
+                StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToArray();
+        if (matches.Length != 1)
+            return null;
+
+        var state = matches[0];
+        if (!IsStructurallyComplete(state)
+            || !string.Equals(state.AssemblyName, definition.AssemblyName, StringComparison.Ordinal)
+            || !string.Equals(state.Feed, definition.Feed, StringComparison.Ordinal)
+            || !string.Equals(state.DefaultFramework, definition.DefaultFramework, StringComparison.OrdinalIgnoreCase)
+            || !state.AvailableFrameworks.Contains(definition.DefaultFramework, StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (string.Equals(synchronizedRef, "pinned", StringComparison.Ordinal)
+            && (!string.Equals(state.Version, definition.Version, StringComparison.Ordinal)
+                || !string.Equals(state.Sha512, definition.Sha512, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return state;
+    }
+
+    private static bool IsStructurallyComplete(ApiPackageSyncState state) =>
+        NuGetPackageIdentity.IsValidPackageId(state.PackageId)
+        && !string.IsNullOrWhiteSpace(state.AssemblyName)
+        && !state.AssemblyName.Contains('/')
+        && !state.AssemblyName.Contains('\\')
+        && !state.AssemblyName.Contains(':')
+        && NuGetPackageIdentity.IsValidVersion(state.Version)
+        && IsSha512(state.Sha512)
+        && Uri.TryCreate(state.Feed, UriKind.Absolute, out var feed)
+        && string.Equals(feed.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+        && state.FetchedAt != default
+        && PortableFrameworkName.IsSafe(state.DefaultFramework)
+        && state.AvailableFrameworks is { Count: > 0 }
+        && state.AvailableFrameworks.All(PortableFrameworkName.IsSafe)
+        && IsRelativeCorpusPath(state.CorpusDirectory);
+
+    private static bool IsSha512(string? sha512)
+    {
+        if (string.IsNullOrWhiteSpace(sha512))
+            return false;
+
+        try
+        {
+            return Convert.FromBase64String(sha512).Length == 64;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsRelativeCorpusPath(string? path) =>
+        !string.IsNullOrWhiteSpace(path)
+        && !Path.IsPathRooted(path)
+        && !path.Contains(':')
+        && path.Split(['/', '\\'], StringSplitOptions.None).All(segment =>
+            !string.IsNullOrWhiteSpace(segment)
+            && segment is not "." and not "..");
+
+    private sealed record SupplementStatus(
+        string PackageId,
+        string AssemblyName,
+        string Feed,
+        string Version,
+        string Sha512,
+        bool Synced,
+        DateTimeOffset? FetchedAt,
+        string DefaultFramework,
+        IReadOnlyList<string> AvailableFrameworks);
+
     private sealed record SourceStatus(
         string Name,
         string Repository,
@@ -236,7 +356,8 @@ public sealed class SourcesTool
         string? CurrentRef,
         string? CurrentCommit,
         DateTimeOffset? FetchedAt,
-        string CacheDir);
+        string CacheDir,
+        IReadOnlyList<SupplementStatus> Supplements);
 
     private sealed record ListSourcesResult(
         string CacheRoot,

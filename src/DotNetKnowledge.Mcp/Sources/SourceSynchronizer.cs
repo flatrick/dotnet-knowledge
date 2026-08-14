@@ -1,9 +1,14 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace DotNetKnowledge.Mcp.Sources;
 
 public sealed class SourceSynchronizer
 {
+    private const string ClaimedGenerationSuffix = ".resume";
+
+    private static readonly TimeSpan RepositoryReadinessPollInterval = TimeSpan.FromMilliseconds(50);
+
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> SourceLocks =
         new(StringComparer.Ordinal);
 
@@ -28,18 +33,37 @@ public sealed class SourceSynchronizer
 
     private readonly SourceCatalog _catalog;
     private readonly SourceCache _cache;
+    private readonly IReadOnlyList<ISourceGenerationContributor> _contributors;
     private readonly GitTimeouts _timeouts;
 
     public SourceSynchronizer(SourceCatalog catalog, SourceCache cache)
-        : this(catalog, cache, GitTimeouts.Default)
+        : this(catalog, cache, [], GitTimeouts.Default)
+    {
+    }
+
+    public SourceSynchronizer(
+        SourceCatalog catalog,
+        SourceCache cache,
+        IEnumerable<ISourceGenerationContributor> contributors)
+        : this(catalog, cache, contributors, GitTimeouts.Default)
     {
     }
 
     /// <summary>Exists so tests can pin a tier to a ceiling that proves which one a command uses.</summary>
     internal SourceSynchronizer(SourceCatalog catalog, SourceCache cache, GitTimeouts timeouts)
+        : this(catalog, cache, [], timeouts)
+    {
+    }
+
+    internal SourceSynchronizer(
+        SourceCatalog catalog,
+        SourceCache cache,
+        IEnumerable<ISourceGenerationContributor> contributors,
+        GitTimeouts timeouts)
     {
         _catalog = catalog;
         _cache = cache;
+        _contributors = contributors.ToList();
         _timeouts = timeouts;
     }
 
@@ -59,7 +83,20 @@ public sealed class SourceSynchronizer
         return await SyncCoreAsync(name, definition, requestedRef, progress, cancellationToken).ConfigureAwait(false);
     }
 
+    public int GetStageCount(string name)
+    {
+        if (!_catalog.TryGet(name, out var definition))
+            throw new ArgumentException($"Unknown source '{name}'. Call list_sources to see valid names.", nameof(name));
+
+        return ApiPackageGenerationContributor.AppliesToSource(definition) ? 8 : 5;
+    }
+
     public async Task<SourceSyncState?> TryGetCurrentStateAsync(
+        string name,
+        CancellationToken cancellationToken) =>
+        (await TryGetCurrentSnapshotAsync(name, cancellationToken).ConfigureAwait(false))?.State;
+
+    public async Task<SourceSnapshot?> TryGetCurrentSnapshotAsync(
         string name,
         CancellationToken cancellationToken)
     {
@@ -67,12 +104,12 @@ public sealed class SourceSynchronizer
             throw new ArgumentException($"Unknown source '{name}'. Call list_sources to see valid names.", nameof(name));
 
         await using var sourceLock = await AcquireLockAsync(name, cancellationToken).ConfigureAwait(false);
-        return await TryGetCurrentStateCoreAsync(name, definition, cancellationToken).ConfigureAwait(false);
+        return await TryGetCurrentSnapshotCoreAsync(name, definition, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<T> ReadCurrentSourceAsync<T>(
         string name,
-        Func<SourceDefinition, SourceSyncState, string, T> reader,
+        Func<SourceSnapshot, T> reader,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -80,19 +117,19 @@ public sealed class SourceSynchronizer
             throw new ArgumentException($"Unknown source '{name}'. Call list_sources to see valid names.", nameof(name));
 
         await using var sourceLock = await AcquireLockAsync(name, cancellationToken).ConfigureAwait(false);
-        var state = await TryGetCurrentStateCoreAsync(name, definition, cancellationToken).ConfigureAwait(false)
+        var snapshot = await TryGetCurrentSnapshotCoreAsync(name, definition, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Source '{name}' is not in a valid synchronized state.");
-        return reader(definition, state, _cache.DirectoryFor(name));
+        return reader(snapshot);
     }
 
-    private async Task<SourceSyncState?> TryGetCurrentStateCoreAsync(
+    private async Task<SourceSnapshot?> TryGetCurrentSnapshotCoreAsync(
         string name,
         SourceDefinition definition,
         CancellationToken cancellationToken)
     {
         var state = _cache.TryReadState(name);
         if (state is null
-            || state.SchemaVersion != 1
+            || state.SchemaVersion != SourceSyncState.CurrentSchemaVersion
             || !string.Equals(state.Name, name, StringComparison.Ordinal)
             || !string.Equals(state.Repository, definition.Repository, StringComparison.Ordinal)
             || !string.Equals(state.Url, definition.Url, StringComparison.Ordinal)
@@ -102,9 +139,12 @@ public sealed class SourceSynchronizer
             return null;
         }
 
-        var directory = _cache.DirectoryFor(name);
-        if (!Directory.Exists(Path.Combine(directory, ".git"))
-            && !File.Exists(Path.Combine(directory, ".git")))
+        var generationDirectory = _cache.GenerationDirectoryFor(name, state.Generation);
+        var repositoryDirectory = _cache.RepositoryDirectoryFor(name, state.Generation);
+        var supplementsDirectory = _cache.SupplementsDirectoryFor(name, state.Generation);
+        if ((!Directory.Exists(Path.Combine(repositoryDirectory, ".git"))
+             && !File.Exists(Path.Combine(repositoryDirectory, ".git")))
+            || !Directory.Exists(supplementsDirectory))
         {
             return null;
         }
@@ -112,31 +152,36 @@ public sealed class SourceSynchronizer
         try
         {
             var actualCommit = (await GitCommandRunner.RunAsync(
-                directory,
+                repositoryDirectory,
                 ["rev-parse", "HEAD"],
                 GitCommandKind.Quick,
                 cancellationToken,
                 _timeouts).ConfigureAwait(false)).Trim();
             var origin = (await GitCommandRunner.RunAsync(
-                directory,
+                repositoryDirectory,
                 ["config", "--get", "remote.origin.url"],
                 GitCommandKind.Quick,
                 cancellationToken,
                 _timeouts).ConfigureAwait(false)).Trim();
             var status = await GitCommandRunner.RunAsync(
-                directory,
-                ["status", "--porcelain", "--untracked-files=all"],
+                repositoryDirectory,
+                ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
                 GitCommandKind.Walk,
                 cancellationToken,
                 _timeouts).ConfigureAwait(false);
             var sparseRootsExist = definition.Sparse.All(path =>
-                Directory.Exists(Path.Combine(directory, path))
-                || File.Exists(Path.Combine(directory, path)));
+                Directory.Exists(Path.Combine(repositoryDirectory, path))
+                || File.Exists(Path.Combine(repositoryDirectory, path)));
             return string.Equals(actualCommit, state.Commit, StringComparison.OrdinalIgnoreCase)
                 && OriginsMatch(origin, definition.Url)
                 && string.IsNullOrWhiteSpace(status)
                 && sparseRootsExist
-                    ? state
+                    ? new SourceSnapshot(
+                        definition,
+                        state,
+                        generationDirectory,
+                        repositoryDirectory,
+                        supplementsDirectory)
                     : null;
         }
         catch (InvalidOperationException)
@@ -154,27 +199,45 @@ public sealed class SourceSynchronizer
     {
         var refLabel = requestedRef is null ? "pinned" : $"head:{definition.Head}";
         var target = requestedRef is null ? definition.Pin : definition.Head;
-        var destination = _cache.DirectoryFor(name);
         Directory.CreateDirectory(_cache.Root);
 
-        // A staging directory left behind by a failed attempt already holds the object store, so
+        // An unpublished generation left behind by a failed attempt already holds the object store, so
         // resuming costs a fetch and a checkout instead of another full clone — 773 MB and about a
         // minute for dotnet-api-docs. Validation runs again either way, so a resumed tree is held
-        // to exactly the same standard as a freshly cloned one.
-        var resumed = await TryClaimResumableStagingAsync(name, definition, cancellationToken)
+        // to exactly the same standard as a freshly cloned one. The atomic rename that claims it is
+        // also the repository-readiness predicate on Windows: no cleanup move races a terminated
+        // Git process, and no Git command enters the tree until the rename succeeds.
+        var currentGeneration = _cache.TryReadState(name)?.Generation;
+        var claimed = await TryClaimResumableGenerationAsync(
+                name,
+                definition,
+                currentGeneration,
+                cancellationToken)
             .ConfigureAwait(false);
-        var staging = resumed ?? Path.Combine(_cache.Root, $".{name}-{Guid.NewGuid():N}.tmp");
-        var repositoryDirectory = destination;
+        var resumed = claimed is not null;
+        var generation = claimed?.Generation ?? Guid.NewGuid().ToString("N");
+        var generationsDirectory = _cache.GenerationsDirectoryFor(name);
+        var normalGenerationStaging = Path.Combine(generationsDirectory, $".{generation}.tmp");
+        var generationStaging = claimed?.Directory ?? normalGenerationStaging;
+        var generationDirectory = _cache.GenerationDirectoryFor(name, generation);
+        var stagedRepositoryDirectory = Path.Combine(generationStaging, "repository");
+        var stagedSupplementsDirectory = Path.Combine(generationStaging, "supplements");
+        var repositoryValidated = false;
+        var published = false;
         Exception? primaryException = null;
 
         try
         {
-            if (resumed is null)
+            Directory.CreateDirectory(generationStaging);
+            if (resumed && Directory.Exists(stagedSupplementsDirectory))
+                DeleteDirectory(stagedSupplementsDirectory);
+            Directory.CreateDirectory(stagedSupplementsDirectory);
+            if (!resumed)
             {
                 progress?.Report("clone");
                 await GitCommandRunner.RunAsync(
                     null,
-                    ["clone", "--filter=blob:none", "--no-checkout", "--sparse", "--quiet", "--", definition.Url, staging],
+                    ["clone", "--filter=blob:none", "--no-checkout", "--sparse", "--quiet", "--", definition.Url, stagedRepositoryDirectory],
                     GitCommandKind.Bulk,
                     cancellationToken,
                     _timeouts).ConfigureAwait(false);
@@ -184,35 +247,75 @@ public sealed class SourceSynchronizer
                 progress?.Report("resume");
             }
 
-            repositoryDirectory = staging;
-            await ConfigureLargeCheckoutAsync(repositoryDirectory, cancellationToken).ConfigureAwait(false);
+            await ConfigureLargeCheckoutAsync(stagedRepositoryDirectory, cancellationToken).ConfigureAwait(false);
 
             var commit = await SynchronizeRepositoryAsync(
-                repositoryDirectory,
+                stagedRepositoryDirectory,
                 definition,
                 target,
                 progress,
                 _timeouts,
                 cancellationToken).ConfigureAwait(false);
+
+            // Keep a claimed tree logically discarded by its .resume name until the entire Git
+            // synchronization has passed validation. If any earlier command or cancellation
+            // fails, even a failed cleanup cannot make the suspect tree eligible next time.
+            if (resumed)
+            {
+                await MoveDirectoryWhenReadyAsync(
+                        generationStaging,
+                        normalGenerationStaging,
+                        _timeouts.Quick,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                generationStaging = normalGenerationStaging;
+                stagedRepositoryDirectory = Path.Combine(generationStaging, "repository");
+                stagedSupplementsDirectory = Path.Combine(generationStaging, "supplements");
+            }
+
+            repositoryValidated = true;
             var fetchedAt = DateTimeOffset.UtcNow;
 
-            var statePath = _cache.StatePathFor(name);
-            if (File.Exists(statePath))
-                File.Delete(statePath);
-            if (Directory.Exists(destination))
-                DeleteDirectory(destination);
-            Directory.Move(staging, destination);
+            var apiPackages = new List<ApiPackageSyncState>();
+            var applicableContributors = _contributors.Where(contributor => contributor.AppliesTo(definition)).ToArray();
+            if (ApiPackageGenerationContributor.AppliesToSource(definition)
+                && applicableContributors.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Source '{name}' requires an API-package generation contributor.");
+            }
+
+            foreach (var contributor in applicableContributors)
+            {
+                apiPackages.AddRange(await contributor.BuildAsync(
+                    definition,
+                    refLabel,
+                    stagedRepositoryDirectory,
+                    stagedSupplementsDirectory,
+                    progress,
+                    cancellationToken).ConfigureAwait(false));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            Directory.Move(generationStaging, generationDirectory);
             _cache.WriteState(
                 name,
                 new SourceSyncState(
-                    SchemaVersion: 1,
+                    SchemaVersion: SourceSyncState.CurrentSchemaVersion,
                     Name: name,
                     Repository: definition.Repository,
                     Url: definition.Url,
                     Ref: refLabel,
                     Commit: commit,
                     FetchedAt: fetchedAt,
-                    SparsePaths: definition.Sparse));
+                    SparsePaths: definition.Sparse,
+                    Generation: generation,
+                    ApiPackages: apiPackages));
+            published = true;
+
+            PruneGenerationDirectories(name, generation);
+
+            var repositoryDirectory = _cache.RepositoryDirectoryFor(name, generation);
 
             return new SourceSyncResult(
                 Name: name,
@@ -220,7 +323,9 @@ public sealed class SourceSynchronizer
                 Ref: refLabel,
                 Commit: commit,
                 FetchedAt: fetchedAt,
-                CacheDir: destination);
+                CacheDir: repositoryDirectory,
+                ConfiguredApiPackages: definition.ApiPackages ?? [],
+                ApiPackages: apiPackages);
         }
         catch (Exception exception)
         {
@@ -229,20 +334,152 @@ public sealed class SourceSynchronizer
         }
         finally
         {
-            // A successful sync has already moved staging to its destination, so there is nothing
-            // to remove. A failed one keeps it on purpose: that is what lets the next attempt
-            // resume. The exception is a failed *resume*, where the retained tree is the prime
-            // suspect and is removed so the attempt after it starts from a fresh clone.
-            if (primaryException is not null && resumed is not null && Directory.Exists(staging))
+            if (primaryException is not null && !published)
+                CleanupFailedPublication(
+                    generationStaging,
+                    generationDirectory,
+                    generationsDirectory,
+                    resumed,
+                    repositoryValidated,
+                    DeleteDirectory);
+        }
+    }
+
+    internal static void CleanupFailedPublication(
+        string generationStaging,
+        string generationDirectory,
+        string generationsDirectory,
+        bool resumed,
+        bool repositoryValidated,
+        Action<string> deleteDirectory)
+    {
+        // A failed resume before Git validation makes the retained tree suspect. A contributor
+        // failure happens after validation, so its repository remains resumable just like a
+        // failed fresh synchronization. Fresh failures stay in place: the next sync claims them
+        // only after an atomic rename proves that the terminated Git process released the tree.
+        if (!resumed || repositoryValidated)
+            return;
+
+        var unpublishedDirectory = Directory.Exists(generationStaging)
+            ? generationStaging
+            : Directory.Exists(generationDirectory)
+                ? generationDirectory
+                : null;
+        if (unpublishedDirectory is null)
+            return;
+
+        try
+        {
+            deleteDirectory(unpublishedDirectory);
+            if (Directory.Exists(generationsDirectory)
+                && !Directory.EnumerateFileSystemEntries(generationsDirectory).Any())
             {
-                try
-                {
-                    DeleteDirectory(staging);
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    // Preserve the synchronization or cancellation failure that caused cleanup.
-                }
+                Directory.Delete(generationsDirectory);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Preserve the synchronization or cancellation failure that caused cleanup. A resumed
+            // tree keeps its .resume name until validation, so failed deletion cannot make it
+            // eligible for another resume.
+        }
+    }
+
+    internal static async Task MoveDirectoryWhenReadyAsync(
+        string source,
+        string destination,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        Action<string, string>? moveDirectory = null,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destination);
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
+
+        moveDirectory ??= Directory.Move;
+        delay ??= static (duration, token) => Task.Delay(duration, token);
+        var elapsed = Stopwatch.StartNew();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Exception moveFailure;
+            try
+            {
+                moveDirectory(source, destination);
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                moveFailure = exception;
+            }
+
+            var remaining = timeout - elapsed.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException(
+                    $"The repository did not become movable within {timeout.TotalSeconds:0.##}s.",
+                    moveFailure);
+            }
+
+            await delay(
+                    remaining < RepositoryReadinessPollInterval
+                        ? remaining
+                        : RepositoryReadinessPollInterval,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private void PruneGenerationDirectories(string name, string? currentGeneration) =>
+        PruneGenerationDirectories(
+            _cache.GenerationsDirectoryFor(name),
+            currentGeneration,
+            Directory.EnumerateDirectories);
+
+    internal static void PruneGenerationDirectories(
+        string generationsDirectory,
+        string? currentGeneration,
+        Func<string, IEnumerable<string>> enumerateDirectories)
+    {
+        if (!Directory.Exists(generationsDirectory))
+            return;
+
+        IReadOnlyList<string> candidates;
+        try
+        {
+            candidates = enumerateDirectories(generationsDirectory).ToList();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var currentDirectory = currentGeneration is null
+            ? null
+            : Path.TrimEndingDirectorySeparator(Path.GetFullPath(
+                Path.Combine(generationsDirectory, currentGeneration)));
+        foreach (var candidate in candidates)
+        {
+            var candidateDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+            if (currentDirectory is not null
+                && string.Equals(
+                    candidateDirectory,
+                    currentDirectory,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                DeleteDirectory(candidate);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Generation pruning is best-effort and never invalidates the current pointer.
             }
         }
     }
@@ -268,42 +505,51 @@ public sealed class SourceSynchronizer
     }
 
     /// <summary>
-    /// Returns a staging directory from a previous failed attempt that is safe to continue from,
-    /// removing every other candidate for this source. Runs under the per-source lock, so no
-    /// concurrent sync of the same source can be holding one.
+    /// Claims the newest valid unpublished generation under the per-source lock. Renaming before
+    /// validation is deliberate: on Windows it succeeds only after a terminated Git process has
+    /// released every non-shareable handle that would also make immediate reuse unsafe.
     /// </summary>
-    private async Task<string?> TryClaimResumableStagingAsync(
+    private async Task<ClaimedGeneration?> TryClaimResumableGenerationAsync(
         string name,
         SourceDefinition definition,
+        string? currentGeneration,
         CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(_cache.Root))
+        var generationsDirectory = _cache.GenerationsDirectoryFor(name);
+        if (!Directory.Exists(generationsDirectory))
             return null;
 
-        string? claimed = null;
+        var currentDirectory = currentGeneration is null
+            ? null
+            : _cache.GenerationDirectoryFor(name, currentGeneration);
         foreach (var candidate in Directory
-                     .EnumerateDirectories(_cache.Root, $".{name}-*.tmp")
+                     .EnumerateDirectories(generationsDirectory, ".*.tmp")
+                     .Where(candidate => currentDirectory is null || !PathsEqual(candidate, currentDirectory))
                      .OrderByDescending(Directory.GetLastWriteTimeUtc)
                      .ToList())
         {
-            if (claimed is null
-                && await IsResumableAsync(candidate, definition, cancellationToken).ConfigureAwait(false))
+            var generation = Guid.NewGuid().ToString("N");
+            var claimedDirectory = Path.Combine(
+                generationsDirectory,
+                $".{generation}{ClaimedGenerationSuffix}");
+            await MoveDirectoryWhenReadyAsync(
+                    candidate,
+                    claimedDirectory,
+                    _timeouts.Quick,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var repositoryDirectory = Path.Combine(claimedDirectory, "repository");
+            if (await IsResumableAsync(repositoryDirectory, definition, cancellationToken)
+                    .ConfigureAwait(false))
             {
-                claimed = candidate;
-                continue;
+                return new ClaimedGeneration(generation, claimedDirectory);
             }
 
-            try
-            {
-                DeleteDirectory(candidate);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                // An abandoned directory that will not delete is not a reason to fail the sync.
-            }
+            TryDeleteDirectory(claimedDirectory);
         }
 
-        return claimed;
+        return null;
     }
 
     /// <summary>
@@ -334,6 +580,26 @@ public sealed class SourceSynchronizer
             return false;
         }
     }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            DeleteDirectory(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Abandoned and explicitly discarded generations are best-effort cache cleanup.
+        }
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private sealed record ClaimedGeneration(string Generation, string Directory);
 
     private static async Task<string> SynchronizeRepositoryAsync(
         string repositoryDirectory,
@@ -380,7 +646,7 @@ public sealed class SourceSynchronizer
             timeouts).ConfigureAwait(false)).Trim();
         var status = await GitCommandRunner.RunAsync(
             repositoryDirectory,
-            ["status", "--porcelain", "--untracked-files=all"],
+            ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
             GitCommandKind.Walk,
             cancellationToken,
             timeouts).ConfigureAwait(false);

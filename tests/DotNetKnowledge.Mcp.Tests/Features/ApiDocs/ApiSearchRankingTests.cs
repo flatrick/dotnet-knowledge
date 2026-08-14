@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 
 namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
@@ -5,7 +6,7 @@ namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 [TestClass]
 public sealed class ApiSearchRankingTests
 {
-    private static readonly SourceProvenance Source =
+    private static readonly GitProvenance Source =
         new("test/dotnet-api-docs", "pinned", "0000000000000000000000000000000000000000", DateTimeOffset.UnixEpoch);
 
     private static readonly string[] PrefixBeforeSubstring = ["System.SpanExtensions", "System.ClassifiedSpan"];
@@ -23,6 +24,76 @@ public sealed class ApiSearchRankingTests
 
     private static string[] OrderedNames(string pattern, params ApiSearchItem[] items) =>
         ApiSearchRanking.Order(items, pattern).Select(item => item.Name).ToArray();
+
+    [TestMethod]
+    public void ApiProvenanceUsesDiscriminatedWireShapesWithoutRevisionKey()
+    {
+        var assembly = typeof(ApiDocsQueryService).Assembly;
+        var baseType = assembly.GetType("DotNetKnowledge.Mcp.Features.ApiDocs.ApiProvenance");
+        var gitType = assembly.GetType("DotNetKnowledge.Mcp.Features.ApiDocs.GitProvenance");
+        var nugetType = assembly.GetType("DotNetKnowledge.Mcp.Features.ApiDocs.NuGetProvenance");
+
+        Assert.IsNotNull(baseType, "API provenance must have a common discriminated base type.");
+        Assert.IsNotNull(gitType, "Git API provenance must be a distinct wire shape.");
+        Assert.IsNotNull(nugetType, "NuGet API provenance must be a distinct wire shape.");
+
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        var git = Activator.CreateInstance(
+            gitType,
+            "test/dotnet-api-docs",
+            "pinned",
+            "0000000000000000000000000000000000000000",
+            DateTimeOffset.UnixEpoch);
+        using var gitDocument = JsonDocument.Parse(JsonSerializer.Serialize(git, baseType, options));
+        Assert.AreEqual("git", gitDocument.RootElement.GetProperty("kind").GetString());
+        Assert.AreEqual("test/dotnet-api-docs", gitDocument.RootElement.GetProperty("repo").GetString());
+        Assert.AreEqual("pinned", gitDocument.RootElement.GetProperty("ref").GetString());
+        Assert.IsTrue(gitDocument.RootElement.TryGetProperty("commit", out _));
+        Assert.IsFalse(gitDocument.RootElement.TryGetProperty("revisionKey", out _));
+
+        var nuget = Activator.CreateInstance(
+            nugetType,
+            "Microsoft.CodeAnalysis.Workspaces.MSBuild",
+            "5.3.0",
+            "verified-sha512",
+            "https://api.nuget.org/v3/index.json",
+            "net10.0",
+            DateTimeOffset.UnixEpoch);
+        using var nugetDocument = JsonDocument.Parse(JsonSerializer.Serialize(nuget, baseType, options));
+        Assert.AreEqual("nuget", nugetDocument.RootElement.GetProperty("kind").GetString());
+        Assert.AreEqual("Microsoft.CodeAnalysis.Workspaces.MSBuild", nugetDocument.RootElement.GetProperty("packageId").GetString());
+        Assert.AreEqual("5.3.0", nugetDocument.RootElement.GetProperty("version").GetString());
+        Assert.AreEqual("verified-sha512", nugetDocument.RootElement.GetProperty("sha512").GetString());
+        Assert.AreEqual("https://api.nuget.org/v3/index.json", nugetDocument.RootElement.GetProperty("feed").GetString());
+        Assert.AreEqual("net10.0", nugetDocument.RootElement.GetProperty("framework").GetString());
+        Assert.IsTrue(nugetDocument.RootElement.TryGetProperty("fetchedAt", out _));
+        Assert.IsFalse(nugetDocument.RootElement.TryGetProperty("repo", out _));
+        Assert.IsFalse(nugetDocument.RootElement.TryGetProperty("commit", out _));
+        Assert.IsFalse(nugetDocument.RootElement.TryGetProperty("revisionKey", out _));
+
+        var restored = JsonSerializer.Deserialize(
+            nugetDocument.RootElement.GetRawText(),
+            baseType,
+            options);
+        Assert.IsNotNull(restored);
+        Assert.AreEqual(nugetType, restored.GetType());
+
+        var delimitedGit = Activator.CreateInstance(
+            gitType,
+            "one@two",
+            "three",
+            "four",
+            DateTimeOffset.UnixEpoch);
+        var adjacentGit = Activator.CreateInstance(
+            gitType,
+            "one",
+            "two@three",
+            "four",
+            DateTimeOffset.UnixEpoch);
+        var revisionKey = (string)gitType.GetProperty("RevisionKey")!.GetValue(delimitedGit)!;
+        var adjacentRevisionKey = (string)gitType.GetProperty("RevisionKey")!.GetValue(adjacentGit)!;
+        Assert.AreNotEqual(revisionKey, adjacentRevisionKey);
+    }
 
     [TestMethod]
     public void ExactTypeNameRanksAboveSubstring()

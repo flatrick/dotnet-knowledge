@@ -5,7 +5,7 @@ namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 [TestClass]
 public sealed class ApiTextRankingTests
 {
-    private static readonly SourceProvenance Source =
+    private static readonly GitProvenance Source =
         new("test/dotnet-api-docs", "pinned", "0000000000000000000000000000000000000000", DateTimeOffset.UnixEpoch);
 
     private static readonly string[] SummaryThenRemarks =

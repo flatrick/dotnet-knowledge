@@ -29,6 +29,18 @@ public sealed class SourceCache
 
     public string DirectoryFor(string sourceName) => Path.Combine(Root, sourceName);
 
+    public string GenerationsDirectoryFor(string sourceName) =>
+        Path.Combine(Root, ".generations", sourceName);
+
+    public string GenerationDirectoryFor(string sourceName, string generation) =>
+        Path.Combine(GenerationsDirectoryFor(sourceName), generation);
+
+    public string RepositoryDirectoryFor(string sourceName, string generation) =>
+        Path.Combine(GenerationDirectoryFor(sourceName, generation), "repository");
+
+    public string SupplementsDirectoryFor(string sourceName, string generation) =>
+        Path.Combine(GenerationDirectoryFor(sourceName, generation), "supplements");
+
     public string StatePathFor(string sourceName) =>
         Path.Combine(Root, ".state", sourceName + ".json");
 
@@ -49,9 +61,9 @@ public sealed class SourceCache
         }
     }
 
-    private static bool IsComplete(SourceSyncState? state) =>
+    internal static bool IsComplete(SourceSyncState? state) =>
         state is not null
-        && state.SchemaVersion == 1
+        && state.SchemaVersion == SourceSyncState.CurrentSchemaVersion
         && !string.IsNullOrWhiteSpace(state.Name)
         && !string.IsNullOrWhiteSpace(state.Repository)
         && !string.IsNullOrWhiteSpace(state.Url)
@@ -60,7 +72,17 @@ public sealed class SourceCache
         && state.Commit.All(Uri.IsHexDigit)
         && state.FetchedAt != default
         && state.SparsePaths is { Count: > 0 }
-        && state.SparsePaths.All(path => !string.IsNullOrWhiteSpace(path));
+        && state.SparsePaths.All(path => !string.IsNullOrWhiteSpace(path))
+        && IsSimpleName(state.Generation)
+        && state.ApiPackages is not null;
+
+    private static bool IsSimpleName(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && !Path.IsPathRooted(value)
+        && !value.Contains(':')
+        && !value.Contains(Path.DirectorySeparatorChar)
+        && !value.Contains(Path.AltDirectorySeparatorChar)
+        && value is not "." and not "..";
 
     public void WriteState(string sourceName, SourceSyncState state)
     {
@@ -86,11 +108,16 @@ public sealed class SourceCache
     /// </summary>
     public bool IsSynced(string sourceName)
     {
-        var directory = DirectoryFor(sourceName);
+        var state = TryReadState(sourceName);
+        if (state is null)
+            return false;
+
+        var directory = RepositoryDirectoryFor(sourceName, state.Generation);
         var hasGitEntry = Directory.Exists(Path.Combine(directory, ".git"))
             || File.Exists(Path.Combine(directory, ".git"));
 
-        return hasGitEntry && TryReadState(sourceName) is not null;
+        return hasGitEntry
+            && Directory.Exists(SupplementsDirectoryFor(sourceName, state.Generation));
     }
 
     private static string ResolveRoot()
