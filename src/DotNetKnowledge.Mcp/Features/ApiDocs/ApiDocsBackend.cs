@@ -15,7 +15,8 @@ internal sealed record ApiQueryCoverage(
     IReadOnlyList<ApiProvenance> SearchedSources,
     string? EffectiveFramework,
     string? DefaultFramework,
-    IReadOnlyList<string>? AvailableFrameworks);
+    IReadOnlyList<string>? AvailableFrameworks,
+    ApiSkipCoverage? SkippedDeclarations = null);
 
 internal sealed record ApiLookupRead(
     IReadOnlyList<ApiLookupTypeRead> Matches,

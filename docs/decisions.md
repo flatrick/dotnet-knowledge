@@ -24,6 +24,18 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · An undecodable declaration is skipped and reported, not fixed one shape at a time
+
+`MetadataApiReader` catches `InvalidDataException` per type and per member, records the declaration
+in `ApiCorpus.Skipped`, and surfaces a total and a reason histogram on every API payload. Rejected:
+continuing to enumerate metadata shapes — at a 19% first-party refusal rate with the reasons still
+turning over, that does not terminate, and each miss cost a whole package. Structural failures
+(unmanaged metadata, invalid ECMA-335, duplicate documentation IDs) still fail the read: a corrupt
+archive is not a coverage gap. Measured over 184 cached packages: 281 refused assemblies became 0,
+with 3205 declarations skipped and reported instead.
+
+---
+
 ### 2026-08-14 · The package hash is verified against the downloaded bytes, not fetched from the feed
 
 `NuGetPackageClient` requests only resources the v3 `PackageBaseAddress` defines — the service index

@@ -187,13 +187,13 @@ dotnet run --file scripts/probes/diff-tfm-surface.cs -- --package "$env:USERPROF
 
 Not an MCP server. It runs the shipped `MetadataApiReader.Read` over every `lib/<framework>/*.dll` in
 a package folder tree — the machine's NuGet cache by default — and reports how many assemblies it
-reads, how many it refuses, and the refusal reasons grouped with the declaration names collapsed
-out. It exits 1 when anything was refused.
+reads, how many it refuses, and how many declarations it skipped, each set of reasons grouped with
+the declaration names collapsed out. It exits 1 when anything was refused.
 
-It answers whether the set of metadata shapes the reader does not model is small and nearly closed
-or open-ended, which is what decides between fixing shapes one at a time and making an undecodable
-declaration stop costing the whole package.
-`docs/backlog/undecodable-metadata-fails-the-whole-package.md` carries the measurement.
+**Watch the skip count, not the refusal count.** A declaration the reader cannot model costs that
+declaration rather than the assembly, so refusals alone now read as complete coverage; the skips are
+where that cost moved. A refusal means something stronger — metadata that could not be trusted at
+all — and should be rare.
 
 **The rate is a property of whatever that machine happens to have restored**, not of NuGet as a
 whole, and a cache full of one ecosystem's packages will read as that ecosystem. The first-party

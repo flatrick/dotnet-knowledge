@@ -9,7 +9,7 @@ namespace DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 
 public static class MetadataApiReader
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private const int MaximumArrayRank = 32;
 
     private static readonly ApiDocumentation EmptyDocumentation = new(
@@ -171,7 +171,8 @@ public static class MetadataApiReader
 
             var reader = peReader.GetMetadataReader();
             var decoder = new Decoder(reader);
-            return new ApiCorpus(SchemaVersion, decoder.ReadTypes());
+            var types = decoder.ReadTypes();
+            return new ApiCorpus(SchemaVersion, types, decoder.Skipped);
         }
         catch (BadImageFormatException exception)
         {
@@ -182,6 +183,9 @@ public static class MetadataApiReader
     private sealed class Decoder(MetadataReader reader)
     {
         private readonly MetadataTypeProvider typeProvider = new(reader);
+        private readonly List<ApiSkippedDeclaration> skipped = [];
+
+        internal IReadOnlyList<ApiSkippedDeclaration> Skipped => skipped;
 
         internal ApiCorpusType[] ReadTypes()
         {
@@ -192,7 +196,22 @@ public static class MetadataApiReader
                 if (reader.GetString(definition.Name) == "<Module>" || !IsVisibleType(handle))
                     continue;
 
-                types.Add(ReadType(handle, definition));
+                // A type the reader cannot model costs that type, not the assembly. Only the
+                // structural failures above -- unreadable metadata, and the duplicate-identity
+                // check below -- still fail the whole read, because those describe an archive that
+                // cannot be trusted rather than a declaration shape not met before.
+                try
+                {
+                    types.Add(ReadType(handle, definition));
+                }
+                catch (InvalidDataException exception)
+                {
+                    skipped.Add(new ApiSkippedDeclaration(
+                        "type",
+                        GetSkipTypeName(handle),
+                        null,
+                        exception.Message));
+                }
             }
 
             var ordered = types.OrderBy(item => item.EcmaId, StringComparer.Ordinal).ToArray();
@@ -255,12 +274,60 @@ public static class MetadataApiReader
                 members);
         }
 
-        private IEnumerable<ApiCorpusMember> ReadMembers(
+        /// <summary>
+        /// Reports the declaring type of a skipped member without going through
+        /// <see cref="GetSourceTypeName"/>: the declaration is being recorded precisely because
+        /// decoding it failed, so the presentable name may be the thing that threw.
+        /// </summary>
+        private string GetSkipTypeName(TypeDefinitionHandle handle)
+        {
+            try
+            {
+                var definition = reader.GetTypeDefinition(handle);
+                var name = reader.GetString(definition.Name);
+                var namespaceName = reader.GetString(definition.Namespace);
+                return string.IsNullOrEmpty(namespaceName) ? name : $"{namespaceName}.{name}";
+            }
+            catch (BadImageFormatException)
+            {
+                return "<unknown>";
+            }
+        }
+
+        /// <summary>
+        /// Runs one member read behind the skip boundary. <paramref name="read"/> returns null when
+        /// the member is simply not part of the visible API, which is not a skip and is not
+        /// reported.
+        /// </summary>
+        private void ReadMemberOrSkip(
+            List<ApiCorpusMember> members,
+            TypeDefinitionHandle typeHandle,
+            string kind,
+            string name,
+            Func<ApiCorpusMember?> read)
+        {
+            try
+            {
+                if (read() is { } member)
+                    members.Add(member);
+            }
+            catch (InvalidDataException exception)
+            {
+                skipped.Add(new ApiSkippedDeclaration(
+                    kind,
+                    GetSkipTypeName(typeHandle),
+                    name,
+                    exception.Message));
+            }
+        }
+
+        private List<ApiCorpusMember> ReadMembers(
             TypeDefinitionHandle typeHandle,
             TypeDefinition definition,
             SignatureContext typeContext,
             byte? nullableContext)
         {
+            var members = new List<ApiCorpusMember>();
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             foreach (var propertyHandle in definition.GetProperties())
             {
@@ -292,37 +359,71 @@ public static class MetadataApiReader
                     continue;
 
                 var method = reader.GetMethodDefinition(handle);
-                if (IsVisible(method.Attributes & MethodAttributes.MemberAccessMask))
-                    yield return ReadMethod(typeHandle, method, typeContext, nullableContext);
+                if (!IsVisible(method.Attributes & MethodAttributes.MemberAccessMask))
+                    continue;
+
+                ReadMemberOrSkip(
+                    members,
+                    typeHandle,
+                    "method",
+                    reader.GetString(method.Name),
+                    () => ReadMethod(typeHandle, method, typeContext, nullableContext));
             }
 
             foreach (var handle in definition.GetProperties())
             {
                 var property = reader.GetPropertyDefinition(handle);
-                RejectVisibleOtherAccessors(
-                    property.GetAccessors().Others,
-                    $"property '{reader.GetString(property.Name)}'");
-                if (TryGetPropertyAccessibility(property, out var accessibility))
-                    yield return ReadProperty(typeHandle, property, accessibility, typeContext, nullableContext);
+                ReadMemberOrSkip(
+                    members,
+                    typeHandle,
+                    "property",
+                    reader.GetString(property.Name),
+                    () =>
+                    {
+                        RejectVisibleOtherAccessors(
+                            property.GetAccessors().Others,
+                            $"property '{reader.GetString(property.Name)}'");
+                        return TryGetPropertyAccessibility(property, out var accessibility)
+                            ? ReadProperty(typeHandle, property, accessibility, typeContext, nullableContext)
+                            : null;
+                    });
             }
 
             foreach (var handle in definition.GetEvents())
             {
                 var eventDefinition = reader.GetEventDefinition(handle);
-                var eventAccessors = eventDefinition.GetAccessors();
-                RejectVisibleOtherAccessors(
-                    [eventAccessors.Raiser, .. eventAccessors.Others],
-                    $"event '{reader.GetString(eventDefinition.Name)}'");
-                if (TryGetEventAccessibility(eventDefinition, out var accessibility))
-                    yield return ReadEvent(typeHandle, eventDefinition, accessibility, typeContext, nullableContext);
+                ReadMemberOrSkip(
+                    members,
+                    typeHandle,
+                    "event",
+                    reader.GetString(eventDefinition.Name),
+                    () =>
+                    {
+                        var eventAccessors = eventDefinition.GetAccessors();
+                        RejectVisibleOtherAccessors(
+                            [eventAccessors.Raiser, .. eventAccessors.Others],
+                            $"event '{reader.GetString(eventDefinition.Name)}'");
+                        return TryGetEventAccessibility(eventDefinition, out var accessibility)
+                            ? ReadEvent(typeHandle, eventDefinition, accessibility, typeContext, nullableContext)
+                            : null;
+                    });
             }
 
             foreach (var handle in definition.GetFields())
             {
                 var field = reader.GetFieldDefinition(handle);
-                if (IsVisible(field.Attributes & FieldAttributes.FieldAccessMask))
-                    yield return ReadField(typeHandle, field, typeContext, nullableContext);
+                if (!IsVisible(field.Attributes & FieldAttributes.FieldAccessMask))
+                    continue;
+
+                ReadMemberOrSkip(
+                    members,
+                    typeHandle,
+                    "field",
+                    reader.GetString(field.Name),
+                    () => ReadField(typeHandle, field, typeContext, nullableContext));
             }
+
+            return members;
         }
 
         private ApiCorpusMember ReadMethod(

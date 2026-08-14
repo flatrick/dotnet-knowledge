@@ -1,4 +1,5 @@
 using DotNetKnowledge.Mcp.Features.ApiDocs;
+using DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 
 namespace DotNetKnowledge.Mcp.Tests.Features.ApiDocs;
 
@@ -8,6 +9,7 @@ public sealed class PackageApiDocsBackendTests
     private static readonly string[] ExpectedMemberNames = ["Convert<TResult>", "Create"];
     private static readonly string[] ExpectedResolvedTypes = ["System.Widget"];
     private static readonly string[] ExpectedFrameworks = ["net10.0", "net8.0"];
+    private static readonly string[] SkippedPropertyNames = ["Alpha", "Beta", "Gamma"];
 
     private string _root = null!;
 
@@ -23,6 +25,49 @@ public sealed class PackageApiDocsBackendTests
     {
         if (Directory.Exists(_root))
             ApiDocsFixture.DeleteDirectory(_root);
+    }
+
+    [TestMethod]
+    public void SummarizeSkippedReportsNothingForACompleteCorpus() =>
+        Assert.IsNull(PackageApiDocsBackend.SummarizeSkipped([]));
+
+    [TestMethod]
+    public void SummarizeSkippedGroupsOneDefectAcrossManyDeclarations()
+    {
+        // The reader interpolates the declaration name into its message, so grouping on the raw
+        // text would report one reason per skip -- the list the summary exists to replace.
+        var skipped = SkippedPropertyNames
+            .Select(name => new ApiSkippedDeclaration(
+                "property",
+                "Fixture.Type",
+                name,
+                $"The accessors for property '{name}' have incompatible modifiers."))
+            .ToArray();
+
+        var summary = PackageApiDocsBackend.SummarizeSkipped(skipped);
+
+        Assert.IsNotNull(summary);
+        Assert.AreEqual(3, summary.Declarations);
+        Assert.AreEqual(1, summary.Reasons.Count);
+        Assert.AreEqual(3, summary.Reasons[0].Count);
+        Assert.IsFalse(summary.ReasonsArePartial);
+        StringAssert.Contains(summary.Reasons[0].Reason, "incompatible modifiers");
+    }
+
+    [TestMethod]
+    public void SummarizeSkippedMarksACappedReasonListPartial()
+    {
+        var skipped = Enumerable.Range(0, 15)
+            .Select(index => new ApiSkippedDeclaration(
+                "method", "Fixture.Type", $"M{index}", $"Distinct reason {index}."))
+            .ToArray();
+
+        var summary = PackageApiDocsBackend.SummarizeSkipped(skipped);
+
+        Assert.IsNotNull(summary);
+        Assert.AreEqual(15, summary.Declarations, "The total must survive the reason cap.");
+        Assert.AreEqual(10, summary.Reasons.Count);
+        Assert.IsTrue(summary.ReasonsArePartial);
     }
 
     [TestMethod]

@@ -13,6 +13,62 @@ public sealed class PackageApiCorpusBuilderTests
     private static readonly string FixtureAssemblyPath = GetFixturePath("ApiFixtureAssemblyPath");
     private static readonly string[] ExpectedFrameworks = ["net10.0", "net8.0"];
     private static readonly string[] ExpectedArrayShapeProbeParameterNames = ["values", "marker"];
+    private static readonly string[] ExpectedSkippedDeclaringTypes = ["A.Type", "A.Type", "Z.Type"];
+    private static readonly string[] ExpectedSkippedKinds = ["field", "method", "property"];
+
+    [TestMethod]
+    public void StoreRoundTripsSkippedDeclarations()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-corpus-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var definition = Package();
+            var corpus = new ApiCorpus(
+                3,
+                [new ApiCorpusType(
+                    "T:Fixture.Type", "Type", "Fixture.Type", null, [], [], [], EmptyDocumentation(), [])],
+                [new ApiSkippedDeclaration(
+                    "property", "Fixture.Type", "Broken", "The accessors for property 'Broken' have incompatible modifiers.")]);
+            var path = Path.Combine(directory, "skipped.json");
+            WriteStoredCorpus(path, definition, corpus);
+
+            var read = PackageApiCorpusStore.Read(path, definition, "net10.0");
+
+            Assert.AreEqual(1, read.Skipped.Count);
+            Assert.AreEqual("property", read.Skipped[0].Kind);
+            Assert.AreEqual("Fixture.Type", read.Skipped[0].DeclaringType);
+            Assert.AreEqual("Broken", read.Skipped[0].Name);
+            StringAssert.Contains(read.Skipped[0].Reason, "incompatible modifiers");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void NormalizeForStorageOrdersSkippedDeclarationsDeterministically()
+    {
+        var unordered = new ApiCorpus(
+            3,
+            [],
+            [
+                new ApiSkippedDeclaration("property", "Z.Type", "B", "second"),
+                new ApiSkippedDeclaration("method", "A.Type", "A", "first"),
+                new ApiSkippedDeclaration("field", "A.Type", "C", "third"),
+            ]);
+
+        var normalized = PackageApiCorpusBuilder.NormalizeForStorage(unordered);
+
+        CollectionAssert.AreEqual(
+            ExpectedSkippedDeclaringTypes,
+            normalized.Skipped.Select(item => item.DeclaringType).ToArray());
+        CollectionAssert.AreEqual(
+            ExpectedSkippedKinds,
+            normalized.Skipped.Select(item => item.Kind).ToArray());
+    }
 
     [TestMethod]
     public async Task BuildAsyncJoinsOnlyVisibleMetadataAndWritesDeterministicFrameworkFiles()
@@ -45,7 +101,8 @@ public sealed class PackageApiCorpusBuilderTests
                 string.Empty,
                 arrayShapeProbe.Documentation.Parameters.Single(parameter => parameter.Name == "marker").Text);
             var json = File.ReadAllText(first.CorpusFiles["net10.0"]);
-            StringAssert.Contains(json, "\"SchemaVersion\":2");
+            StringAssert.Contains(json, "\"SchemaVersion\":3");
+            StringAssert.Contains(json, "\"Skipped\":[]");
             Assert.IsFalse(json.Contains(Environment.NewLine, StringComparison.Ordinal));
         }
         finally
@@ -169,7 +226,7 @@ public sealed class PackageApiCorpusBuilderTests
             Assert.IsInstanceOfType<JsonException>(malformedException.InnerException);
 
             var nullTypes = Path.Combine(directory, "null-types.json");
-            WriteStoredCorpus(nullTypes, definition, new ApiCorpus(2, null!));
+            WriteStoredCorpus(nullTypes, definition, new ApiCorpus(3, null!, []));
             Assert.ThrowsExactly<InvalidDataException>(() =>
                 PackageApiCorpusStore.Read(nullTypes, definition, "net10.0"));
 
@@ -268,7 +325,7 @@ public sealed class PackageApiCorpusBuilderTests
                 Interfaces = [new ApiTypeUse(null, "string", ["System.String"])],
             };
             var collectionPath = Path.Combine(directory, "collection.json");
-            WriteStoredCorpus(collectionPath, definition, new ApiCorpus(2, [type]));
+            WriteStoredCorpus(collectionPath, definition, new ApiCorpus(3, [type], []));
             Assert.ThrowsExactly<InvalidDataException>(() => PackageApiCorpusStore.Read(
                 collectionPath,
                 definition,
@@ -631,13 +688,14 @@ public sealed class PackageApiCorpusBuilderTests
     private static string[] TemporarySiblingDirectories(string output) => Directory.GetDirectories(
         Path.GetDirectoryName(output)!, "." + Path.GetFileName(output) + ".*.tmp");
 
-    private static ApiCorpus Corpus(string name) => new(2,
-        new[] { new ApiCorpusType("T:Fixture.Type", name, $"Fixture.{name}", null, [], [], [], EmptyDocumentation(), []) });
+    private static ApiCorpus Corpus(string name) => new(3,
+        new[] { new ApiCorpusType("T:Fixture.Type", name, $"Fixture.{name}", null, [], [], [], EmptyDocumentation(), []) },
+        []);
 
     private static void WriteStoredCorpus(string path, ApiPackageDefinition definition, ApiCorpus corpus) =>
         File.WriteAllText(path, JsonSerializer.Serialize(new
         {
-            SchemaVersion = 2,
+            SchemaVersion = 3,
             definition.PackageId,
             definition.Version,
             definition.Sha512,

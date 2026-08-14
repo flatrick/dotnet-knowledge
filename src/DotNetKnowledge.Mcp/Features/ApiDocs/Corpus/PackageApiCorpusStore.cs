@@ -35,7 +35,7 @@ internal sealed record PackageApiCorpusLimits(
 
 public static class PackageApiCorpusStore
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private const int MaximumConfiguredJsonDepth = 64;
     private static readonly object CacheLock = new();
     private static readonly Dictionary<CacheKey, CacheEntry> Cache = [];
@@ -409,6 +409,7 @@ public static class PackageApiCorpusStore
     {
         if (corpus.Types is null)
             Invalid("types must be present");
+        ValidateSkipped(corpus.Skipped, limits);
         RequireCount(corpus.Types, limits.MaxTypes, "types");
         RequireOrdered(corpus.Types, type => type.FullName, "types");
         var typeIds = new HashSet<string>(StringComparer.Ordinal);
@@ -463,6 +464,29 @@ public static class PackageApiCorpusStore
                 ValidateAttributes(member.Attributes, "member attributes", limits);
                 ValidateDocumentation(member.Documentation, "member documentation", limits);
             }
+        }
+    }
+
+    /// <summary>
+    /// Skipped declarations are validated with the same rigor as the corpus proper. They are the
+    /// record of what a query does not cover, so a malformed one understates a coverage gap.
+    /// </summary>
+    private static void ValidateSkipped(
+        IReadOnlyList<ApiSkippedDeclaration> skipped,
+        PackageApiCorpusLimits limits)
+    {
+        if (skipped is null)
+            Invalid("skipped declarations must be present");
+        RequireCount(skipped, limits.MaxTotalMembers, "skipped declarations");
+        foreach (var declaration in skipped)
+        {
+            if (declaration is null)
+                Invalid("skipped declarations cannot contain null values");
+            RequireText(declaration.Kind, "skipped declaration kind", limits);
+            RequireText(declaration.DeclaringType, "skipped declaration declaring type", limits);
+            if (declaration.Name is not null)
+                RequireText(declaration.Name, "skipped declaration name", limits);
+            RequireText(declaration.Reason, "skipped declaration reason", limits);
         }
     }
 

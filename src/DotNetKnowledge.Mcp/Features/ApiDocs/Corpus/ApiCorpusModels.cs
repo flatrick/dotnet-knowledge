@@ -1,6 +1,21 @@
 namespace DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 
-public sealed record ApiCorpus(int SchemaVersion, IReadOnlyList<ApiCorpusType> Types);
+public sealed record ApiCorpus(
+    int SchemaVersion,
+    IReadOnlyList<ApiCorpusType> Types,
+    IReadOnlyList<ApiSkippedDeclaration> Skipped);
+
+/// <summary>
+/// A declaration the metadata reader could not model, recorded rather than dropped. Failing the
+/// whole package on one unreadable member cost the coverage of every other member in it; skipping
+/// silently would be worse still, because an absent member is indistinguishable from one that was
+/// never declared. <see cref="Reason"/> is the reader's own message for the shape it met.
+/// </summary>
+public sealed record ApiSkippedDeclaration(
+    string Kind,
+    string DeclaringType,
+    string? Name,
+    string Reason);
 
 public sealed record ApiCorpusType(
     string EcmaId,

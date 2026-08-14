@@ -147,7 +147,8 @@ public sealed class ApiDocsQueryService
             isPartial ? EncodeCursor("lookup", scope, nextOffset, revisions) : null,
             composition.EffectiveFramework,
             composition.DefaultFramework,
-            composition.AvailableFrameworks);
+            composition.AvailableFrameworks,
+            composition.SkippedDeclarations);
     }
 
     private static ApiMemberDocumentation ToSignature(ApiMemberDocumentation member) =>
@@ -227,7 +228,8 @@ public sealed class ApiDocsQueryService
             Note: DottedMissNote(pattern, ordered.Count),
             EffectiveFramework: composition.EffectiveFramework,
             DefaultFramework: composition.DefaultFramework,
-            AvailableFrameworks: composition.AvailableFrameworks);
+            AvailableFrameworks: composition.AvailableFrameworks,
+            SkippedDeclarations: composition.SkippedDeclarations);
     }
 
     // search_api matches type names, not members: a Type.Member name, or a generic type's full name
@@ -322,7 +324,8 @@ public sealed class ApiDocsQueryService
             SearchedSources: composition.SearchedSources,
             EffectiveFramework: composition.EffectiveFramework,
             DefaultFramework: composition.DefaultFramework,
-            AvailableFrameworks: composition.AvailableFrameworks);
+            AvailableFrameworks: composition.AvailableFrameworks,
+            SkippedDeclarations: composition.SkippedDeclarations);
     }
 
     public Task<ApiReferenceResult> FindReferencesAsync(
@@ -432,7 +435,8 @@ public sealed class ApiDocsQueryService
             SearchedSources: composition.SearchedSources,
             EffectiveFramework: composition.EffectiveFramework,
             DefaultFramework: composition.DefaultFramework,
-            AvailableFrameworks: composition.AvailableFrameworks);
+            AvailableFrameworks: composition.AvailableFrameworks,
+            SkippedDeclarations: composition.SkippedDeclarations);
     }
 
     private string[] ResolveSourceNames(string? source, string? framework)
@@ -516,7 +520,7 @@ public sealed class ApiDocsQueryService
         if (packageCoverages.Length == 0)
         {
             return new ComposedReads<T>(
-                reads, searchedSources, null, null, null);
+                reads, searchedSources, null, null, null, null);
         }
 
         var frameworkCoverage = packageCoverages[0];
@@ -542,7 +546,39 @@ public sealed class ApiDocsQueryService
             searchedSources,
             frameworkCoverage.EffectiveFramework,
             frameworkCoverage.DefaultFramework,
-            frameworkCoverage.AvailableFrameworks);
+            frameworkCoverage.AvailableFrameworks,
+            MergeSkipped(packageCoverages));
+    }
+
+    /// <summary>
+    /// Sums the skip reports of every participating package supplement. A merged answer is drawn
+    /// from every corpus that took part, so its coverage gap is their union, not any one of theirs.
+    /// </summary>
+    private static ApiSkipCoverage? MergeSkipped(IReadOnlyList<ApiQueryCoverage> coverages)
+    {
+        var reports = coverages
+            .Select(item => item.SkippedDeclarations)
+            .Where(item => item is not null)
+            .ToArray();
+        if (reports.Length == 0)
+            return null;
+        if (reports.Length == 1)
+            return reports[0];
+
+        var reasons = reports
+            .SelectMany(report => report!.Reasons)
+            .GroupBy(reason => reason.Reason, StringComparer.Ordinal)
+            .Select(group => new ApiSkipReason(group.Key, group.Sum(item => item.Count)))
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Reason, StringComparer.Ordinal)
+            .ToArray();
+
+        return new ApiSkipCoverage(
+            reports.Sum(report => report!.Declarations),
+            reasons,
+            // A merge of partial reason lists is itself partial: the reasons each cap dropped are
+            // still missing, and summing the kept ones does not recover them.
+            reports.Any(report => report!.ReasonsArePartial));
     }
 
     private static string ResolveFramework(
@@ -658,7 +694,8 @@ public sealed class ApiDocsQueryService
         IReadOnlyList<ApiProvenance> SearchedSources,
         string? EffectiveFramework,
         string? DefaultFramework,
-        IReadOnlyList<string>? AvailableFrameworks)
+        IReadOnlyList<string>? AvailableFrameworks,
+        ApiSkipCoverage? SkippedDeclarations)
         where T : class;
 
 }

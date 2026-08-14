@@ -92,7 +92,8 @@ public sealed class MetadataApiReaderTests
         using var stream = File.OpenRead(FixtureAssemblyPath);
         var corpus = MetadataApiReader.Read(stream);
 
-        Assert.AreEqual(2, corpus.SchemaVersion);
+        Assert.AreEqual(3, corpus.SchemaVersion);
+        Assert.AreEqual(0, corpus.Skipped.Count, "The fixture assembly must read without skips.");
         var type = corpus.Types.Single(item => item.FullName == "Fixtures.SignatureGallery<T>");
         Assert.IsTrue(type.Members.Any(item =>
             item.Signature == "public ref readonly (string Name, T Value)? Borrow(in T value);"),
@@ -301,42 +302,30 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsAGetterSignatureThatDisagreesWithItsProperty()
+    public void ReadSkipsAGetterSignatureThatDisagreesWithItsProperty()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignature(bytes, "get_AccessorProbe", "get_AccessorSource");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-
-        StringAssert.Contains(exception.Message, "get_AccessorProbe");
+        AssertSkipped(bytes, "get_AccessorProbe");
     }
 
     [TestMethod]
-    public void ReadRejectsAnEventAccessorSignatureThatDisagreesWithItsEvent()
+    public void ReadSkipsAnEventAccessorSignatureThatDisagreesWithItsEvent()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignature(bytes, "add_AbstractEvent", "add_OtherEvent");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-
-        StringAssert.Contains(exception.Message, "add_AbstractEvent");
+        AssertSkipped(bytes, "add_AbstractEvent");
     }
 
     [TestMethod]
-    public void ReadRejectsAVisibleOtherAccessorInsteadOfEmittingAnEmptyProperty()
+    public void ReadSkipsAVisibleOtherAccessorInsteadOfEmittingAnEmptyProperty()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeGetterSemanticsToOther(bytes, "AccessorProbe");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-
-        StringAssert.Contains(exception.Message, "get_AccessorProbe");
+        AssertSkipped(bytes, "get_AccessorProbe");
     }
 
     [TestMethod]
@@ -361,10 +350,7 @@ public sealed class MetadataApiReaderTests
             "SignatureGallery`1",
             "ArrayShapeProbe",
             [0x20, 0x00, 0x14, 0x08, 0x01, 0x00, 0x00]);
-        using var corruptedStream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(corruptedStream));
-        StringAssert.Contains(exception.Message, "non-SZ");
+        AssertSkipped(bytes, "non-SZ");
     }
 
     [TestMethod]
@@ -411,7 +397,7 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsMultidimensionalArraysWithNonRepresentableShapeData()
+    public void ReadSkipsMultidimensionalArraysWithNonRepresentableShapeData()
     {
         var mutations = new[]
         {
@@ -432,15 +418,12 @@ public sealed class MetadataApiReaderTests
                 "MultiDimensionalArrayProbe",
                 mutation.Signature);
 
-            using var stream = new MemoryStream(bytes);
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, mutation.Expected, StringComparison.OrdinalIgnoreCase);
+            AssertSkipped(bytes, mutation.Expected, StringComparison.OrdinalIgnoreCase);
         }
     }
 
     [TestMethod]
-    public void ReadRejectsAMultidimensionalArrayWithTooFewZeroLowerBounds()
+    public void ReadSkipsAMultidimensionalArrayWithTooFewZeroLowerBounds()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignatureBytes(
@@ -449,14 +432,11 @@ public sealed class MetadataApiReaderTests
             "MultiDimensionalArrayProbe",
             [0x20, 0x00, 0x14, 0x08, 0x02, 0x00, 0x01, 0x00]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "lower bounds", StringComparison.OrdinalIgnoreCase);
+        AssertSkipped(bytes, "lower bounds", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public void ReadRejectsAMultidimensionalArrayWithTooManyZeroLowerBounds()
+    public void ReadSkipsAMultidimensionalArrayWithTooManyZeroLowerBounds()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignatureBytes(
@@ -465,14 +445,11 @@ public sealed class MetadataApiReaderTests
             "MultiDimensionalArrayProbe",
             [0x20, 0x00, 0x14, 0x08, 0x02, 0x00, 0x03, 0x00, 0x00, 0x00]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "lower bounds", StringComparison.OrdinalIgnoreCase);
+        AssertSkipped(bytes, "lower bounds", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public void ReadRejectsAByReferenceTypeNestedInsideAnArray()
+    public void ReadSkipsAByReferenceTypeNestedInsideAnArray()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignatureBytes(
@@ -481,22 +458,16 @@ public sealed class MetadataApiReaderTests
             "NestedByRefProbe",
             [0x20, 0x02, 0x1D, 0x10, 0x08, 0x08, 0x0E]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "by-reference");
+        AssertSkipped(bytes, "by-reference");
     }
 
     [TestMethod]
-    public void ReadRejectsAConstructorWhoseMetadataReturnTypeIsNotVoid()
+    public void ReadSkipsAConstructorWhoseMetadataReturnTypeIsNotVoid()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeMethodReturnType(bytes, "ConstructorProbe", ".ctor", 0x01, 0x08);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "ConstructorProbe");
+        AssertSkipped(bytes, "ConstructorProbe");
     }
 
     [TestMethod]
@@ -513,43 +484,34 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsAShortTupleNameTransform()
+    public void ReadSkipsAShortTupleNameTransform()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         RewriteReturnTransform(bytes, "SignatureGallery`1", "NestedTuple", "TupleElementNamesAttribute", ["A", "B", "C"]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "TupleElementNamesAttribute");
+        AssertSkipped(bytes, "TupleElementNamesAttribute");
     }
 
     [TestMethod]
-    public void ReadRejectsAnExtraTupleNameTransform()
+    public void ReadSkipsAnExtraTupleNameTransform()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         RewriteReturnTransform(bytes, "SignatureGallery`1", "NestedTuple", "TupleElementNamesAttribute", ["A", "B", "C", "D", "E"]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "TupleElementNamesAttribute");
+        AssertSkipped(bytes, "TupleElementNamesAttribute");
     }
 
     [TestMethod]
-    public void ReadRejectsAShortNullableTransform()
+    public void ReadSkipsAShortNullableTransform()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         RewriteReturnNullableFlags(bytes, "SignatureGallery`1", "NullableTransformProbe", [1]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "NullableAttribute");
+        AssertSkipped(bytes, "NullableAttribute");
     }
 
     [TestMethod]
-    public void ReadRejectsAnExtraNullableTransform()
+    public void ReadSkipsAnExtraNullableTransform()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignatureWith(
@@ -558,22 +520,16 @@ public sealed class MetadataApiReaderTests
             "NullableTransformProbe",
             "NullableTransformSource");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "NullableAttribute");
+        AssertSkipped(bytes, "NullableAttribute");
     }
 
     [TestMethod]
-    public void ReadRejectsAnInvalidNullableTransformFlag()
+    public void ReadSkipsAnInvalidNullableTransformFlag()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         RewriteReturnNullableFlags(bytes, "SignatureGallery`1", "NullableTransformProbe", [1, 3]);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "flag '3'");
+        AssertSkipped(bytes, "flag '3'");
     }
 
     [TestMethod]
@@ -623,15 +579,12 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsAConstructedTypeWhoseArgumentCountDoesNotMatchSegmentArities()
+    public void ReadSkipsAConstructedTypeWhoseArgumentCountDoesNotMatchSegmentArities()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeFirstGenericArgumentCount(bytes, "SignatureGallery`1", "UseNested", 2, 1);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "declared generic arguments");
+        AssertSkipped(bytes, "declared generic arguments");
     }
 
     [TestMethod]
@@ -649,7 +602,7 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsMalformedConstructorMetadataShapes()
+    public void ReadSkipsMalformedConstructorMetadataShapes()
     {
         var mutations = new (string Current, string Replacement)[]
         {
@@ -663,17 +616,14 @@ public sealed class MetadataApiReaderTests
             var bytes = File.ReadAllBytes(FixtureAssemblyPath);
             ReplaceMetadataString(bytes, mutation.Current, mutation.Replacement);
 
-            using var stream = new MemoryStream(bytes);
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, "constructor", StringComparison.OrdinalIgnoreCase);
+            AssertSkipped(bytes, "constructor", StringComparison.OrdinalIgnoreCase);
         }
     }
 
     // Renaming an ordinary method is no longer enough to make one: the CLI marks an operator with
     // SpecialName, so the mutation sets that flag too and the operator rules are still enforced.
     [TestMethod]
-    public void ReadRejectsUnknownInstanceAndWrongArityOperators()
+    public void ReadSkipsUnknownInstanceAndWrongArityOperators()
     {
         var mutations = new (string Type, string Current, string Replacement)[]
         {
@@ -692,10 +642,7 @@ public sealed class MetadataApiReaderTests
                 attributes => attributes | MethodAttributes.SpecialName);
             ReplaceMetadataString(bytes, mutation.Current, mutation.Replacement);
 
-            using var stream = new MemoryStream(bytes);
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, mutation.Replacement);
+            AssertSkipped(bytes, mutation.Replacement);
         }
     }
 
@@ -718,19 +665,16 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsAnAccessorWhoseClassValueTypeShapeDisagrees()
+    public void ReadSkipsAnAccessorWhoseClassValueTypeShapeDisagrees()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeSignatureElementType(bytes, "SignatureGallery`1", "get_AccessorProbe", 0x12, 0x11);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "get_AccessorProbe");
+        AssertSkipped(bytes, "get_AccessorProbe");
     }
 
     [TestMethod]
-    public void ReadRejectsStaticVirtualAccessorsOnANonInterfaceType()
+    public void ReadSkipsStaticVirtualAccessorsOnANonInterfaceType()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeTypeAttributes(
@@ -738,16 +682,13 @@ public sealed class MetadataApiReaderTests
             "IStaticAccessors",
             attributes => attributes & ~TypeAttributes.Interface);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "interface", StringComparison.OrdinalIgnoreCase);
+        AssertSkipped(bytes, "interface", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
     [DataRow("SignatureGallery`1", "get_AccessorProbe", (byte)0x25)]
     [DataRow("AccessorBase", "add_AbstractEvent", (byte)0x60)]
-    public void ReadRejectsUnsupportedAccessorCallingConventions(
+    public void ReadSkipsUnsupportedAccessorCallingConventions(
         string typeName,
         string methodName,
         byte replacementHeader)
@@ -755,28 +696,22 @@ public sealed class MetadataApiReaderTests
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeMethodSignatureHeader(bytes, typeName, methodName, 0x20, replacementHeader);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, methodName);
-        StringAssert.Contains(exception.Message, "calling convention", StringComparison.OrdinalIgnoreCase);
+        var skipped = AssertSkipped(bytes, methodName);
+        StringAssert.Contains(skipped.Reason, "calling convention", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public void ReadRejectsAPropertyWhoseStaticnessDisagreesWithItsAccessor()
+    public void ReadSkipsAPropertyWhoseStaticnessDisagreesWithItsAccessor()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangePropertySignatureHeader(bytes, "SignatureGallery`1", "AccessorProbe", 0x28, 0x08);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "AccessorProbe");
-        StringAssert.Contains(exception.Message, "static", StringComparison.OrdinalIgnoreCase);
+        var skipped = AssertSkipped(bytes, "AccessorProbe");
+        StringAssert.Contains(skipped.Reason, "static", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public void ReadRejectsEventAccessorsWithIncompatibleStaticness()
+    public void ReadSkipsEventAccessorsWithIncompatibleStaticness()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeMethodAttributes(
@@ -786,15 +721,12 @@ public sealed class MetadataApiReaderTests
             attributes => attributes | MethodAttributes.Static);
         ChangeMethodSignatureHeader(bytes, "AccessorBase", "add_AbstractEvent", 0x20, 0x00);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "AbstractEvent");
-        StringAssert.Contains(exception.Message, "incompatible", StringComparison.OrdinalIgnoreCase);
+        var skipped = AssertSkipped(bytes, "AbstractEvent");
+        StringAssert.Contains(skipped.Reason, "incompatible", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public void ReadRejectsExtraNullableFlagsOnAClassConstraint()
+    public void ReadSkipsExtraNullableFlagsOnAClassConstraint()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceGenericParameterNullableTransformWithArray(
@@ -802,14 +734,11 @@ public sealed class MetadataApiReaderTests
             "SignatureGallery`1",
             "NullableClass");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "NullableAttribute");
+        AssertSkipped(bytes, "NullableAttribute");
     }
 
     [TestMethod]
-    public void ReadRejectsConstructorIncompatibleFlagsAndStaticConstructorAccessibility()
+    public void ReadSkipsConstructorIncompatibleFlagsAndStaticConstructorAccessibility()
     {
         var virtualConstructor = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeMethodAttributes(
@@ -817,12 +746,7 @@ public sealed class MetadataApiReaderTests
             "SignatureGallery`1",
             ".ctor",
             attributes => attributes | MethodAttributes.Virtual);
-        using (var stream = new MemoryStream(virtualConstructor))
-        {
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, "constructor", StringComparison.OrdinalIgnoreCase);
-        }
+        AssertSkipped(virtualConstructor, "constructor", StringComparison.OrdinalIgnoreCase);
 
         var publicTypeInitializer = File.ReadAllBytes(FixtureAssemblyPath);
         ChangeMethodAttributes(
@@ -830,16 +754,11 @@ public sealed class MetadataApiReaderTests
             "SignatureGallery`1",
             ".cctor",
             attributes => attributes & ~MethodAttributes.MemberAccessMask | MethodAttributes.Public);
-        using (var stream = new MemoryStream(publicTypeInitializer))
-        {
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, "initializer", StringComparison.OrdinalIgnoreCase);
-        }
+        AssertSkipped(publicTypeInitializer, "initializer", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public void ReadRejectsWrappedAndByReferenceOperatorOwnership()
+    public void ReadSkipsWrappedAndByReferenceOperatorOwnership()
     {
         foreach (var sourceName in new[] { "WrappedOperatorSource", "RefOperatorSource" })
         {
@@ -849,15 +768,13 @@ public sealed class MetadataApiReaderTests
                 "SignatureGallery`1",
                 "op_Addition",
                 sourceName);
-            using var stream = new MemoryStream(bytes);
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, "op_Addition");
+
+            AssertSkipped(bytes, "op_Addition");
         }
     }
 
     [TestMethod]
-    public void ReadRejectsInvalidIncrementAndBooleanOperatorReturnTypes()
+    public void ReadSkipsInvalidIncrementAndBooleanOperatorReturnTypes()
     {
         foreach (var operatorName in new[] { "op_Increment", "op_True" })
         {
@@ -867,15 +784,13 @@ public sealed class MetadataApiReaderTests
                 "SignatureGallery`1",
                 operatorName,
                 "IncrementReturnSource");
-            using var stream = new MemoryStream(bytes);
-            var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-                MetadataApiReader.Read(stream));
-            StringAssert.Contains(exception.Message, operatorName);
+
+            AssertSkipped(bytes, operatorName);
         }
     }
 
     [TestMethod]
-    public void ReadRejectsAnOperatorUsingTheWrongConstructedDeclaringType()
+    public void ReadSkipsAnOperatorUsingTheWrongConstructedDeclaringType()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMethodSignatureWith(
@@ -884,17 +799,14 @@ public sealed class MetadataApiReaderTests
             "op_Increment",
             "WrongConstructedOperatorSource");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, "op_Increment");
+        AssertSkipped(bytes, "op_Increment");
     }
 
     [TestMethod]
     [DataRow("RefParameterOperatorSource", "op_Addition")]
     [DataRow("RefConversionReturnSource", "op_Implicit")]
     [DataRow("RefConversionReturnSource", "op_CheckedExplicit")]
-    public void ReadRejectsByReferenceOperatorParametersAndReturns(
+    public void ReadSkipsByReferenceOperatorParametersAndReturns(
         string sourceName,
         string operatorName)
     {
@@ -906,11 +818,8 @@ public sealed class MetadataApiReaderTests
             attributes => attributes | MethodAttributes.SpecialName);
         ReplaceMetadataString(bytes, sourceName, operatorName);
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-        StringAssert.Contains(exception.Message, operatorName);
-        StringAssert.Contains(exception.Message, "by-reference", StringComparison.OrdinalIgnoreCase);
+        var skipped = AssertSkipped(bytes, operatorName);
+        StringAssert.Contains(skipped.Reason, "by-reference", StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
@@ -1019,44 +928,91 @@ public sealed class MetadataApiReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsAnUnknownExternalEnumWithItsIdentity()
+    public void ReadSkipsAnUnknownExternalEnumWithItsIdentity()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMetadataString(bytes, "AttributeTargets", "DayOfWeek");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-
-        StringAssert.Contains(exception.Message, "System.DayOfWeek");
+        AssertSkipped(bytes, "System.DayOfWeek");
     }
 
     [TestMethod]
-    public void ReadRejectsAnUnsupportedSignatureModifierWithItsIdentity()
+    public void ReadSkipsAnUnsupportedSignatureModifierWithItsIdentity()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceMetadataString(bytes, "InAttribute", "BadModifier");
 
-        using var stream = new MemoryStream(bytes);
-        var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
-            MetadataApiReader.Read(stream));
-
-        StringAssert.Contains(
-            exception.Message,
-            "System.Runtime.InteropServices.BadModifier");
+        AssertSkipped(bytes, "System.Runtime.InteropServices.BadModifier");
     }
 
     [TestMethod]
-    public void ReadRejectsACompoundSerializedSystemTypeArgument()
+    public void ReadSkipsACompoundSerializedSystemTypeArgument()
     {
         var bytes = File.ReadAllBytes(FixtureAssemblyPath);
         ReplaceFirstUtf8Occurrence(bytes, "System.Uri", "System.Ur*");
 
+        AssertSkipped(bytes, "unsupported compound type form");
+    }
+
+    // The point of skipping: one member the reader cannot model used to cost the coverage of every
+    // other declaration in the assembly. These assert what is kept, not only what is reported.
+    [TestMethod]
+    public void ReadKeepsEveryOtherDeclarationWhenOneMemberIsSkipped()
+    {
+        using var clean = File.OpenRead(FixtureAssemblyPath);
+        var expected = MetadataApiReader.Read(clean);
+
+        var bytes = File.ReadAllBytes(FixtureAssemblyPath);
+        ReplaceMethodSignature(bytes, "get_AccessorProbe", "get_AccessorSource");
         using var stream = new MemoryStream(bytes);
+        var corpus = MetadataApiReader.Read(stream);
+
+        Assert.AreEqual(1, corpus.Skipped.Count);
+        Assert.AreEqual("property", corpus.Skipped[0].Kind);
+        Assert.AreEqual("AccessorProbe", corpus.Skipped[0].Name);
+        StringAssert.Contains(corpus.Skipped[0].DeclaringType, "SignatureGallery");
+
+        Assert.AreEqual(
+            expected.Types.Count,
+            corpus.Types.Count,
+            "A skipped member must not cost its declaring type, nor any other type.");
+        var gallery = corpus.Types.Single(item => item.FullName == "Fixtures.SignatureGallery<T>");
+        var expectedGallery = expected.Types.Single(item => item.FullName == "Fixtures.SignatureGallery<T>");
+        Assert.AreEqual(expectedGallery.Members.Count - 1, gallery.Members.Count);
+        Assert.IsFalse(gallery.Members.Any(item => item.Name == "AccessorProbe"));
+    }
+
+    [TestMethod]
+    public void ReadStillFailsOnMetadataThatIsNotManaged()
+    {
+        using var stream = new MemoryStream(new byte[512]);
+
         var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
             MetadataApiReader.Read(stream));
 
-        StringAssert.Contains(exception.Message, "unsupported compound type form");
+        StringAssert.Contains(exception.Message, "managed metadata");
+    }
+
+    /// <summary>
+    /// Asserts that a declaration the reader cannot model is skipped and reported rather than
+    /// failing the assembly, and that the reported reason still names the declaration -- the
+    /// identifying detail the old rejection carried in its exception message.
+    /// </summary>
+    private static ApiSkippedDeclaration AssertSkipped(
+        byte[] bytes,
+        string expectedInReason,
+        StringComparison comparison = StringComparison.Ordinal)
+    {
+        using var stream = new MemoryStream(bytes);
+        var corpus = MetadataApiReader.Read(stream);
+
+        var match = corpus.Skipped.FirstOrDefault(item =>
+            item.Reason.Contains(expectedInReason, comparison));
+        Assert.IsNotNull(
+            match,
+            $"No skipped declaration mentioned '{expectedInReason}'. Skipped: "
+            + string.Join(" | ", corpus.Skipped.Select(item => item.Reason)));
+        return match;
     }
 
     private static string GetFixturePath(string key) => typeof(MetadataApiReaderTests).Assembly

@@ -1,3 +1,4 @@
+using System.Text;
 using DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 using DotNetKnowledge.Mcp.Sources;
 using DotNetKnowledge.Mcp.Text;
@@ -7,6 +8,7 @@ namespace DotNetKnowledge.Mcp.Features.ApiDocs;
 internal sealed class PackageApiDocsBackend : IApiDocsBackend
 {
     private const int MatchTextBudget = 300;
+    private const int MaximumReportedSkipReasons = 10;
 
     private static readonly Dictionary<string, string> CSharpAliases =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -68,7 +70,60 @@ internal sealed class PackageApiDocsBackend : IApiDocsBackend
             framework,
             state.FetchedAt);
         _coverage = new ApiQueryCoverage(
-            [_provenance], framework, state.DefaultFramework, state.AvailableFrameworks.ToArray());
+            [_provenance],
+            framework,
+            state.DefaultFramework,
+            state.AvailableFrameworks.ToArray(),
+            SummarizeSkipped(_corpus.Skipped));
+    }
+
+    /// <summary>
+    /// Turns the corpus's skipped declarations into a payload-sized report: a total, and the most
+    /// common reasons. The full list stays in the stored corpus — a package with hundreds of skips
+    /// must not spend an agent's context enumerating them, and the total is what tells the agent
+    /// its answer is drawn from an incomplete corpus.
+    /// </summary>
+    internal static ApiSkipCoverage? SummarizeSkipped(IReadOnlyList<ApiSkippedDeclaration> skipped)
+    {
+        if (skipped is null || skipped.Count == 0)
+            return null;
+
+        var grouped = skipped
+            .GroupBy(item => CollapseQuoted(item.Reason), StringComparer.Ordinal)
+            .Select(group => new ApiSkipReason(group.Key, group.Count()))
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Reason, StringComparer.Ordinal)
+            .ToArray();
+
+        return new ApiSkipCoverage(
+            skipped.Count,
+            grouped.Take(MaximumReportedSkipReasons).ToArray(),
+            grouped.Length > MaximumReportedSkipReasons);
+    }
+
+    /// <summary>
+    /// Replaces the quoted declaration name in a reader message with a placeholder. Without it the
+    /// same defect reports once per member -- the names are interpolated into the message -- and the
+    /// summary degenerates into the list it exists to replace.
+    /// </summary>
+    private static string CollapseQuoted(string message)
+    {
+        var result = new StringBuilder(message.Length);
+        var inQuote = false;
+        foreach (var character in message)
+        {
+            if (character == '\'')
+            {
+                result.Append(inQuote ? ">'" : "'<");
+                inQuote = !inQuote;
+                continue;
+            }
+
+            if (!inQuote)
+                result.Append(character);
+        }
+
+        return result.ToString();
     }
 
     public ApiLookupRead Lookup(string symbol, CancellationToken cancellationToken)

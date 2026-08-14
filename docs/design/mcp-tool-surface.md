@@ -52,6 +52,15 @@ framework?, on all four: which target framework of the Roslyn source's
     Rejected as invalid_request with source: "dotnet-api-docs", whose
     documentation is framework-neutral.
 
+skippedDeclarations, on all four: present only when the queried package
+    corpus omits declarations the metadata reader could not model, and
+    absent otherwise. declarations is the total; reasons is a capped
+    histogram of the reader's messages with the declaration names
+    collapsed, and reasonsArePartial states when the cap dropped one.
+    A skipped declaration is indistinguishable from one that was never
+    declared unless the payload says so — the same guarantee isPartial
+    gives a capped result set, applied to the corpus itself.
+
 lookup_api(symbol, source?, framework?, limit?, cursor?)
     symbol: "SymbolFinder" | "SymbolFinder.FindCallersAsync"
     → a bare type name returns each matching member's name and signature

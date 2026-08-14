@@ -305,7 +305,7 @@ internal static class ApiDocsFixture
             Path.Combine(corpusDirectory, "net8.0.json"),
             definition,
             "net8.0",
-            PackageApiCorpusBuilder.NormalizeForStorage(PerturbFixtureCorpus(new ApiCorpus(2,
+            PackageApiCorpusBuilder.NormalizeForStorage(PerturbFixtureCorpus(new ApiCorpus(3,
             [
                 new ApiCorpusType(
                     "T:System.LegacyWidget", "LegacyWidget", "System.LegacyWidget", null,
@@ -318,7 +318,7 @@ internal static class ApiDocsFixture
                     [], [],
                     [new ApiAttributeUse("[System.WidgetTrait]", "System.WidgetTraitAttribute", [])],
                     EmptyPackageDocumentation(), []),
-            ]), reverseFixtureInsertion)),
+            ], []), reverseFixtureInsertion)),
             CancellationToken.None);
 
         var packageState = PackageState();
@@ -569,7 +569,7 @@ internal static class ApiDocsFixture
     private static ApiCorpus PackageCorpus()
     {
         var longSummary = "Needle " + new string('x', 340);
-        return new ApiCorpus(2,
+        return new ApiCorpus(3,
         [
             new ApiCorpusType(
                 "T:System.StringDerived", "StringDerived", "System.StringDerived",
@@ -708,7 +708,7 @@ internal static class ApiDocsFixture
                         [new ApiTypeUse("trait", "System.WidgetTrait", ["System.WidgetTrait"])],
                         null, [], [], EmptyPackageDocumentation()),
                 ]),
-        ]);
+        ], []);
     }
 
     private static ApiCorpus MergedPackageCorpus()
@@ -816,7 +816,7 @@ internal static class ApiDocsFixture
                         packageDefinition,
                         state,
                         framework,
-                        new ApiCorpus(2, []),
+                        new ApiCorpus(3, [], []),
                         reverseFixtureInsertion,
                         cancellationToken);
                 }
@@ -861,7 +861,7 @@ internal static class ApiDocsFixture
             cancellationToken);
     }
 
-    private static ApiCorpus LegacyPackageCorpus() => new(2,
+    private static ApiCorpus LegacyPackageCorpus() => new(3,
     [
         new ApiCorpusType(
             "T:System.LegacyWidget", "LegacyWidget", "System.LegacyWidget", null,
@@ -874,7 +874,7 @@ internal static class ApiDocsFixture
             [], [],
             [new ApiAttributeUse("[System.WidgetTrait]", "System.WidgetTraitAttribute", [])],
             EmptyPackageDocumentation(), []),
-    ]);
+    ], []);
 
     /// <summary>
     /// A source holding both an attribute type whose C# short form names nothing else and one whose

@@ -150,6 +150,14 @@ public sealed class PackageApiCorpusBuilder
                 .OrderBy(item => item.TypeExpression, StringComparer.Ordinal).ToArray(),
             Attributes = NormalizeAttributes(type.Attributes),
         }).OrderBy(type => type.FullName, StringComparer.Ordinal).ToArray(),
+        // Ordered for the same reason the types are: a corpus must be a function of the assembly,
+        // not of the order metadata happened to be walked in.
+        Skipped = corpus.Skipped
+            .OrderBy(item => item.DeclaringType, StringComparer.Ordinal)
+            .ThenBy(item => item.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.Name, StringComparer.Ordinal)
+            .ThenBy(item => item.Reason, StringComparer.Ordinal)
+            .ToArray(),
     };
 
     private static ApiTypeUse NormalizeTypeUse(ApiTypeUse item) => item with

@@ -76,6 +76,26 @@ public enum ApiLookupOutcome
     MemberNotFound,
 }
 
+/// <summary>
+/// How many declarations the metadata reader could not model, and why. Present only when something
+/// was skipped, and null otherwise, so a complete corpus costs nothing to report.
+/// </summary>
+/// <remarks>
+/// A skipped declaration is indistinguishable from one that was never declared unless the payload
+/// says so, which is the same reason a capped result set carries <c>isPartial</c>. An agent that
+/// searched an incomplete corpus and found nothing needs to know which of the two it got.
+/// <para>
+/// <see cref="Reasons"/> is capped, and <see cref="ReasonsArePartial"/> says when the cap dropped
+/// something — <see cref="Declarations"/> is always the true total.
+/// </para>
+/// </remarks>
+public sealed record ApiSkipCoverage(
+    int Declarations,
+    IReadOnlyList<ApiSkipReason> Reasons,
+    bool ReasonsArePartial);
+
+public sealed record ApiSkipReason(string Reason, int Count);
+
 public sealed record ApiLookupResult(
     IReadOnlyList<ApiTypeDocumentation> Matches,
     IReadOnlyList<ApiProvenance> SearchedSources,
@@ -85,7 +105,8 @@ public sealed record ApiLookupResult(
     string? NextPageToken,
     string? EffectiveFramework,
     string? DefaultFramework,
-    IReadOnlyList<string>? AvailableFrameworks);
+    IReadOnlyList<string>? AvailableFrameworks,
+    ApiSkipCoverage? SkippedDeclarations);
 
 /// <param name="NamespaceDepth">
 /// How many namespace segments sit between the namespace the pattern named and the type — 0 for a
@@ -127,7 +148,8 @@ public sealed record ApiSearchResult(
     ApiSearchNote? Note,
     string? EffectiveFramework,
     string? DefaultFramework,
-    IReadOnlyList<string>? AvailableFrameworks);
+    IReadOnlyList<string>? AvailableFrameworks,
+    ApiSkipCoverage? SkippedDeclarations);
 
 /// <param name="MoreFromSymbol">
 /// How many further matches this symbol had that the per-symbol cap dropped from the result set, set
@@ -150,7 +172,8 @@ public sealed record ApiTextSearchResult(
     IReadOnlyList<ApiProvenance> SearchedSources,
     string? EffectiveFramework,
     string? DefaultFramework,
-    IReadOnlyList<string>? AvailableFrameworks);
+    IReadOnlyList<string>? AvailableFrameworks,
+    ApiSkipCoverage? SkippedDeclarations);
 
 /// <summary>
 /// How a declaration uses the type asked about. These are different questions wearing one word:
@@ -228,7 +251,8 @@ public sealed record ApiReferenceResult(
     IReadOnlyList<ApiProvenance> SearchedSources,
     string? EffectiveFramework,
     string? DefaultFramework,
-    IReadOnlyList<string>? AvailableFrameworks);
+    IReadOnlyList<string>? AvailableFrameworks,
+    ApiSkipCoverage? SkippedDeclarations);
 
 public sealed class FrameworkNotAvailableException : ArgumentException
 {

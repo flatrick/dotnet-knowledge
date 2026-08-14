@@ -105,7 +105,9 @@ These are correctness obligations, not preferences:
 - **No silent truncation.** Every capped result set carries `isPartial` or a cursor, and every
   capped *string* carries `isTruncated`. An agent that receives a quietly-truncated search concludes
   the symbol does not exist. Report truncation in a field, never by marking the text: an ellipsis
-  cannot be told from one the source itself wrote.
+  cannot be told from one the source itself wrote. The same obligation covers the corpus itself: a
+  declaration `MetadataApiReader` could not model is skipped rather than failing the package, and
+  every API payload carries `skippedDeclarations` when the queried corpus is incomplete.
 - **`list_sources` keeps returning `cacheDir`.** Structured lookup will not cover everything, and an
   agent has no other way to find them.
 - **Search tools return names and locations, never bodies.** `search_api` returns fully-qualified

@@ -44,9 +44,12 @@ if (!Directory.Exists(root))
 var readCount = 0;
 var refusedCount = 0;
 var otherCount = 0;
+var skippedCount = 0;
 var byReason = new Dictionary<string, (int Count, string Example)>(StringComparer.Ordinal);
+var bySkipReason = new Dictionary<string, (int Count, string Example)>(StringComparer.Ordinal);
 var readPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 var refusedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+var skippedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 var stopwatch = Stopwatch.StartNew();
 
 foreach (var packageDirectory in Directory
@@ -74,9 +77,21 @@ foreach (var packageDirectory in Directory
                 try
                 {
                     using var stream = File.OpenRead(assemblyPath);
-                    MetadataApiReader.Read(stream);
+                    var corpus = MetadataApiReader.Read(stream);
                     readCount++;
                     readPackages.Add(packageId);
+                    // A declaration the reader cannot model no longer costs the assembly, so the
+                    // refusal rate alone would now read as complete coverage. The skips are where
+                    // that cost moved, and they are the number to watch.
+                    foreach (var declaration in corpus.Skipped)
+                    {
+                        skippedCount++;
+                        skippedPackages.Add(packageId);
+                        Record(
+                            bySkipReason,
+                            CollapseQuoted(declaration.Reason),
+                            $"{packageId} :: {Path.GetFileName(frameworkDirectory)} :: {declaration.DeclaringType}");
+                    }
                 }
                 catch (InvalidDataException exception)
                 {
@@ -108,6 +123,7 @@ var firstPartyTotal = readPackages.Concat(refusedPackages)
 Console.WriteLine($"assemblies read      : {readCount}");
 Console.WriteLine($"assemblies refused   : {refusedCount}");
 Console.WriteLine($"other errors         : {otherCount}");
+Console.WriteLine($"declarations skipped : {skippedCount} across {skippedPackages.Count} packages");
 Console.WriteLine($"packages clean       : {readPackages.Except(refusedPackages, StringComparer.OrdinalIgnoreCase).Count()}");
 Console.WriteLine($"packages with refusal: {refusedPackages.Count}");
 // The server reads only packages an operator catalogs, which are realistically first-party, so this
@@ -126,6 +142,14 @@ if (firstPartyRefused.Length > 0)
 Console.WriteLine();
 Console.WriteLine("refusal reasons, most common first:");
 foreach (var pair in byReason.OrderByDescending(pair => pair.Value.Count))
+{
+    Console.WriteLine($"  {pair.Value.Count,5}  {pair.Key}");
+    Console.WriteLine($"         e.g. {pair.Value.Example}");
+}
+
+Console.WriteLine();
+Console.WriteLine("skip reasons, most common first:");
+foreach (var pair in bySkipReason.OrderByDescending(pair => pair.Value.Count))
 {
     Console.WriteLine($"  {pair.Value.Count,5}  {pair.Key}");
     Console.WriteLine($"         e.g. {pair.Value.Example}");
