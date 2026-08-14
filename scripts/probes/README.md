@@ -1,8 +1,8 @@
 # Probes
 
 Throwaway programs that answer questions about the *host*, not about this repository's code. Most
-are MCP servers; five are not — two drivers that play the client, one that interrogates the
-machine's compilers, and two that run shipped package-pipeline code over real NuGet content.
+are MCP servers; six are not — two drivers that play the client, one that interrogates the
+machine's compilers, and three that run shipped package-pipeline code over real NuGet content.
 
 Some faults only appear when a server is launched by an MCP client, and a client is an awkward place
 to run an experiment: the tool surface is fixed, output is summarized, and a hung call looks the same
@@ -181,4 +181,25 @@ the finding it supports is a claim about packages in general drawn from the few 
 
 ```powershell
 dotnet run --file scripts/probes/diff-tfm-surface.cs -- --package "$env:USERPROFILE\.nuget\packages\microsoft.codeanalysis.common\5.6.0" --assembly Microsoft.CodeAnalysis
+```
+
+## sweep-api-reader.cs
+
+Not an MCP server. It runs the shipped `MetadataApiReader.Read` over every `lib/<framework>/*.dll` in
+a package folder tree — the machine's NuGet cache by default — and reports how many assemblies it
+reads, how many it refuses, and the refusal reasons grouped with the declaration names collapsed
+out. It exits 1 when anything was refused.
+
+It answers whether the set of metadata shapes the reader does not model is small and nearly closed
+or open-ended, which is what decides between fixing shapes one at a time and making an undecodable
+declaration stop costing the whole package.
+`docs/backlog/undecodable-metadata-fails-the-whole-package.md` carries the measurement.
+
+**The rate is a property of whatever that machine happens to have restored**, not of NuGet as a
+whole, and a cache full of one ecosystem's packages will read as that ecosystem. The first-party
+line is broken out separately because those are the packages the server would realistically catalog.
+
+```powershell
+dotnet run --file scripts/probes/sweep-api-reader.cs
+dotnet run --file scripts/probes/sweep-api-reader.cs -- --root D:\packages --limit 200
 ```
