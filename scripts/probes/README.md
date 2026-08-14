@@ -1,8 +1,8 @@
 # Probes
 
 Throwaway programs that answer questions about the *host*, not about this repository's code. Most
-are MCP servers; three are not — two drivers that play the client, and one that interrogates the
-machine's compilers.
+are MCP servers; four are not — two drivers that play the client, one that interrogates the
+machine's compilers, and one that runs the shipped package pipeline over a real NuGet archive.
 
 Some faults only appear when a server is launched by an MCP client, and a client is an awkward place
 to run an experiment: the tool surface is fixed, output is summarized, and a hung call looks the same
@@ -138,4 +138,26 @@ Missing binaries are reported, not guessed at. Windows only.
 
 ```bash
 dotnet run --file scripts/probes/probe-preferreduilang.cs
+```
+
+## probe-api-package-supplement.cs
+
+Not an MCP server. It runs the **shipped** package pipeline — `PackageArchiveReader.ReadAssets`,
+`PackageApiCorpusBuilder.BuildAsync`, `PackageApiCorpusStore.Read` — over one `.nupkg` the operator
+already has on disk, and prints the package id and version, the SHA-512 it computed with whether
+that matches the catalog's pin, the frameworks found and built, the cataloged default, and
+`MSBuildWorkspace`'s member count and `Create` overload signatures.
+
+It answers whether the real `Microsoft.CodeAnalysis.Workspaces.MSBuild` package has the layout,
+assembly names and documentation IDs the server assumes. The automated suite exercises the same code
+against repository-authored fixtures, which cannot answer that: a fixture is built to the
+assumption rather than against it.
+
+**It proves compatibility with one local copy of one package at one version, and nothing else.** It
+never downloads, so it says nothing about the NuGet client, the feed, or hash verification on the
+wire; and nothing about layouts a future package version might ship. Those stay covered by the
+offline tests and by re-running this probe when the pin moves.
+
+```powershell
+dotnet run --file scripts/probes/probe-api-package-supplement.cs -- --package "$env:USERPROFILE\.nuget\packages\microsoft.codeanalysis.workspaces.msbuild\5.3.0\microsoft.codeanalysis.workspaces.msbuild.5.3.0.nupkg"
 ```
