@@ -24,6 +24,20 @@ needs more.
 
 ---
 
+### 2026-08-14 · The same flag set is read by two renderers, and fixing one left the other wrong · codebase
+
+Supersedes the entry below, whose fact holds but whose scope did not: `MetadataApiReader` renders
+declaration modifiers in **two** places — `GetAccessorDeclarationModifiers` for properties and
+events, `GetMethodModifiers` for methods — and correcting the first left the second reading
+`Final|Virtual|NewSlot` as `sealed override`. The method population is nearly six times the
+accessor one: 18 578 against 3 162, and it lands on `Equals`, `Dispose` and `GetEnumerator`, so
+almost every assembly that implements an interface was affected. Both now share
+`SemanticModifierMask` and `CollapseImplicitInterfaceImplementation` so they cannot disagree again.
+The lesson generalizes past this file: a fix verified against a fixture proves the path it
+exercised, not the defect. Only re-measuring the whole population found the other half.
+
+---
+
 ### 2026-08-14 · `Final|Virtual|NewSlot` on an accessor is an interface implementation, not `sealed override` · codebase
 
 The C# compiler emits `Final|Virtual|NewSlot` for a member that *implicitly implements an interface*

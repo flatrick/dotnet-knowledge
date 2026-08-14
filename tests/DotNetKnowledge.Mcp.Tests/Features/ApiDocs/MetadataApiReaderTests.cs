@@ -320,6 +320,47 @@ public sealed class MetadataApiReaderTests
             string.Join(Environment.NewLine, members.Select(item => item.Signature)));
     }
 
+    // The method renderer and the accessor renderer must read a flag set the same way. They did not:
+    // the accessor path was corrected first and methods kept rendering an implicit interface
+    // implementation as 'sealed override', which reached Equals, Dispose and GetEnumerator across
+    // every assembly that implements them.
+    [TestMethod]
+    public void ReadRendersImplicitlyImplementedMethodsWithoutAModifier()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+        var methods = corpus.Types
+            .Single(item => item.FullName == "Fixtures.ImplicitMethods").Members;
+        var accessors = corpus.Types
+            .Single(item => item.FullName == "Fixtures.ImplicitAccessors").Members;
+
+        Assert.IsTrue(
+            methods.Any(item => item.Signature == "public bool Equals(Fixtures.ImplicitMethods? other);"),
+            string.Join(Environment.NewLine, methods.Select(item => item.Signature)));
+        Assert.IsTrue(
+            methods.Any(item => item.Signature == "public void Dispose();"),
+            string.Join(Environment.NewLine, methods.Select(item => item.Signature)));
+        Assert.IsTrue(
+            accessors.Any(item => item.Signature == "public void ImplicitMethod();"),
+            string.Join(Environment.NewLine, accessors.Select(item => item.Signature)));
+    }
+
+    // The guard on the collapse: an override that also satisfies an interface reuses its base slot,
+    // so it is not a new slot and is still an override. Collapsing on Final|Virtual alone would
+    // erase a modifier the source really wrote.
+    [TestMethod]
+    public void ReadKeepsOverrideOnAMethodThatAlsoImplementsAnInterface()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+        var members = corpus.Types
+            .Single(item => item.FullName == "Fixtures.OverrideThatImplements").Members;
+
+        Assert.IsTrue(
+            members.Any(item => item.Signature == "public override void ImplicitMethod();"),
+            string.Join(Environment.NewLine, members.Select(item => item.Signature)));
+    }
+
     // A private setter is not part of the rendered declaration, so its vtable flags must not decide
     // one. Comparing them rejected the ordinary '{ get; private set; }' on an interface-implementing
     // property, which was 1190 of the 1681 skips this check produced across the NuGet cache.

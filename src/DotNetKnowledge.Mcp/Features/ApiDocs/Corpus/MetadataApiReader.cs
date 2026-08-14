@@ -15,6 +15,17 @@ public static class MetadataApiReader
     private const MethodAttributes ImplicitInterfaceImplementation =
         MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.NewSlot;
 
+    /// <summary>
+    /// The flags that decide a declaration's C# modifiers. Shared by the method and accessor
+    /// renderers deliberately: the two must read a given flag set the same way, and they did not.
+    /// </summary>
+    private const MethodAttributes SemanticModifierMask = MethodAttributes.Static
+        | MethodAttributes.Abstract
+        | MethodAttributes.Virtual
+        | MethodAttributes.Final
+        | MethodAttributes.NewSlot
+        | MethodAttributes.PinvokeImpl;
+
     private static readonly ApiDocumentation EmptyDocumentation = new(
         null,
         Array.Empty<ApiNamedDocumentation>(),
@@ -521,7 +532,9 @@ public static class MetadataApiReader
             if (!isConstructor && !isOperator && methodParameters.Length > 0)
                 displayName += $"<{string.Join(", ", methodParameters)}>";
 
-            var modifiers = GetMethodModifiers(method.Attributes);
+            var modifiers = GetMethodModifiers(
+                method.Attributes,
+                (reader.GetTypeDefinition(typeHandle).Attributes & TypeAttributes.Interface) != 0);
             var returnPrefix = GetReturnPrefix(returnType, returnParameterAttributes);
             var returnText = isConstructor || isConversion
                 ? string.Empty
@@ -1262,19 +1275,34 @@ public static class MetadataApiReader
             _ => throw new InvalidDataException($"Field accessibility '{access}' is not part of the visible API."),
         };
 
-        private static string GetMethodModifiers(MethodAttributes attributes)
+        /// <summary>
+        /// Renders a method's declaration modifiers, applying the same
+        /// <see cref="CollapseImplicitInterfaceImplementation"/> the accessor path does.
+        /// </summary>
+        /// <remarks>
+        /// The two must agree: <c>Final|Virtual|NewSlot</c> is an implicit interface implementation
+        /// on a method exactly as it is on an accessor, and it carries no modifier. Reading it as
+        /// <c>sealed override</c> claimed an override relationship that does not exist on
+        /// <c>Equals</c>, <c>Dispose</c> and <c>GetEnumerator</c> across the board. An override that
+        /// also satisfies an interface reuses its base slot and so is not a new slot, which is what
+        /// keeps this from swallowing a real override.
+        /// </remarks>
+        private static string GetMethodModifiers(MethodAttributes attributes, bool isInterface)
         {
             var result = new StringBuilder(GetAccessibility(attributes & MethodAttributes.MemberAccessMask));
             result.Append(' ');
+            var semantics = CollapseImplicitInterfaceImplementation(
+                attributes & SemanticModifierMask,
+                isInterface);
             if ((attributes & MethodAttributes.Static) != 0)
                 result.Append("static ");
-            if ((attributes & MethodAttributes.Abstract) != 0)
+            if ((semantics & MethodAttributes.Abstract) != 0)
                 result.Append("abstract ");
-            else if ((attributes & MethodAttributes.Virtual) != 0)
+            else if ((semantics & MethodAttributes.Virtual) != 0)
             {
-                if ((attributes & MethodAttributes.Final) != 0)
+                if ((semantics & MethodAttributes.Final) != 0)
                     result.Append("sealed override ");
-                else if ((attributes & MethodAttributes.NewSlot) != 0)
+                else if ((semantics & MethodAttributes.NewSlot) != 0)
                     result.Append("virtual ");
                 else
                     result.Append("override ");
@@ -1555,12 +1583,6 @@ public static class MetadataApiReader
             IEnumerable<MethodDefinitionHandle> handles,
             string position)
         {
-            const MethodAttributes semanticMask = MethodAttributes.Static
-                | MethodAttributes.Abstract
-                | MethodAttributes.Virtual
-                | MethodAttributes.Final
-                | MethodAttributes.NewSlot
-                | MethodAttributes.PinvokeImpl;
             var declaringType = reader.GetTypeDefinition(typeHandle);
             var isInterface = (declaringType.Attributes & TypeAttributes.Interface) != 0;
             var present = handles.Where(handle => !handle.IsNil).ToArray();
@@ -1578,7 +1600,7 @@ public static class MetadataApiReader
 
             var semantics = considered
                 .Select(handle => CollapseImplicitInterfaceImplementation(
-                    reader.GetMethodDefinition(handle).Attributes & semanticMask,
+                    reader.GetMethodDefinition(handle).Attributes & SemanticModifierMask,
                     isInterface))
                 .Distinct()
                 .ToArray();

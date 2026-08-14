@@ -104,6 +104,46 @@ public interface IImplicitAccessors
     int PrivateSetterProperty { get; }
 
     event EventHandler? ImplicitEvent;
+
+    void ImplicitMethod();
+}
+
+// A method implementing an interface carries the same Final|Virtual|NewSlot the accessors do, and
+// the same absence of a modifier. Equals, Dispose and GetEnumerator are the shapes this reaches in
+// practice, so the fixture uses them rather than an invented name.
+public sealed class ImplicitMethods : IEquatable<ImplicitMethods>, IDisposable
+{
+    public bool Equals(ImplicitMethods? other) => ReferenceEquals(this, other);
+
+    public override bool Equals(object? obj) => Equals(obj as ImplicitMethods);
+
+    public override int GetHashCode() => 0;
+
+    public void Dispose()
+    {
+    }
+}
+
+public class ImplicitMethodBase
+{
+    public virtual void ImplicitMethod()
+    {
+    }
+}
+
+// The guard: an override that ALSO satisfies an interface reuses its base slot, so it is not a new
+// slot and must still read as an override. Collapsing on Final|Virtual alone would swallow it.
+public class OverrideThatImplements : ImplicitMethodBase, IImplicitAccessors
+{
+    public override void ImplicitMethod()
+    {
+    }
+
+    public int ImplicitProperty => 0;
+
+    public int PrivateSetterProperty => 0;
+
+    public event EventHandler? ImplicitEvent;
 }
 
 // Implicitly implementing an interface emits Final|Virtual|NewSlot on the accessor that
@@ -116,6 +156,10 @@ public class ImplicitAccessors : IImplicitAccessors
     public int PrivateSetterProperty { get; private set; }
 
     public event EventHandler? ImplicitEvent;
+
+    public void ImplicitMethod()
+    {
+    }
 }
 
 public interface IStaticAccessors
