@@ -24,6 +24,17 @@ and the entry links there.
 
 ---
 
+### 2026-08-14 · The package hash is verified against the downloaded bytes, not fetched from the feed
+
+`NuGetPackageClient` requests only resources the v3 `PackageBaseAddress` defines — the service index
+and the `.nupkg` — and compares the catalog SHA-512 to the bytes that arrived. Rejected: fetching
+`{package}.nupkg.sha512`, which 404s on every real feed because it is not a flat-container resource
+at all but a file NuGet's client writes into the machine's global packages folder, the one place
+this server refuses to read. It also added nothing: the catalog hash was already the trust anchor,
+and for a `head` ref there is no anchor but TLS either way.
+
+---
+
 ### 2026-08-14 · API provenance is a discriminated union, and Git wins on overlap
 
 API payloads carry `ApiProvenance` under `kind` — `git` with repo/ref/commit, `nuget` with

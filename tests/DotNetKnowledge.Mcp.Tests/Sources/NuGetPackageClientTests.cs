@@ -9,7 +9,6 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 public sealed class NuGetPackageClientTests
 {
     private const int ExpectedMaximumServiceIndexBytes = 1024 * 1024;
-    private const int ExpectedMaximumHashResponseBytes = 1024;
     private const int ExpectedMaximumPackageBytes = 64 * 1024 * 1024;
 
     [TestMethod]
@@ -27,8 +26,6 @@ public sealed class NuGetPackageClientTests
                 return Task.FromResult(request.RequestUri!.AbsoluteUri switch
                 {
                     "https://feed.test/v3/index.json" => JsonResponse(ServiceIndex()),
-                    "https://flat.test/v3-flatcontainer/test.package/5.3.0-beta/test.package.5.3.0-beta.nupkg.sha512" =>
-                        TextResponse(expectedSha512),
                     "https://flat.test/v3-flatcontainer/test.package/5.3.0-beta/test.package.5.3.0-beta.nupkg" =>
                         BytesResponse(packageBytes),
                     _ => throw new AssertFailedException($"Unexpected request: {request.RequestUri}"),
@@ -46,8 +43,50 @@ public sealed class NuGetPackageClientTests
             var expectedUris = new List<string>
             {
                 "https://feed.test/v3/index.json",
-                "https://flat.test/v3-flatcontainer/test.package/5.3.0-beta/test.package.5.3.0-beta.nupkg.sha512",
                 "https://flat.test/v3-flatcontainer/test.package/5.3.0-beta/test.package.5.3.0-beta.nupkg",
+            };
+            CollectionAssert.AreEqual(expectedUris, requestedUris.Select(uri => uri.AbsoluteUri).ToList());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // The flat container defines three resources: {id}/index.json, the .nupkg and the .nuspec. A
+    // feed that serves only those is not a degraded feed, it is every real one, so a download that
+    // needs anything else cannot succeed anywhere. This stub answers 404 exactly as nuget.org does.
+    [TestMethod]
+    public async Task DownloadSucceedsAgainstAFeedServingOnlyTheDefinedFlatContainerResources()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var packageBytes = Encoding.UTF8.GetBytes("repository-authored package fixture");
+            var expectedSha512 = Convert.ToBase64String(SHA512.HashData(packageBytes));
+            var requestedUris = new List<Uri>();
+            using var httpClient = new HttpClient(new StubHttpMessageHandler((request, _) =>
+            {
+                requestedUris.Add(request.RequestUri!);
+                return Task.FromResult(request.RequestUri!.AbsoluteUri switch
+                {
+                    "https://feed.test/v3/index.json" => JsonResponse(ServiceIndex()),
+                    "https://flat.test/v3-flatcontainer/test.package/5.3.0/test.package.5.3.0.nupkg" =>
+                        BytesResponse(packageBytes),
+                    _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+                });
+            }));
+            var destination = Path.Combine(root, "package.nupkg");
+
+            var result = await new NuGetPackageClient(httpClient).DownloadAsync(
+                Package(), "5.3.0", expectedSha512, destination, CancellationToken.None);
+
+            Assert.AreEqual(expectedSha512, result.Sha512);
+            CollectionAssert.AreEqual(packageBytes, await File.ReadAllBytesAsync(destination));
+            var expectedUris = new List<string>
+            {
+                "https://feed.test/v3/index.json",
+                "https://flat.test/v3-flatcontainer/test.package/5.3.0/test.package.5.3.0.nupkg",
             };
             CollectionAssert.AreEqual(expectedUris, requestedUris.Select(uri => uri.AbsoluteUri).ToList());
         }
@@ -409,43 +448,6 @@ public sealed class NuGetPackageClientTests
         var packageBytes = Encoding.UTF8.GetBytes("over-limit service index");
         var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
         using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, serviceIndex, hash);
-
-        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
-            new NuGetPackageClient(httpClient).DownloadAsync(
-                Package(), "5.3.0", hash,
-                Path.Combine(Path.GetTempPath(), $"unused-{Guid.NewGuid():N}.nupkg"),
-                CancellationToken.None));
-    }
-
-    [TestMethod]
-    public async Task DownloadAcceptsAHashResponseAtTheByteLimit()
-    {
-        var root = CreateTemporaryDirectory();
-        try
-        {
-            var packageBytes = Encoding.UTF8.GetBytes("bounded hash");
-            var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
-            var hashResponse = PadWithWhitespace(hash, ExpectedMaximumHashResponseBytes);
-            using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, ServiceIndex(), hashResponse);
-
-            await new NuGetPackageClient(httpClient).DownloadAsync(
-                Package(), "5.3.0", hash, Path.Combine(root, "package.nupkg"), CancellationToken.None);
-
-            Assert.IsTrue(File.Exists(Path.Combine(root, "package.nupkg")));
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [TestMethod]
-    public async Task DownloadRejectsAHashResponseOverTheByteLimit()
-    {
-        var packageBytes = new byte[] { 1 };
-        var hash = Convert.ToBase64String(SHA512.HashData(packageBytes));
-        var hashResponse = PadWithWhitespace(hash, ExpectedMaximumHashResponseBytes + 1);
-        using var httpClient = CreateSuccessfulHttpClient(packageBytes, hash, ServiceIndex(), hashResponse);
 
         await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
             new NuGetPackageClient(httpClient).DownloadAsync(

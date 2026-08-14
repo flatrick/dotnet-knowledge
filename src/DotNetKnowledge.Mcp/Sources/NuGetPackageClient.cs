@@ -21,7 +21,6 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
 {
     private const int MaximumRedirects = 5;
     private const int MaximumServiceIndexBytes = 1024 * 1024;
-    private const int MaximumHashResponseBytes = 1024;
 
     // The pinned 5.3.0 package is 2,213,613 bytes; this permits about 29 times that size while
     // keeping a malicious response comfortably below the archive's 128 MiB uncompressed budget.
@@ -48,27 +47,14 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
         var packageAddress = new Uri(
             packageBaseAddress,
             $"{idSegment}/{versionSegment}/{fileSegment}");
-        var hashAddress = new Uri($"{packageAddress.AbsoluteUri}.sha512", UriKind.Absolute);
-
-        byte[] serverHash;
-        using (var hashResponse = await SendAsync(hashAddress, cancellationToken).ConfigureAwait(false))
-        {
-            var encodedServerHashBytes = await ReadBoundedContentAsync(
-                hashResponse.Content,
-                MaximumHashResponseBytes,
-                "NuGet package hash response",
-                cancellationToken)
-                .ConfigureAwait(false);
-            var encodedServerHash = Encoding.ASCII.GetString(encodedServerHashBytes);
-            serverHash = DecodeSha512(encodedServerHash, "NuGet package hash");
-        }
-
-        if (expectedSha512 is not null)
-        {
-            var catalogHash = DecodeSha512(expectedSha512, "catalog package hash");
-            if (!CryptographicOperations.FixedTimeEquals(serverHash, catalogHash))
-                throw new InvalidDataException("The NuGet package hash does not match the catalog hash.");
-        }
+        // The catalog hash is the trust anchor, so it is compared against the bytes that actually
+        // arrived. There is deliberately no request for a hash resource: the flat container defines
+        // only index.json, the .nupkg and the .nuspec, and the .nupkg.sha512 beside a package is a
+        // file NuGet's client writes into the machine's global packages folder — the one place this
+        // server refuses to read from. Asking a feed for it 404s everywhere.
+        var catalogHash = expectedSha512 is null
+            ? null
+            : DecodeSha512(expectedSha512, "catalog package hash");
 
         var fullDestination = Path.GetFullPath(destination);
         var destinationDirectory = Path.GetDirectoryName(fullDestination)
@@ -114,8 +100,11 @@ public sealed class NuGetPackageClient(HttpClient httpClient) : INuGetPackageCli
                 downloadedHash = hasher.GetHashAndReset();
             }
 
-            if (!CryptographicOperations.FixedTimeEquals(serverHash, downloadedHash))
-                throw new InvalidDataException("The downloaded NuGet package does not match its server hash.");
+            if (catalogHash is not null
+                && !CryptographicOperations.FixedTimeEquals(catalogHash, downloadedHash))
+            {
+                throw new InvalidDataException("The NuGet package hash does not match the catalog hash.");
+            }
 
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporaryPath, fullDestination, overwrite: true);
