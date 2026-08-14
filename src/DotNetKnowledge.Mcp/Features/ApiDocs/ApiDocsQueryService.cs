@@ -586,7 +586,7 @@ public sealed class ApiDocsQueryService
             .ThenBy(package => package?.Feed, StringComparer.Ordinal)
             .ThenBy(package => package?.DefaultFramework, StringComparer.Ordinal);
 
-    private static string RequestScope(params string?[] values) =>
+    internal static string RequestScope(params string?[] values) =>
         JsonSerializer.Serialize(values.Select(value => value ?? string.Empty));
 
     private static void ValidateSymbol(string symbol)

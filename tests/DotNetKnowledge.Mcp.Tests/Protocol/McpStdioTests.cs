@@ -65,6 +65,10 @@ public sealed class McpStdioTests
             AssertOptional(tools, "search_docs", "source");
             AssertOptional(tools, "get_doc", "section");
             AssertOptional(tools, "get_doc_outline", "cursor");
+            AssertOptional(tools, "lookup_api", "framework");
+            AssertOptional(tools, "search_api", "framework");
+            AssertOptional(tools, "search_api_text", "framework");
+            AssertOptional(tools, "find_api_references", "framework");
 
             await WriteMessageAsync(process, """
                 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_sources","arguments":{}}}
@@ -131,7 +135,11 @@ public sealed class McpStdioTests
                 candidate.GetProperty("name").GetString(),
                 toolName,
                 StringComparison.Ordinal));
-        if (!tool.GetProperty("inputSchema").TryGetProperty("required", out var required))
+        var schema = tool.GetProperty("inputSchema");
+        Assert.IsTrue(
+            schema.GetProperty("properties").TryGetProperty(propertyName, out _),
+            $"{toolName}.{propertyName} should be declared.");
+        if (!schema.TryGetProperty("required", out var required))
             return;
 
         Assert.IsFalse(
