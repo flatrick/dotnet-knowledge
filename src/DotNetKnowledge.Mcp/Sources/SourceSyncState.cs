@@ -10,4 +10,7 @@ public sealed record SourceSyncState(
     DateTimeOffset FetchedAt,
     IReadOnlyList<string> SparsePaths,
     string Generation,
-    IReadOnlyList<ApiPackageSyncState> ApiPackages);
+    IReadOnlyList<ApiPackageSyncState> ApiPackages)
+{
+    public const int CurrentSchemaVersion = 2;
+}

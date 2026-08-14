@@ -40,6 +40,12 @@ public class NullableBase<T>;
 
 public interface INullableMarker<T>;
 
+public interface IHierarchy<T>;
+
+public sealed class HierarchyShape :
+    NullableBase<(string Name, Uri? Link)>,
+    IHierarchy<GenericOuter<string>.GenericInner<Uri?>>;
+
 public class GenericOuter<TOuter>
 {
     public class GenericInner<TInner>;

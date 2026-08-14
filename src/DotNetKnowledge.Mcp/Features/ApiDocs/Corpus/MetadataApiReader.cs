@@ -9,7 +9,7 @@ namespace DotNetKnowledge.Mcp.Features.ApiDocs.Corpus;
 
 public static class MetadataApiReader
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private const int MaximumArrayRank = 32;
 
     private static readonly ApiDocumentation EmptyDocumentation = new(
@@ -187,7 +187,7 @@ public static class MetadataApiReader
                     ReadNullableFlags(item.GetCustomAttributes()),
                     nullableContext,
                     "interface"))
-                .OrderBy(item => item, StringComparer.Ordinal)
+                .OrderBy(item => item.TypeExpression, StringComparer.Ordinal)
                 .ToArray();
             var constraints = ReadConstraints(
                 definition.GetGenericParameters(),
@@ -621,7 +621,7 @@ public static class MetadataApiReader
             return result;
         }
 
-        private string DecodeStructuralType(
+        private ApiTypeUse DecodeStructuralType(
             EntityHandle handle,
             SignatureContext context,
             NullableTransform? nullableFlags,
@@ -633,7 +633,7 @@ public static class MetadataApiReader
                 nullableFlags,
                 nullableContext);
             ValidateModifiers(type, NoModifierTypes, position);
-            return RenderCSharp(type, null);
+            return new ApiTypeUse(null, RenderCSharp(type, null), CollectTypeNames(type));
         }
 
         private string RenderConstraintClauses(

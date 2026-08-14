@@ -129,7 +129,7 @@ public sealed class SourceSynchronizer
     {
         var state = _cache.TryReadState(name);
         if (state is null
-            || state.SchemaVersion != 2
+            || state.SchemaVersion != SourceSyncState.CurrentSchemaVersion
             || !string.Equals(state.Name, name, StringComparison.Ordinal)
             || !string.Equals(state.Repository, definition.Repository, StringComparison.Ordinal)
             || !string.Equals(state.Url, definition.Url, StringComparison.Ordinal)
@@ -301,7 +301,7 @@ public sealed class SourceSynchronizer
             _cache.WriteState(
                 name,
                 new SourceSyncState(
-                    SchemaVersion: 2,
+                    SchemaVersion: SourceSyncState.CurrentSchemaVersion,
                     Name: name,
                     Repository: definition.Repository,
                     Url: definition.Url,

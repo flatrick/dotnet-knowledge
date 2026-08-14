@@ -25,6 +25,12 @@ public sealed class MetadataApiReaderTests
     private static readonly string[] ExpectedAttributeTargetsTypeNames = ["System.AttributeTargets"];
     private static readonly string[] ExpectedNullableInterfaces =
         ["Fixtures.INullableMarker<System.Uri?>"];
+    private static readonly string[] ExpectedGalleryBaseTypeNames = ["Fixtures.GalleryBase"];
+    private static readonly string[] ExpectedGalleryInterfaceTypeNames = ["Fixtures.IGallery"];
+    private static readonly string[] ExpectedHierarchyBaseTypeNames =
+        ["Fixtures.NullableBase", "System.String", "System.Uri", "System.ValueTuple"];
+    private static readonly string[] ExpectedHierarchyInterfaceTypeNames =
+        ["Fixtures.GenericOuter.GenericInner", "Fixtures.IHierarchy", "System.String", "System.Uri"];
 
     [TestMethod]
     public void ReadReturnsVisibleDeclarationsWithCSharpSignatures()
@@ -32,7 +38,7 @@ public sealed class MetadataApiReaderTests
         using var stream = File.OpenRead(FixtureAssemblyPath);
         var corpus = MetadataApiReader.Read(stream);
 
-        Assert.AreEqual(1, corpus.SchemaVersion);
+        Assert.AreEqual(2, corpus.SchemaVersion);
         var type = corpus.Types.Single(item => item.FullName == "Fixtures.SignatureGallery<T>");
         Assert.IsTrue(type.Members.Any(item =>
             item.Signature == "public ref readonly (string Name, T Value)? Borrow(in T value);"),
@@ -835,10 +841,14 @@ public sealed class MetadataApiReaderTests
         var corpus = MetadataApiReader.Read(stream);
         var type = corpus.Types.Single(item => item.FullName == "Fixtures.SignatureGallery<T>");
 
-        Assert.AreEqual("Fixtures.GalleryBase", type.BaseType);
+        Assert.AreEqual("Fixtures.GalleryBase", type.BaseType!.TypeExpression);
+        CollectionAssert.AreEqual(ExpectedGalleryBaseTypeNames, type.BaseType.TypeNames.ToArray());
         CollectionAssert.AreEqual(
             ExpectedInterfaces,
-            type.Interfaces.ToArray());
+            type.Interfaces.Select(item => item.TypeExpression).ToArray());
+        CollectionAssert.AreEqual(
+            ExpectedGalleryInterfaceTypeNames,
+            type.Interfaces.Single().TypeNames.ToArray());
         CollectionAssert.AreEquivalent(
             ExpectedTypeConstraints,
             type.Constraints.Select(item => item.TypeExpression).ToArray());
@@ -902,13 +912,31 @@ public sealed class MetadataApiReaderTests
         var corpus = MetadataApiReader.Read(stream);
         var type = corpus.Types.Single(item => item.FullName == "Fixtures.NullableShape<T>");
 
-        Assert.AreEqual("Fixtures.NullableBase<string?>", type.BaseType);
+        Assert.AreEqual("Fixtures.NullableBase<string?>", type.BaseType!.TypeExpression);
         CollectionAssert.AreEqual(
             ExpectedNullableInterfaces,
-            type.Interfaces.ToArray());
+            type.Interfaces.Select(item => item.TypeExpression).ToArray());
         Assert.AreEqual(
             "Fixtures.INullableMarker<string?>",
             type.Constraints.Single().TypeExpression);
+    }
+
+    [TestMethod]
+    public void ReadRetainsCanonicalNamesForNullableTupleAndNestedGenericHierarchyUses()
+    {
+        using var stream = File.OpenRead(FixtureAssemblyPath);
+        var corpus = MetadataApiReader.Read(stream);
+        var type = corpus.Types.Single(item => item.FullName == "Fixtures.HierarchyShape");
+
+        Assert.AreEqual(
+            "Fixtures.NullableBase<(string, System.Uri?)>",
+            type.BaseType!.TypeExpression);
+        CollectionAssert.AreEqual(ExpectedHierarchyBaseTypeNames, type.BaseType.TypeNames.ToArray());
+        var implemented = type.Interfaces.Single();
+        Assert.AreEqual(
+            "Fixtures.IHierarchy<Fixtures.GenericOuter<string>.GenericInner<System.Uri?>>",
+            implemented.TypeExpression);
+        CollectionAssert.AreEqual(ExpectedHierarchyInterfaceTypeNames, implemented.TypeNames.ToArray());
     }
 
     [TestMethod]

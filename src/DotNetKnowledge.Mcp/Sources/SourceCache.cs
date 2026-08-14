@@ -61,9 +61,9 @@ public sealed class SourceCache
         }
     }
 
-    private static bool IsComplete(SourceSyncState? state) =>
+    internal static bool IsComplete(SourceSyncState? state) =>
         state is not null
-        && state.SchemaVersion == 2
+        && state.SchemaVersion == SourceSyncState.CurrentSchemaVersion
         && !string.IsNullOrWhiteSpace(state.Name)
         && !string.IsNullOrWhiteSpace(state.Repository)
         && !string.IsNullOrWhiteSpace(state.Url)

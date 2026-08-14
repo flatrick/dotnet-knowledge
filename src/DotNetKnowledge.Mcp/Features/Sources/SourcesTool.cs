@@ -10,13 +10,6 @@ namespace DotNetKnowledge.Mcp.Features.Sources;
 [McpServerToolType]
 public sealed class SourcesTool
 {
-    private static readonly HashSet<string> WindowsReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    };
-
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         // Indentation is roughly a fifth of every response's bytes and buys an agent nothing.
@@ -305,30 +298,10 @@ public sealed class SourcesTool
         && Uri.TryCreate(state.Feed, UriKind.Absolute, out var feed)
         && string.Equals(feed.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
         && state.FetchedAt != default
-        && IsSafeFrameworkName(state.DefaultFramework)
+        && PortableFrameworkName.IsSafe(state.DefaultFramework)
         && state.AvailableFrameworks is { Count: > 0 }
-        && state.AvailableFrameworks.All(IsSafeFrameworkName)
+        && state.AvailableFrameworks.All(PortableFrameworkName.IsSafe)
         && IsRelativeCorpusPath(state.CorpusDirectory);
-
-    // Framework names become <framework>.json below a package corpus directory. Keep every
-    // observed name one path segment so persisted state cannot redirect that lookup.
-    private static bool IsSafeFrameworkName(string? framework) =>
-        !string.IsNullOrWhiteSpace(framework)
-        && !Path.IsPathRooted(framework)
-        && !framework.Contains('/')
-        && !framework.Contains('\\')
-        && !framework.Contains(':')
-        && framework is not "." and not ".."
-        && !framework.EndsWith(' ')
-        && !framework.EndsWith('.')
-        && !framework.Any(character => char.IsControl(character) || character is '<' or '>' or '"' or '|' or '?' or '*')
-        && !WindowsReservedFileNames.Contains(FrameworkFileNameBase(framework));
-
-    private static string FrameworkFileNameBase(string framework)
-    {
-        var dot = framework.IndexOf('.');
-        return dot < 0 ? framework : framework[..dot];
-    }
 
     private static bool IsSha512(string? sha512)
     {

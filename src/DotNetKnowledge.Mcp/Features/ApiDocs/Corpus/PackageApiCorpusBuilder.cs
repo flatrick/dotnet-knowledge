@@ -112,25 +112,45 @@ public sealed class PackageApiCorpusBuilder
         }
     }
 
-    private static ApiCorpus Join(ApiCorpus metadata, IReadOnlyDictionary<string, ApiDocumentation> docs) => new(
-        metadata.SchemaVersion,
-        metadata.Types.Select(type => type with
+    private static ApiCorpus Join(ApiCorpus metadata, IReadOnlyDictionary<string, ApiDocumentation> docs) =>
+        NormalizeForStorage(metadata with
         {
-            Documentation = docs.TryGetValue(type.EcmaId, out var typeDocs) ? typeDocs : EmptyDocumentation(),
+            Types = metadata.Types.Select(type => type with
+            {
+                Documentation = docs.TryGetValue(type.EcmaId, out var typeDocs)
+                    ? typeDocs
+                    : EmptyDocumentation(),
+                Members = type.Members.Select(member => member with
+                {
+                    Documentation = docs.TryGetValue(member.EcmaId, out var memberDocs)
+                        ? memberDocs
+                        : EmptyDocumentation(),
+                }).ToArray(),
+            }).ToArray(),
+        });
+
+    internal static ApiCorpus NormalizeForStorage(ApiCorpus corpus) => corpus with
+    {
+        Types = corpus.Types.Select(type => type with
+        {
+            Documentation = NormalizeDocumentation(type.Documentation),
             Members = type.Members.Select(member => member with
             {
-                Documentation = docs.TryGetValue(member.EcmaId, out var memberDocs)
-                    ? memberDocs
-                    : EmptyDocumentation(),
+                Documentation = NormalizeDocumentation(member.Documentation),
                 Parameters = member.Parameters.Select(NormalizeTypeUse).ToArray(),
                 ReturnType = member.ReturnType is null ? null : NormalizeTypeUse(member.ReturnType),
-                Constraints = member.Constraints.Select(NormalizeTypeUse).OrderBy(item => item.TypeExpression, StringComparer.Ordinal).ToArray(),
+                Constraints = member.Constraints.Select(NormalizeTypeUse)
+                    .OrderBy(item => item.TypeExpression, StringComparer.Ordinal).ToArray(),
                 Attributes = NormalizeAttributes(member.Attributes),
             }).OrderBy(member => member.EcmaId, StringComparer.Ordinal).ToArray(),
-            Interfaces = type.Interfaces.OrderBy(item => item, StringComparer.Ordinal).ToArray(),
-            Constraints = type.Constraints.Select(NormalizeTypeUse).OrderBy(item => item.TypeExpression, StringComparer.Ordinal).ToArray(),
+            BaseType = type.BaseType is null ? null : NormalizeTypeUse(type.BaseType),
+            Interfaces = type.Interfaces.Select(NormalizeTypeUse)
+                .OrderBy(item => item.TypeExpression, StringComparer.Ordinal).ToArray(),
+            Constraints = type.Constraints.Select(NormalizeTypeUse)
+                .OrderBy(item => item.TypeExpression, StringComparer.Ordinal).ToArray(),
             Attributes = NormalizeAttributes(type.Attributes),
-        }).OrderBy(type => type.FullName, StringComparer.Ordinal).ToArray());
+        }).OrderBy(type => type.FullName, StringComparer.Ordinal).ToArray(),
+    };
 
     private static ApiTypeUse NormalizeTypeUse(ApiTypeUse item) => item with
     {
@@ -144,6 +164,19 @@ public sealed class PackageApiCorpusBuilder
         })
         .OrderBy(attribute => attribute.Application, StringComparer.Ordinal)
         .ThenBy(attribute => attribute.AttributeType, StringComparer.Ordinal)
+        .ToArray();
+
+    private static ApiDocumentation NormalizeDocumentation(ApiDocumentation documentation) => documentation with
+    {
+        Parameters = NormalizeNamedDocumentation(documentation.Parameters),
+        TypeParameters = NormalizeNamedDocumentation(documentation.TypeParameters),
+        Exceptions = NormalizeNamedDocumentation(documentation.Exceptions),
+    };
+
+    private static ApiNamedDocumentation[] NormalizeNamedDocumentation(
+        IReadOnlyList<ApiNamedDocumentation> items) => items
+        .OrderBy(item => item.Name, StringComparer.Ordinal)
+        .ThenBy(item => item.Text, StringComparer.Ordinal)
         .ToArray();
 
     private static ApiDocumentation EmptyDocumentation() => new(

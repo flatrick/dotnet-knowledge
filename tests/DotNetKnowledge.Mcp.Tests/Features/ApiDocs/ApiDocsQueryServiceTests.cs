@@ -749,10 +749,10 @@ public sealed class ApiDocsQueryServiceTests
             await RunGitAsync(repository, "config", "user.name", "Tests");
             await File.WriteAllTextAsync(
                 Path.Combine(namespaceDirectory, "Holder.xml"),
-                "<Type Name=\"Holder\" FullName=\"System.Holder\" />");
+                "<Type Name=\"Holder\" FullName=\"System.Holder\"><TypeSignature Language=\"DocId\" Value=\"T:System.Holder\" /></Type>");
             await File.WriteAllTextAsync(
                 Path.Combine(namespaceDirectory, "Holder`1.xml"),
-                "<Type Name=\"Holder`1\" FullName=\"System.Holder&lt;T&gt;\" />");
+                "<Type Name=\"Holder`1\" FullName=\"System.Holder&lt;T&gt;\"><TypeSignature Language=\"DocId\" Value=\"T:System.Holder`1\" /></Type>");
             await RunGitAsync(repository, "add", ".");
             await RunGitAsync(repository, "commit", "-m", "docs");
             var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();

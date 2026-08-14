@@ -41,8 +41,11 @@ public sealed class PackageApiCorpusBuilderTests
             var arrayShapeProbe = type.Members.Single(member => member.Name == "ArrayShapeProbe");
             CollectionAssert.AreEqual(
                 ExpectedArrayShapeProbeParameterNames, arrayShapeProbe.Parameters.Select(parameter => parameter.Name).ToArray());
+            Assert.AreEqual(
+                string.Empty,
+                arrayShapeProbe.Documentation.Parameters.Single(parameter => parameter.Name == "marker").Text);
             var json = File.ReadAllText(first.CorpusFiles["net10.0"]);
-            StringAssert.Contains(json, "\"SchemaVersion\":1");
+            StringAssert.Contains(json, "\"SchemaVersion\":2");
             Assert.IsFalse(json.Contains(Environment.NewLine, StringComparison.Ordinal));
         }
         finally
@@ -125,14 +128,267 @@ public sealed class PackageApiCorpusBuilderTests
             var invalidSchema = Path.Combine(directory, "invalid-schema.json");
             File.WriteAllText(invalidSchema, JsonSerializer.Serialize(new
             {
-                SchemaVersion = 2, first.PackageId, first.Version, first.Sha512, Framework = "net10.0", Corpus = Corpus("Invalid"),
+                SchemaVersion = 1, first.PackageId, first.Version, first.Sha512, Framework = "net10.0", Corpus = Corpus("Invalid"),
             }));
-            Assert.ThrowsExactly<InvalidDataException>(() => PackageApiCorpusStore.Read(invalidSchema, first, "net10.0"));
+            var schemaException = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageApiCorpusStore.Read(invalidSchema, first, "net10.0"));
+            StringAssert.Contains(schemaException.Message, "resynchronize");
+
+            var incompatibleCorpus = Path.Combine(directory, "incompatible-corpus.json");
+            File.WriteAllText(incompatibleCorpus, JsonSerializer.Serialize(new
+            {
+                SchemaVersion = 2,
+                first.PackageId,
+                first.Version,
+                first.Sha512,
+                Framework = "net10.0",
+                Corpus = Corpus("Old") with { SchemaVersion = 1 },
+            }));
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageApiCorpusStore.Read(incompatibleCorpus, first, "net10.0"));
         }
         finally
         {
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StoreWrapsMalformedJsonAndRejectsNullSchema2Graphs()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-store-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var definition = Package("malformed");
+        try
+        {
+            var malformed = Path.Combine(directory, "malformed.json");
+            File.WriteAllText(malformed, "{\"SchemaVersion\":2,");
+            var malformedException = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageApiCorpusStore.Read(malformed, definition, "net10.0"));
+            Assert.IsInstanceOfType<JsonException>(malformedException.InnerException);
+
+            var nullTypes = Path.Combine(directory, "null-types.json");
+            WriteStoredCorpus(nullTypes, definition, new ApiCorpus(2, null!));
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageApiCorpusStore.Read(nullTypes, definition, "net10.0"));
+
+            var nullMembers = Path.Combine(directory, "null-members.json");
+            var corpus = Corpus("NullMembers");
+            WriteStoredCorpus(
+                nullMembers,
+                definition,
+                corpus with { Types = [corpus.Types.Single() with { Members = null! }] });
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageApiCorpusStore.Read(nullMembers, definition, "net10.0"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StoreRejectsDuplicateNoncanonicalAndStructurallyIncompleteSchema2Graphs()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-store-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var definition = Package("invalid-graph");
+        var valid = Corpus("Valid");
+        var type = valid.Types.Single();
+        var documentation = EmptyDocumentation();
+        var member = new ApiCorpusMember(
+            "M:Fixture.Type.Run", "Run", "method", "public void Run();", [], null, [], [], documentation);
+        var earlierType = type with
+        {
+            EcmaId = "T:Fixture.Earlier",
+            Name = "Earlier",
+            FullName = "Fixture.Earlier",
+        };
+        var cases = new ApiCorpus[]
+        {
+            valid with { Types = [null!, null!] },
+            valid with { Types = [type, type] },
+            valid with { Types = [type, earlierType] },
+            valid with { Types = [type with { EcmaId = "M:Fixture.Type" }] },
+            valid with { Types = [type with { EcmaId = "T:Fixture.\u007fType" }] },
+            valid with { Types = [type with { EcmaId = "T:Fixture..Type" }] },
+            valid with { Types = [type with { Name = "" }] },
+            valid with { Types = [type with { Members = [member, member] }] },
+            valid with { Types = [type with { Members = [member with { EcmaId = "T:Fixture.Type.Run" }] }] },
+            valid with { Types = [type with { Members = [member with { EcmaId = "M:Fixture.Type.Run\u007f" }] }] },
+            valid with { Types = [type with { Interfaces = [new ApiTypeUse(null, "", ["System.String"])] }] },
+            valid with { Types = [type with { Interfaces = [new ApiTypeUse(null, "string", [" System.String"])] }] },
+            valid with { Types = [type with { Interfaces = [new ApiTypeUse(null, "string", ["System.String", "System.String"])] }] },
+            valid with { Types = [type with { Interfaces = [new ApiTypeUse(null, "string", ["System.Z", "System.A"])] }] },
+            valid with { Types = [type with { Constraints = [new ApiTypeUse(null, "class", [])] }] },
+            valid with { Types = [type with { Attributes = [new ApiAttributeUse("", "System.ObsoleteAttribute", [])] }] },
+            valid with { Types = [type with { Documentation = documentation with { Parameters = null! } }] },
+            valid with { Types = [type with { Documentation = documentation with { Parameters = [new ApiNamedDocumentation("bad name", "")] } }] },
+            valid with { Types = [type with { Documentation = documentation with { TypeParameters = [new ApiNamedDocumentation("T value", "")] } }] },
+            valid with { Types = [type with { Documentation = documentation with { Exceptions = [new ApiNamedDocumentation("System.Exception", "")] } }] },
+            valid with { Types = [type with { Members = [member with { Parameters = [new ApiTypeUse(null, "string", ["System.String"])] }] }] },
+        };
+
+        try
+        {
+            for (var index = 0; index < cases.Length; index++)
+            {
+                var path = Path.Combine(directory, index + ".json");
+                WriteStoredCorpus(path, definition, cases[index]);
+                Assert.ThrowsExactly<InvalidDataException>(() =>
+                    PackageApiCorpusStore.Read(path, definition, "net10.0"));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StoreRejectsCorpusFilesAndGraphsThatExceedCentralizedBounds()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-store-limits-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var definition = Package("limits");
+        try
+        {
+            var oversizedFile = Path.Combine(directory, "oversized.json");
+            using (var stream = new FileStream(oversizedFile, FileMode.CreateNew, FileAccess.Write))
+                stream.SetLength(33);
+            Assert.ThrowsExactly<InvalidDataException>(() => PackageApiCorpusStore.Read(
+                oversizedFile,
+                definition,
+                "net10.0",
+                PackageApiCorpusLimits.Default with { MaxFileBytes = 32 }));
+
+            var type = Corpus("Valid").Types.Single() with
+            {
+                Interfaces = [new ApiTypeUse(null, "string", ["System.String"])],
+            };
+            var collectionPath = Path.Combine(directory, "collection.json");
+            WriteStoredCorpus(collectionPath, definition, new ApiCorpus(2, [type]));
+            Assert.ThrowsExactly<InvalidDataException>(() => PackageApiCorpusStore.Read(
+                collectionPath,
+                definition,
+                "net10.0",
+                PackageApiCorpusLimits.Default with { MaxCollectionItems = 0 }));
+
+            var stringPath = Path.Combine(directory, "string.json");
+            WriteStoredCorpus(stringPath, definition, Corpus(new string('X', 65)));
+            Assert.ThrowsExactly<InvalidDataException>(() => PackageApiCorpusStore.Read(
+                stringPath,
+                definition,
+                "net10.0",
+                PackageApiCorpusLimits.Default with { MaxStringChars = 64 }));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StoreRejectsOversizedStringsArraysAndDepthDuringJsonPreflight()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-store-preflight-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var definition = Package("preflight");
+        try
+        {
+            var overlongBytes = Path.Combine(directory, "bytes.json");
+            var validJson = StoredJson(definition, "");
+            File.WriteAllText(overlongBytes, validJson);
+            var byteException = Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageApiCorpusStore.Read(
+                    overlongBytes,
+                    definition,
+                    "net10.0",
+                    PackageApiCorpusLimits.Default with { MaxFileBytes = Encoding.UTF8.GetByteCount(validJson) - 1 }));
+            StringAssert.Contains(byteException.Message, "byte limit");
+
+            var cases = new[]
+            {
+                ("string", StoredJson(definition, "\"Padding\":\"\\u0061\\u0061\\u0061\","),
+                    PackageApiCorpusLimits.Default with { MaxStringBytes = 12 }),
+                ("string-characters", StoredJson(definition, "\"Padding\":\"\\u0061\\u0061\\u0061\","),
+                    PackageApiCorpusLimits.Default with { MaxStringBytes = 64, MaxStringChars = 2 }),
+                ("array", StoredJson(definition, "\"Padding\":[null,null],"),
+                    PackageApiCorpusLimits.Default with { MaxCollectionItems = 1 }),
+                ("type-aggregate", StoredJson(definition, "\"Types\":[null],\"Nested\":{\"Types\":[null]},"),
+                    PackageApiCorpusLimits.Default with { MaxTypes = 1 }),
+                ("member-aggregate", StoredJson(definition, "\"Members\":[null],\"Nested\":{\"Members\":[null]},"),
+                    PackageApiCorpusLimits.Default with { MaxMembersPerType = 1, MaxTotalMembers = 1 }),
+                ("depth", StoredJson(definition, "\"Padding\":[[[[[null]]]]],"),
+                    PackageApiCorpusLimits.Default with { MaxJsonDepth = 4 }),
+            };
+
+            foreach (var (name, json, limits) in cases)
+            {
+                var path = Path.Combine(directory, name + ".json");
+                File.WriteAllText(path, json);
+                var exception = Assert.ThrowsExactly<InvalidDataException>(() =>
+                    PackageApiCorpusStore.Read(path, definition, "net10.0", limits));
+                StringAssert.Contains(exception.Message, "preflight");
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void StoreRejectsDuplicateNamedDocumentationKeysWithinEachList()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-store-doc-duplicates-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var definition = Package("doc-duplicates");
+        var corpus = Corpus("Valid");
+        var type = corpus.Types.Single();
+        var member = new ApiCorpusMember(
+            "M:Fixture.Type.Run(System.String)",
+            "Run",
+            "method",
+            "public void Run(string value);",
+            [new ApiTypeUse("value", "string", ["System.String"])],
+            null,
+            [],
+            [],
+            EmptyDocumentation() with
+            {
+                Parameters = [new("value", ""), new("value", "second")],
+            });
+        var duplicateCases = new[]
+        {
+            corpus with { Types = [type with { Members = [member] }] },
+            corpus with { Types = [type with { Documentation = EmptyDocumentation() with
+            {
+                TypeParameters = [new("T", ""), new("T", "second")],
+            } }] },
+            corpus with { Types = [type with { Documentation = EmptyDocumentation() with
+            {
+                Exceptions = [new("T:System.Exception", ""), new("T:System.Exception", "second")],
+            } }] },
+        };
+
+        try
+        {
+            for (var index = 0; index < duplicateCases.Length; index++)
+            {
+                var path = Path.Combine(directory, index + ".json");
+                WriteStoredCorpus(
+                    path,
+                    definition,
+                    duplicateCases[index]);
+                Assert.ThrowsExactly<InvalidDataException>(() =>
+                    PackageApiCorpusStore.Read(path, definition, "net10.0"));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -347,7 +603,7 @@ public sealed class PackageApiCorpusBuilderTests
             <member name="T:Fixtures.SignatureGallery`1"><summary>Creates a gallery from XML.</summary></member>
             <member name="M:Fixtures.SignatureGallery`1.ArrayShapeProbe(System.Int32[],System.String)">
             <summary>Checks named documentation ordering.</summary><param name="values">Values.</param>
-            <param name="marker">Marker.</param><exception cref="T:System.ZException">Zed.</exception>
+            <param name="marker"></param><exception cref="T:System.ZException">Zed.</exception>
             <exception cref="T:System.AException">Aye.</exception></member>
             <member name="M:Fixtures.SignatureGallery`1.InternalOnly"><summary>Must not create an API.</summary></member>
             </members></doc>
@@ -375,8 +631,31 @@ public sealed class PackageApiCorpusBuilderTests
     private static string[] TemporarySiblingDirectories(string output) => Directory.GetDirectories(
         Path.GetDirectoryName(output)!, "." + Path.GetFileName(output) + ".*.tmp");
 
-    private static ApiCorpus Corpus(string name) => new(1,
+    private static ApiCorpus Corpus(string name) => new(2,
         new[] { new ApiCorpusType("T:Fixture.Type", name, $"Fixture.{name}", null, [], [], [], EmptyDocumentation(), []) });
+
+    private static void WriteStoredCorpus(string path, ApiPackageDefinition definition, ApiCorpus corpus) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            SchemaVersion = 2,
+            definition.PackageId,
+            definition.Version,
+            definition.Sha512,
+            Framework = "net10.0",
+            Corpus = corpus,
+        }));
+
+    private static string StoredJson(ApiPackageDefinition definition, string additionalProperty) => $$"""
+        {
+          {{additionalProperty}}
+          "SchemaVersion": 2,
+          "PackageId": "{{definition.PackageId}}",
+          "Version": "{{definition.Version}}",
+          "Sha512": "{{definition.Sha512}}",
+          "Framework": "net10.0",
+          "Corpus": { "SchemaVersion": 2, "Types": [] }
+        }
+        """;
 
     private static ApiDocumentation EmptyDocumentation() => new(null, [], [], null, null, null, []);
 
@@ -390,7 +669,9 @@ public sealed class PackageApiCorpusBuilderTests
             CollectionAssert.AreEqual(
                 type.Members.OrderBy(member => member.EcmaId, StringComparer.Ordinal).Select(member => member.EcmaId).ToArray(),
                 type.Members.Select(member => member.EcmaId).ToArray());
-            CollectionAssert.AreEqual(type.Interfaces.OrderBy(item => item, StringComparer.Ordinal).ToArray(), type.Interfaces.ToArray());
+            AssertTypeUsesAreOrdinallyOrdered(type.Interfaces);
+            if (type.BaseType is not null)
+                AssertTypeUsesAreOrdinallyOrdered([type.BaseType]);
             AssertTypeUsesAreOrdinallyOrdered(type.Constraints);
             CollectionAssert.AreEqual(
                 type.Attributes.OrderBy(item => item.Application, StringComparer.Ordinal).ThenBy(item => item.AttributeType, StringComparer.Ordinal)

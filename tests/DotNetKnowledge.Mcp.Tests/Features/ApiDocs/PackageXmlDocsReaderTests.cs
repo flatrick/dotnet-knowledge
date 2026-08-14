@@ -72,4 +72,40 @@ public sealed class PackageXmlDocsReaderTests
         Assert.AreEqual("Upper.", docs["T:Fixtures.Type"].Summary);
         Assert.AreEqual("Lower.", docs["T:fixtures.Type"].Summary);
     }
+
+    [TestMethod]
+    public void ReadRejectsDuplicateNamedDocumentationKeysWithinEachElementKind()
+    {
+        var duplicates = new[]
+        {
+            "<param name=\"value\"></param><param name=\"value\">Second.</param>",
+            "<typeparam name=\"T\"></typeparam><typeparam name=\"T\">Second.</typeparam>",
+            "<exception cref=\"T:System.Exception\"></exception><exception cref=\"T:System.Exception\">Second.</exception>",
+        };
+
+        foreach (var duplicate in duplicates)
+        {
+            var xml = $"<doc><members><member name=\"M:Fixtures.Type.Run\">{duplicate}</member></members></doc>";
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageXmlDocsReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml))));
+        }
+    }
+
+    [TestMethod]
+    public void ReadKeepsNamedDocumentationKeySpacesSeparateAndAcceptsEmptyText()
+    {
+        const string xml = """
+            <doc><members><member name="M:Fixtures.Type.Run">
+            <param name="T"></param><typeparam name="T"></typeparam>
+            <exception cref="T:System.Exception"></exception>
+            </member></members></doc>
+            """;
+
+        var documentation = PackageXmlDocsReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml)))
+            .Values.Single();
+
+        Assert.AreEqual(string.Empty, documentation.Parameters.Single().Text);
+        Assert.AreEqual(string.Empty, documentation.TypeParameters.Single().Text);
+        Assert.AreEqual(string.Empty, documentation.Exceptions.Single().Text);
+    }
 }

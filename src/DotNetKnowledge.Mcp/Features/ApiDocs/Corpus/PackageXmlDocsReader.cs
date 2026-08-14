@@ -47,12 +47,23 @@ public static class PackageXmlDocsReader
         ReadNamed(member, "exception", "cref"));
 
     private static ApiNamedDocumentation[] ReadNamed(
-        XElement member, string elementName, string attributeName) => member.Elements(elementName)
-        .Select(element => new ApiNamedDocumentation(
-            element.Attribute(attributeName)?.Value
-                ?? throw new InvalidDataException($"A package XML {elementName} has no {attributeName} attribute."),
-            DocumentationTextRenderer.Render(element) ?? string.Empty))
-        .OrderBy(item => item.Name, StringComparer.Ordinal)
-        .ThenBy(item => item.Text, StringComparer.Ordinal)
-        .ToArray();
+        XElement member, string elementName, string attributeName)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var items = new List<ApiNamedDocumentation>();
+        foreach (var element in member.Elements(elementName))
+        {
+            var name = element.Attribute(attributeName)?.Value
+                ?? throw new InvalidDataException($"A package XML {elementName} has no {attributeName} attribute.");
+            if (!names.Add(name))
+                throw new InvalidDataException($"Duplicate package XML {elementName} {attributeName} '{name}'.");
+            items.Add(new ApiNamedDocumentation(
+                name,
+                DocumentationTextRenderer.Render(element) ?? string.Empty));
+        }
+        return items
+            .OrderBy(item => item.Name, StringComparer.Ordinal)
+            .ThenBy(item => item.Text, StringComparer.Ordinal)
+            .ToArray();
+    }
 }
