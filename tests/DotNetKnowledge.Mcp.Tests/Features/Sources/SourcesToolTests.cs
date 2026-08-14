@@ -458,6 +458,67 @@ public sealed class SourcesToolTests
         }
     }
 
+    // The feed is the one dependency the server cannot validate in advance, so a 404 or a refused
+    // connection has to reach the caller as a stated cause. An opaque failure is indistinguishable
+    // from a crash, and an agent cannot tell a retryable outage from a wrong pin.
+    [TestMethod]
+    public async Task SyncSourceReportsAFeedFailureWithItsCause()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (_, _, synchronizer) = await CreatePackageSourceAsync(
+                root,
+                new ThrowingContributor(new HttpRequestException(
+                    "Response status code does not indicate success: 404 (Not Found).")));
+
+            var json = await SourcesTool.SyncSource(
+                "local", synchronizer, NoOpProgress, CancellationToken.None, @ref: null);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("sync_failed", document.RootElement.GetProperty("error").GetString());
+            StringAssert.Contains(document.RootElement.GetProperty("message").GetString(), "404");
+            Assert.AreEqual("local", document.RootElement.GetProperty("source").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    // InvalidDataException is what the whole package pipeline raises for a failed check, and the
+    // hash mismatch is the one that matters most: a caller told only "an error occurred" cannot
+    // tell a tampered or mis-pinned package from a disk problem.
+    [TestMethod]
+    public async Task SyncSourceReportsAPackageHashMismatchWithItsCause()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (_, _, synchronizer) = await CreatePackageSourceAsync(
+                root,
+                new ThrowingContributor(new InvalidDataException(
+                    "The NuGet package hash does not match the catalog hash.")));
+
+            var json = await SourcesTool.SyncSource(
+                "local", synchronizer, NoOpProgress, CancellationToken.None, @ref: null);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("sync_failed", document.RootElement.GetProperty("error").GetString());
+            StringAssert.Contains(
+                document.RootElement.GetProperty("message").GetString(),
+                "does not match the catalog hash");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
     [TestMethod]
     public async Task SyncSourcePublishesProgressNotificationsInStageOrder()
     {
@@ -832,6 +893,23 @@ public sealed class SourcesToolTests
             progress?.Report("package-validate");
             progress?.Report("package-normalize");
             return Task.FromResult<IReadOnlyList<ApiPackageSyncState>>([]);
+        }
+    }
+
+    private sealed class ThrowingContributor(Exception exception) : ISourceGenerationContributor
+    {
+        public bool AppliesTo(SourceDefinition definition) => definition.ApiPackages is { Count: > 0 };
+
+        public Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
+            SourceDefinition definition,
+            string refLabel,
+            string repositoryDirectory,
+            string supplementsDirectory,
+            IProgress<string>? progress,
+            CancellationToken cancellationToken)
+        {
+            progress?.Report("package-download");
+            throw exception;
         }
     }
 

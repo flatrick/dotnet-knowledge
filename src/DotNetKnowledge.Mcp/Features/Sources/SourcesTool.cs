@@ -195,7 +195,15 @@ public sealed class SourcesTool
                 },
                 WriteOptions);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        // HttpRequestException covers the feed, which is the one dependency that cannot be checked
+        // in advance. InvalidDataException is not an IOException, and it is what every check in the
+        // package pipeline raises — hash mismatch included — so without it the security-relevant
+        // failure would reach the caller as an unhandled crash with no stated cause.
+        catch (Exception exception) when (exception
+            is IOException
+            or UnauthorizedAccessException
+            or HttpRequestException
+            or InvalidDataException)
         {
             return JsonSerializer.Serialize(
                 new
