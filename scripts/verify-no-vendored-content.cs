@@ -291,7 +291,7 @@ if (scanHistory)
             ("ecma-xml-api-doc", @"<Type Name=""[^""]+"" FullName=""", true),
             ("csharplang-proposal", @"Champion issue: ?<?https://github\.com/dotnet/(csharplang|vblang)/issues/", true),
             ("ldm-notes", @"(C#|Visual Basic) Language Design (Meeting|Notes)", true),
-            ("learn-article", @"^[ \t]*ms\.(author|date|topic): ?\S", true),
+            ("learn-article", @"^[[:blank:]]*ms\.(author|date|topic): ?\S", true),
         };
 
         // Commit SHAs are passed as arguments, so they are chunked to stay clear of the Windows
