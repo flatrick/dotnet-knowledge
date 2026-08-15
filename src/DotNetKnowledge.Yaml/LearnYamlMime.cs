@@ -3,8 +3,8 @@ namespace DotNetKnowledge.Yaml;
 /// <summary>
 /// Microsoft Learn stamps a schema marker on a YAML document's first line. It is the only reliable
 /// way to tell a documentation file from a build pipeline definition that happens to share the
-/// extension: of the .yml files in the synchronized sources, nine are Azure Pipelines definitions
-/// and two are prose.
+/// extension: of the .yml files in the synchronized sources, eight are Azure Pipelines definitions,
+/// one is repository automation, and two are prose.
 /// </summary>
 public static class LearnYamlMime
 {
