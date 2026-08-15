@@ -1183,6 +1183,7 @@ public sealed class DocsQueryServiceTests
             var skipped = result.SkippedDocuments.Single();
             Assert.AreEqual("docs/broken-faq.yml", skipped.Path);
             StringAssert.Contains(skipped.Reason, "no sections");
+            Assert.AreEqual("test/csharplang", skipped.Source.Repo);
             // The good FAQ still answered.
             Assert.IsTrue(result.Hits.Any(hit => hit.Path == "docs/widget-faq.yml"));
         }

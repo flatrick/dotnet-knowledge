@@ -189,7 +189,7 @@ Key mapping is camelCase (`sections`, `questions`, `question`, `answer`), verifi
 The two callers differ, because their blast radius differs:
 
 - **`get_doc` / `get_doc_outline`** — the exception surfaces. The caller named one document and gets told that document could not be read, which is strictly better than a plausible-looking absence.
-- **`search_docs`** — one bad file must not fail a fan-out across four sources. `DocSearchResult` gains `skippedDocuments`, a list of path and reason, populated when a FAQ-marked file cannot be parsed. This mirrors `skippedDeclarations` on the API payloads, which exists for exactly this situation and for exactly this reason.
+- **`search_docs`** — one bad file must not fail a fan-out across four sources. `DocSearchResult` gains `skippedDocuments`, a list of path, reason, and the source's provenance, populated when a FAQ-marked file cannot be parsed. This mirrors `skippedDeclarations` on the API payloads, which exists for exactly this situation and for exactly this reason.
 
 `skippedDocuments` is absent when empty, so an ordinary search pays nothing for it.
 

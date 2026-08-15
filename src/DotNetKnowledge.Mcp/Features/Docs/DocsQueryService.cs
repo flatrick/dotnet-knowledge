@@ -411,7 +411,7 @@ public sealed class DocsQueryService
             {
                 // A dropped file is indistinguishable from one with no matches. One unreadable
                 // document must not fail a fan-out across every source, so it is named instead.
-                skipped.Add(new DocSkippedDocument(relativePath, exception.Message));
+                skipped.Add(new DocSkippedDocument(relativePath, exception.Message, provenance));
                 continue;
             }
 

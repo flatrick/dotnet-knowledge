@@ -264,6 +264,7 @@ public sealed class DocsToolTests
             var skipped = document.RootElement.GetProperty("skippedDocuments");
             Assert.AreEqual(1, skipped.GetArrayLength());
             Assert.AreEqual("docs/broken-faq.yml", skipped[0].GetProperty("path").GetString());
+            Assert.IsTrue(skipped[0].GetProperty("source").TryGetProperty("repo", out _));
         }
         finally
         {

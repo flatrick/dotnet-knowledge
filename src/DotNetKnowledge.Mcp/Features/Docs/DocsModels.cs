@@ -19,9 +19,11 @@ public sealed record DocNormalizationNote(string Message);
 /// <summary>
 /// A document the server declined to read, and why. A dropped file is indistinguishable from one
 /// with no matches, which is the failure the no-silent-absence rule exists to prevent; this is the
-/// document-side counterpart of skippedDeclarations on the API payloads.
+/// document-side counterpart of skippedDeclarations on the API payloads. Source is required, like
+/// its counterpart on DocLineHit, because an unfiltered search merges skipped documents from every
+/// source into one array and a reported path cannot otherwise be tied back to where it came from.
 /// </summary>
-public sealed record DocSkippedDocument(string Path, string Reason);
+public sealed record DocSkippedDocument(string Path, string Reason, GitProvenance Source);
 
 public sealed record DocSearchResult(
     IReadOnlyList<DocLineHit> Hits,

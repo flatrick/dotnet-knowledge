@@ -157,8 +157,8 @@ search_docs(query, regex?, source?, limit?, cursor?)
       renderedFrom "YamlMime:FAQ"); its path names a real file, but the
       line number indexes the rendering, not the file's bytes
     → skippedDocuments: present when a document that declared a renderable
-      schema could not be read, naming it and the reason, rather than
-      silently contributing no hits
+      schema could not be read, naming it, the reason, and its source's
+      provenance, rather than silently contributing no hits
 
 get_doc(path, source, section?, limit?, cursor?)
     section: a heading path exactly as issued by a search hit or an

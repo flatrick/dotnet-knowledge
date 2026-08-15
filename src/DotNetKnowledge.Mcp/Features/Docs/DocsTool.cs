@@ -35,7 +35,8 @@ public sealed class DocsTool
         "verbatim - today a Microsoft Learn structured FAQ (renderedFrom \"YamlMime:FAQ\"). Its " +
         "path names a real file, but the line number indexes the rendering, not the file's bytes. " +
         "A document that declared a schema this server renders and then could not be read is " +
-        "named in skippedDocuments with the reason, rather than silently contributing no hits.")]
+        "named in skippedDocuments with the reason and its source's provenance, rather than " +
+        "silently contributing no hits.")]
     public static async Task<string> SearchDocs(
         string query,
         DocsQueryService service,
