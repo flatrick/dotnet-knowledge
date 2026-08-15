@@ -214,7 +214,7 @@ var shapePatterns = new (string Rule, Regex Pattern, string Detail)[]
             RegexOptions.IgnoreCase | RegexOptions.Multiline),
         "Language Design Meeting notes from csharplang or vblang."),
     ("learn-article",
-        new Regex(@"^ms\.(author|date|topic):\s*\S", RegexOptions.Multiline),
+        new Regex(@"^[ \t]*ms\.(author|date|topic):\s*\S", RegexOptions.Multiline),
         "Microsoft Learn article front matter, the file shape used by nuget-docs."),
 };
 
@@ -291,7 +291,7 @@ if (scanHistory)
             ("ecma-xml-api-doc", @"<Type Name=""[^""]+"" FullName=""", true),
             ("csharplang-proposal", @"Champion issue: ?<?https://github\.com/dotnet/(csharplang|vblang)/issues/", true),
             ("ldm-notes", @"(C#|Visual Basic) Language Design (Meeting|Notes)", true),
-            ("learn-article", @"^ms\.(author|date|topic): ?\S", true),
+            ("learn-article", @"^[ \t]*ms\.(author|date|topic): ?\S", true),
         };
 
         // Commit SHAs are passed as arguments, so they are chunked to stay clear of the Windows
