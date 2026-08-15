@@ -70,24 +70,27 @@ The rendering is deterministic from the document text, and the document text is 
 
 ### The output shape
 
-Given a FAQ whose `title` is *Widget frequently-asked questions*, with a section named *General* holding one question, the rendering is:
+Given a FAQ with a summary and a section named *General* holding one question, the rendering is:
 
 ```markdown
-# Widget frequently-asked questions
-
 <the summary block, verbatim>
 
-## General
+# General
 
-### How do I install a widget?
+## How do I install a widget?
 
 <the answer block, verbatim>
 ```
 
-`title` becomes the `#`, `summary` the prose beneath it, `sections[].name` the `##`, `questions[].question` the `###`, and `questions[].answer` the body.
+`summary` becomes the leading prose, `sections[].name` the `#`, `questions[].question` the `##`, and `questions[].answer` the body.
 The existing extractor then yields the section path `General > How do I install a widget?`, and `get_doc` with that `section` returns one question and its answer instead of the whole 24 KB file.
 
-**`metadata:` is dropped.** `author`, `ms.author`, `ms.date`, `ms.topic` and `ms.update-cycle` are metadata about the document, not the document.
+**`title` is not rendered.** It is document identity, which every payload already carries in `path`.
+Rendering it as an `#` would make it the ancestor of every heading in the file, prefixing all 55 section paths with the document's own name and turning a two-level outline into a three-level one — verbose to read and longer for an agent to round-trip into `get_doc`.
+
+**`metadata:` is dropped** for the same reason `title` is not a heading and front matter is not content.
+
+`author`, `ms.author`, `ms.date`, `ms.topic` and `ms.update-cycle` are metadata about the document, not the document.
 That is the call [`2026-08-08-front-matter-is-not-content-design.md`](2026-08-08-front-matter-is-not-content-design.md) already made for markdown front matter, and a FAQ behaves the same way for the same reason.
 
 **Answer bodies are rendered verbatim.** Learn authoring syntax — relative links, `> [!NOTE]` alerts, fenced code, lists — is passed through untouched, as it is for markdown pages.
@@ -109,6 +112,25 @@ It lands on `DocLineHit` rather than on `DocSearchResult` because an unfiltered 
 The three tool descriptions in `Features/Docs/DocsTool.cs` gain one clause: when `renderedFrom` is set, `path` names a real file but the line numbers index the server's rendering of it, not its bytes.
 
 Reporting the true `.yml` source line alongside was considered and rejected as scope: it requires carrying YamlDotNet node marks through the renderer into every hit, and the declaring field already tells an agent not to trust the number against the raw file.
+
+### Feasibility is measured, not assumed
+
+A throwaway probe ran YamlDotNet 18.1.0 over all 14 cached `.yml` files and fed the rendering to the **unmodified** `MarkdownOutline` and `MarkdownLineSearch`:
+
+| | `NuGet-FAQ.yml` | `nuget-org-faq.yml` |
+|---|---|---|
+| detected mime | FAQ | FAQ |
+| parsed sections / questions | 6 / 27 | 4 / 28 |
+| rendered | 10 445 chars, 151 lines | 21 323 chars, 258 lines |
+| outline | 6 × `#`, 27 × `##` | 4 × `#`, 28 × `##` |
+| headings deeper than `##` | 0 | 0 |
+| duplicate section paths | 0 | 0 |
+| section path round-trips to `get_doc` | yes | yes |
+| search hits with no section path | 0 of 42 | 0 of 37 |
+
+Heading counts equal section and question counts exactly, so the rendering neither drops nor invents structure.
+Detection sorted the other 12 files correctly: one `Hub`, eleven with no marker.
+No answer body contains an ATX heading, so none injects a spurious outline entry, and no two questions collide on a path — `MarkdownOutline` already disambiguates with an `(n)` suffix if they ever do.
 
 ## Components
 
@@ -156,7 +178,14 @@ An FAQ answer is guidance, not a version-specific note, so nothing about the exi
 
 A `.yml` carrying the FAQ marker that then fails to parse must not be silently skipped — skipping it is the disease, one layer further in.
 
+**An empty parse is a failure, not an empty document.**
+YamlDotNet's `IgnoreUnmatchedProperties` turns a wholly unrecognized document into an object with every property null, and reports success.
+The feasibility probe hit exactly this: a wrong naming convention produced zero sections, zero questions, and exit 0 — a FAQ that would have served as "this document has no content" forever.
+`FaqDocument.Parse` therefore rejects a FAQ-marked document that yields no sections, and rejects a section that yields no questions.
+Learn's FAQ schema requires both, so neither can be a legitimate shape, and the failure is loud.
+
 `FaqDocument.Parse` catches YamlDotNet's exceptions at the library boundary and throws a typed `FaqParseException` naming what failed.
+Key mapping is camelCase (`sections`, `questions`, `question`, `answer`), verified against both real files.
 The two callers differ, because their blast radius differs:
 
 - **`get_doc` / `get_doc_outline`** — the exception surfaces. The caller named one document and gets told that document could not be read, which is strictly better than a plausible-looking absence.
@@ -164,8 +193,9 @@ The two callers differ, because their blast radius differs:
 
 `skippedDocuments` is absent when empty, so an ordinary search pays nothing for it.
 
-Shapes that are valid, not errors: a FAQ with no `sections`, an empty `summary`, a section with no questions, and a question with an empty answer.
-Each renders to what it says — a heading with nothing beneath it — because the file genuinely says that.
+Shapes that are valid, not errors: an absent `summary` (`nuget-org-faq.yml` has none), an absent `title`, and a question with an empty answer — which renders as a heading with nothing beneath it, because the file genuinely says that.
+
+A document with no sections, or a section with no questions, is not in that list: it is indistinguishable from the parse having failed to recognize the document at all, and the two must not share an outcome.
 
 ## Testing
 
