@@ -84,6 +84,22 @@ public sealed class DocsQueryServiceTests
         "        answer: |\n" +
         "          Check the widgetlog file.\n";
 
+    // A FAQ whose match text exists ONLY after rendering. The question is a multi-line block
+    // scalar, so "How do I install a widget?" as one line appears nowhere in the raw YAML - it
+    // exists only once FaqMarkdown.Render flattens it. A search that finds this proves the
+    // prefilter ran against the rendered text; if the prefilter were reordered to test raw YAML,
+    // this file would be skipped and the query would report a false absence.
+    private const string MultiLineQuestionFaq =
+        "### YamlMime:FAQ\n" +
+        "sections:\n" +
+        "  - name: Install\n" +
+        "    questions:\n" +
+        "      - question: |\n" +
+        "          How do I\n" +
+        "          install a widget?\n" +
+        "        answer: |\n" +
+        "          Run the installer.\n";
+
     // An Azure Pipelines definition. roslyn-wiki carries nine. It must stay invisible.
     private const string PipelineYaml =
         "# Branches that trigger a build on commit\n" +
@@ -1105,6 +1121,30 @@ public sealed class DocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task SearchAsyncPrefiltersAgainstRenderedTextNotRawYaml()
+    {
+        // Guards the ordering in ReadSearchSource: render first, prefilter second. The query below
+        // matches only the rendered form, so this test fails if the prefilter is ever moved ahead
+        // of the rendering - the reordering that would silently reintroduce false absences.
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.SearchAsync(
+                "How do I install a widget?", regex: false, source: "csharplang", limit: 20,
+                cursor: null, CancellationToken.None);
+
+            var hit = result.Hits.Single(candidate => candidate.Path == "docs/multiline-faq.yml");
+            Assert.AreEqual("YamlMime:FAQ", hit.RenderedFrom);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task SearchAsyncNeverReadsAYamlFileThatIsNotAFaq()
     {
         // "widgetinstaller" appears in the pipeline fixture's build step too. A CI definition is
@@ -1185,6 +1225,7 @@ public sealed class DocsQueryServiceTests
         await File.WriteAllTextAsync(Path.Combine(docsDirectory, "widget-faq.yml"), LearnFaq);
         await File.WriteAllTextAsync(Path.Combine(docsDirectory, "azure-pipelines.yml"), PipelineYaml);
         await File.WriteAllTextAsync(Path.Combine(docsDirectory, "broken-faq.yml"), BrokenFaq);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "multiline-faq.yml"), MultiLineQuestionFaq);
         await RunGitAsync(repository, "add", ".");
         await RunGitAsync(repository, "commit", "-m", "docs");
         var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
