@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Features.Docs;
 using DotNetKnowledge.Mcp.Sources;
+using DotNetKnowledge.Yaml;
 
 namespace DotNetKnowledge.Mcp.Tests.Features.Docs;
 
@@ -54,6 +55,47 @@ public sealed class DocsQueryServiceTests
         "## Project type support\n" +
         "\n" +
         "Prose about which project types support it.\n";
+
+    // A Microsoft Learn structured FAQ. nuget-docs carries two of these, holding 55 question and
+    // answer pairs that search cannot see today.
+    private const string LearnFaq =
+        "### YamlMime:FAQ\n" +
+        "metadata:\n" +
+        "  title: Widget FAQ\n" +
+        "  ms.author: someone\n" +
+        "title: Widget frequently-asked questions\n" +
+        "summary: |\n" +
+        "  Intro prose about widgets.\n" +
+        "sections:\n" +
+        "  - name: General\n" +
+        "    questions:\n" +
+        "      - question: |\n" +
+        "          How do I install a widget?\n" +
+        "        answer: |\n" +
+        "          Run the widgetinstaller command.\n" +
+        "      - question: |\n" +
+        "          Where do widgets live?\n" +
+        "        answer: |\n" +
+        "          In the widget directory.\n" +
+        "  - name: Troubleshooting\n" +
+        "    questions:\n" +
+        "      - question: |\n" +
+        "          Why did my widget fail?\n" +
+        "        answer: |\n" +
+        "          Check the widgetlog file.\n";
+
+    // An Azure Pipelines definition. roslyn-wiki carries nine. It must stay invisible.
+    private const string PipelineYaml =
+        "# Branches that trigger a build on commit\n" +
+        "trigger:\n" +
+        "  - main\n" +
+        "steps:\n" +
+        "  - script: build widgetinstaller\n";
+
+    // A file that claims the schema and then cannot be read as one.
+    private const string BrokenFaq =
+        "### YamlMime:FAQ\n" +
+        "unrelated: value\n";
 
     private static readonly string[] ExpectedRegexHitPaths = ["docs/proposal-a.md", "docs/proposal-b.md"];
 
@@ -896,6 +938,163 @@ public sealed class DocsQueryServiceTests
     {
         var repository = Path.Combine(root, "origin");
         var pin = await InitDocsRepositoryAsync(repository, fileName, content);
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(catalogPath, repository, pin);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(catalog, cache);
+        await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
+        return new DocsQueryService(catalog, cache, synchronizer);
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncRendersAFaqAndDeclaresIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/widget-faq.yml", "csharplang", section: null, limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.AreEqual("YamlMime:FAQ", result.RenderedFrom);
+            StringAssert.Contains(result.Text, "# General");
+            StringAssert.Contains(result.Text, "## How do I install a widget?");
+            StringAssert.Contains(result.Text, "Run the widgetinstaller command.");
+            // Title and metadata are document identity, not content.
+            Assert.IsFalse(result.Text.Contains("ms.author", StringComparison.Ordinal));
+            Assert.IsFalse(result.Text.Contains("Widget frequently-asked questions", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetOutlineAsyncReturnsATwoLevelTreeForAFaq()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.GetOutlineAsync(
+                "docs/widget-faq.yml", "csharplang", limit: 100, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual("YamlMime:FAQ", result.RenderedFrom);
+            Assert.AreEqual(5, result.Entries.Count);
+            Assert.AreEqual(2, result.Entries.Count(entry => entry.Level == 1));
+            Assert.AreEqual(3, result.Entries.Count(entry => entry.Level == 2));
+            Assert.AreEqual("General", result.Entries[0].Path);
+            Assert.AreEqual("General > How do I install a widget?", result.Entries[1].Path);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncReturnsASingleQuestionBySectionPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/widget-faq.yml", "csharplang",
+                section: "General > How do I install a widget?",
+                limit: 8000, cursor: null, CancellationToken.None);
+
+            Assert.AreEqual("General > How do I install a widget?", result.Section);
+            StringAssert.Contains(result.Text, "Run the widgetinstaller command.");
+            Assert.IsFalse(result.Text.Contains("Check the widgetlog file.", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncRejectsAYamlFileThatIsNotAFaq()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            await Assert.ThrowsExactlyAsync<DocPathNotFoundException>(async () =>
+                await service.GetDocAsync(
+                    "docs/azure-pipelines.yml", "csharplang", section: null, limit: 8000,
+                    cursor: null, CancellationToken.None));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncSurfacesAFaqThatCannotBeParsed()
+    {
+        // The caller named one document. Telling them it could not be read is strictly better than
+        // a plausible-looking absence.
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            await Assert.ThrowsExactlyAsync<FaqParseException>(async () =>
+                await service.GetDocAsync(
+                    "docs/broken-faq.yml", "csharplang", section: null, limit: 8000,
+                    cursor: null, CancellationToken.None));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocAsyncLeavesMarkdownUnrendered()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.GetDocAsync(
+                "docs/proposal-a.md", "csharplang", section: null, limit: 8000, cursor: null,
+                CancellationToken.None);
+
+            Assert.IsNull(result.RenderedFrom);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    private static async Task<DocsQueryService> CreateServiceWithYamlAsync(string root)
+    {
+        var repository = Path.Combine(root, "origin");
+        var docsDirectory = Path.Combine(repository, "docs");
+        Directory.CreateDirectory(docsDirectory);
+        await RunGitAsync(null, "init", "--initial-branch=main", repository);
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "proposal-a.md"), ProposalA);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "widget-faq.yml"), LearnFaq);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "azure-pipelines.yml"), PipelineYaml);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "broken-faq.yml"), BrokenFaq);
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "docs");
+        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
         var catalogPath = Path.Combine(root, "sources.json");
         await WriteCatalogAsync(catalogPath, repository, pin);
         var catalog = new SourceCatalog(catalogPath);

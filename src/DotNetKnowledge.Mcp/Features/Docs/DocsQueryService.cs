@@ -5,6 +5,7 @@ using DotNetKnowledge.Markdown;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
 using DotNetKnowledge.Mcp.Text;
+using DotNetKnowledge.Yaml;
 
 namespace DotNetKnowledge.Mcp.Features.Docs;
 
@@ -37,7 +38,7 @@ public sealed class DocsQueryService
         if (limit is < 1 or > 500)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 500.");
 
-        var (text, provenance, resolvedPath, note) =
+        var (text, provenance, resolvedPath, note, renderedFrom) =
             await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
         var headings = MarkdownOutline.Extract(text);
 
@@ -57,7 +58,8 @@ public sealed class DocsQueryService
             page.Select(heading => new DocOutlineEntry(heading.Level, heading.Text, heading.Path)).ToArray(),
             isPartial,
             isPartial ? EncodeCursor("lang-outline", scope, nextOffset, revisions) : null,
-            note);
+            note,
+            renderedFrom);
     }
 
     public async Task<DocSearchResult> SearchAsync(
@@ -167,7 +169,7 @@ public sealed class DocsQueryService
         if (limit is < 1000 or > 50000)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1000 and 50000.");
 
-        var (text, provenance, resolvedPath, pathNote) =
+        var (text, provenance, resolvedPath, pathNote, renderedFrom) =
             await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
         var lines = text.ReplaceLineEndings("\n").Split('\n');
 
@@ -240,7 +242,8 @@ public sealed class DocsQueryService
             endLineExclusive - 1,
             isPartial,
             isPartial ? EncodeCursor("lang-doc", scope, endLineExclusive, revisions) : null,
-            CombineNotes(pathNote, sectionNote));
+            CombineNotes(pathNote, sectionNote),
+            renderedFrom);
     }
 
     private static DocNormalizationNote? CombineNotes(DocNormalizationNote? first, DocNormalizationNote? second)
@@ -253,7 +256,7 @@ public sealed class DocsQueryService
         return new DocNormalizationNote(first.Message + " " + second.Message);
     }
 
-    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note, string? RenderedFrom)>
         ReadDocumentAsync(string source, string path, CancellationToken cancellationToken)
     {
         try
@@ -264,12 +267,12 @@ public sealed class DocsQueryService
         {
             try
             {
-                var (text, provenance, resolvedPath, _) =
+                var (text, provenance, resolvedPath, _, renderedFrom) =
                     await ReadDocumentAttemptAsync(source, normalizedPath, cancellationToken).ConfigureAwait(false);
                 var note = new DocNormalizationNote(
                     $"'{path}' was not found; resolved to '{resolvedPath}' after decoding HTML entities and " +
                     "typographic characters in the path.");
-                return (text, provenance, resolvedPath, note);
+                return (text, provenance, resolvedPath, note, renderedFrom);
             }
             catch (Exception retryFailure) when (retryFailure is DocPathNotFoundException or ArgumentException)
             {
@@ -284,7 +287,7 @@ public sealed class DocsQueryService
         }
     }
 
-    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note, string? RenderedFrom)>
         ReadDocumentAttemptAsync(string source, string path, CancellationToken cancellationToken)
     {
         DocumentRead read;
@@ -305,16 +308,57 @@ public sealed class DocsQueryService
             throw new SourceNotSyncedException(source, exception);
         }
 
-        return (read.Text, read.Provenance, path, null);
+        return (read.Text, read.Provenance, path, null, read.RenderedFrom);
     }
 
-    private sealed record DocumentRead(string Text, GitProvenance Provenance);
+    /// <summary>
+    /// Extensions a document may have. .yaml is accepted although no source carries one today: the
+    /// content marker is what decides, so listing it costs nothing and avoids a false absence.
+    /// </summary>
+    private static readonly string[] DocumentExtensions = [".md", ".yml", ".yaml"];
+
+    private sealed record RenderedDocument(string Text, string? RenderedFrom);
+
+    private static bool HasDocumentExtension(string path) =>
+        DocumentExtensions.Any(extension => path.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsYamlPath(string path) =>
+        path.EndsWith(".yml", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The one place a non-markdown document becomes markdown. Returns null when the file is YAML
+    /// this server does not serve - a pipeline definition or a navigation file - which is not an
+    /// error. Throws <see cref="FaqParseException"/> when a file claims the FAQ schema and then
+    /// cannot be read as one, which is.
+    /// </summary>
+    private static RenderedDocument? RenderIfServable(string fullPath, string text)
+    {
+        if (!IsYamlPath(fullPath))
+            return new RenderedDocument(text, null);
+
+        if (!string.Equals(LearnYamlMime.Detect(text), LearnYamlMime.Faq, StringComparison.Ordinal))
+            return null;
+
+        return new RenderedDocument(
+            FaqMarkdown.Render(FaqDocument.Parse(text)),
+            $"YamlMime:{LearnYamlMime.Faq}");
+    }
+
+    private sealed record DocumentRead(string Text, string? RenderedFrom, GitProvenance Provenance);
 
     private static DocumentRead ReadDocument(
         string directory, string source, string path, SourceDefinition definition, SourceSyncState state)
     {
         var fullPath = ResolveFullPath(directory, source, path);
-        return new DocumentRead(File.ReadAllText(fullPath), ToProvenance(definition, state));
+        var rendered = RenderIfServable(fullPath, File.ReadAllText(fullPath));
+
+        // YAML this server does not serve is not a document, and the caller must not be able to
+        // tell it apart from a path that does not exist.
+        if (rendered is null)
+            throw new DocPathNotFoundException(path, source);
+
+        return new DocumentRead(rendered.Text, rendered.RenderedFrom, ToProvenance(definition, state));
     }
 
     private sealed record SourceSearchRead(GitProvenance Provenance, IReadOnlyList<DocLineHit> Hits);
@@ -374,7 +418,7 @@ public sealed class DocsQueryService
         if (string.IsNullOrWhiteSpace(path)
             || Path.IsPathRooted(path)
             || !candidate.StartsWith(rootPrefix, comparison)
-            || !candidate.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || !HasDocumentExtension(candidate)
             || !File.Exists(candidate))
         {
             throw new DocPathNotFoundException(path, source);
