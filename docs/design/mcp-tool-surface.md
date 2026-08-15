@@ -152,6 +152,13 @@ search_docs(query, regex?, source?, limit?, cursor?)
     → a literal query matching nothing retries once against an HTML-entity/
       typography-decoded form; a hit set from that retry carries
       normalizationNote (not attempted when regex: true)
+    → a hit carrying renderedFrom came from a document this server rendered
+      rather than read verbatim (today a Microsoft Learn structured FAQ,
+      renderedFrom "YamlMime:FAQ"); its path names a real file, but the
+      line number indexes the rendering, not the file's bytes
+    → skippedDocuments: present when a document that declared a renderable
+      schema could not be read, naming it and the reason, rather than
+      silently contributing no hits
 
 get_doc(path, source, section?, limit?, cursor?)
     section: a heading path exactly as issued by a search hit or an
@@ -170,6 +177,11 @@ get_doc(path, source, section?, limit?, cursor?)
       an HTML-entity/typography-decoded form; a response from that retry
       carries normalizationNote and reports the resolved value, not the
       request's own spelling
+    → a response carrying renderedFrom is the server's rendering of a
+      structured document (today a Microsoft Learn FAQ, whose sections and
+      questions become headings), so startLine and endLine index that
+      rendering rather than the file on disk; the FAQ's own title and
+      metadata are identity rather than content and are not returned
 
 get_doc_outline(path, source, limit?, cursor?)
     → limit: 1-500, default 100
@@ -177,6 +189,9 @@ get_doc_outline(path, source, limit?, cursor?)
       map an agent reads before spending context on content
     → a "path" that doesn't match exactly gets the same one-shot decoded
       retry, carrying normalizationNote
+    → a Microsoft Learn structured FAQ has a heading tree even though the
+      file is YAML: its sections are level 1 and its questions level 2,
+      and the response carries renderedFrom
 
 ── examples (fetched, from flatrick/dotnet-code-examples) ─────────────
 list_examples(kind?, language?, version?, feature?)

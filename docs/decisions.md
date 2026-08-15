@@ -24,6 +24,29 @@ and the entry links there.
 
 ---
 
+### 2026-08-16 · YAML support is scoped to `YamlMime:FAQ`, and a rendered document declares itself
+
+Of the 13 `.yml` files in the markdown-searchable sources, nine are Azure Pipelines definitions, two
+are navigation, and two are prose. Microsoft Learn states the schema on line 1, so the gate is
+content rather than path or source — a Learn FAQ in any future source is picked up with no
+configuration, and a pipeline definition never is.
+
+Rejected: reading every `.yml`, which the backlog file itself suggested — it would put CI
+configuration for building Roslyn in front of an agent asking about C#. Rejected: reporting that a
+FAQ has no outline, also from the backlog file — a Learn FAQ states a two-level tree explicitly in
+`sections[].name` and `questions[].question`, so there is a real outline to return.
+
+A FAQ is rendered to markdown at the read, which is why the outline, section paths, pager, cursors
+and truncation reporting needed no new code. The rendering's line numbers do not index the file on
+disk, so every payload carries `renderedFrom`. Rejected: carrying YamlDotNet source marks through
+the renderer to report true `.yml` lines — the declaring field already tells an agent not to trust
+the number against the raw file, at a fraction of the plumbing.
+
+The FAQ's `title` is not rendered as a heading: as an H1 it becomes the ancestor of every heading in
+the file and prefixes every section path with the document's own name.
+
+---
+
 ### 2026-08-14 · The framework argument is kept, but the evidence is measured, not cataloged
 
 Corrects the entry below, whose conclusion holds and whose premise did not: `Microsoft.Build.Framework`
