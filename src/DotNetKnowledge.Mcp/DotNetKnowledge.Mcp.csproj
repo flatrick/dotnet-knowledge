@@ -57,6 +57,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotNetKnowledge.Markdown\DotNetKnowledge.Markdown.csproj" />
+    <ProjectReference Include="..\DotNetKnowledge.Yaml\DotNetKnowledge.Yaml.csproj" />
   </ItemGroup>
 
 </Project>
