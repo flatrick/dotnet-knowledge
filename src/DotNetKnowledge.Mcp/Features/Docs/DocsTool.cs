@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
+using DotNetKnowledge.Yaml;
 using ModelContextProtocol.Server;
 
 namespace DotNetKnowledge.Mcp.Features.Docs;
@@ -29,7 +30,12 @@ public sealed class DocsTool
         "Microsoft Learn articles carry, is metadata about a document rather than part of it and " +
         "is not searched. A literal, non-regex query that matches nothing is retried once against " +
         "an HTML-entity/typography-decoded form; a hit set produced this way carries " +
-        "normalizationNote naming the form actually matched.")]
+        "normalizationNote naming the form actually matched. " +
+        "A hit carrying renderedFrom came from a document this server rendered rather than read " +
+        "verbatim - today a Microsoft Learn structured FAQ (renderedFrom \"YamlMime:FAQ\"). Its " +
+        "path names a real file, but the line number indexes the rendering, not the file's bytes. " +
+        "A document that declared a schema this server renders and then could not be read is " +
+        "named in skippedDocuments with the reason, rather than silently contributing no hits.")]
     public static async Task<string> SearchDocs(
         string query,
         DocsQueryService service,
@@ -92,7 +98,11 @@ public sealed class DocsTool
         "and startLine names the line the text actually came from. If \"path\" or \"section\" " +
         "doesn't match exactly, one retry is attempted against an HTML-entity/typography-decoded " +
         "form of the same value; a response produced this way carries normalizationNote and " +
-        "reports the resolved path/section, never the request's own spelling.")]
+        "reports the resolved path/section, never the request's own spelling. " +
+        "A response carrying renderedFrom is the server's rendering of a structured document - " +
+        "today a Microsoft Learn FAQ, whose sections and questions become headings - so startLine " +
+        "and endLine index that rendering rather than the file on disk. The FAQ's own title and " +
+        "metadata are identity rather than content and are not returned.")]
     public static async Task<string> GetDoc(
         string path,
         string source,
@@ -121,6 +131,10 @@ public sealed class DocsTool
         {
             return SerializeError("path_not_found", exception.Message);
         }
+        catch (FaqParseException exception)
+        {
+            return SerializeError("document_unreadable", exception.Message);
+        }
         catch (SourceNotSyncedException exception)
         {
             return SerializeSourceNotSynced(exception);
@@ -146,7 +160,9 @@ public sealed class DocsTool
         "parameter accepts verbatim. YAML front matter, which Microsoft Learn articles carry, is " +
         "not a heading and does not appear. Paginated like the other tools. If \"path\" doesn't " +
         "match exactly, one retry is attempted against an HTML-entity/typography-decoded form; a " +
-        "response produced this way carries normalizationNote and reports the resolved path.")]
+        "response produced this way carries normalizationNote and reports the resolved path. " +
+        "A Microsoft Learn structured FAQ has a heading tree even though the file is YAML: its " +
+        "sections are level 1 and its questions level 2, and the response carries renderedFrom.")]
     public static async Task<string> GetDocOutline(
         string path,
         string source,
@@ -168,6 +184,10 @@ public sealed class DocsTool
         catch (DocPathNotFoundException exception)
         {
             return SerializeError("path_not_found", exception.Message);
+        }
+        catch (FaqParseException exception)
+        {
+            return SerializeError("document_unreadable", exception.Message);
         }
         catch (SourceNotSyncedException exception)
         {
