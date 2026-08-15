@@ -1080,6 +1080,99 @@ public sealed class DocsQueryServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task SearchAsyncFindsAHitInsideAFaqAnswer()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.SearchAsync(
+                "widgetinstaller", regex: false, source: "csharplang", limit: 20, cursor: null,
+                CancellationToken.None);
+
+            var hit = result.Hits.Single(candidate => candidate.Path.EndsWith(".yml", StringComparison.Ordinal));
+            Assert.AreEqual("docs/widget-faq.yml", hit.Path);
+            Assert.AreEqual("YamlMime:FAQ", hit.RenderedFrom);
+            // The hit must be locatable: a section path is what get_doc accepts back.
+            Assert.AreEqual("General > How do I install a widget?", hit.SectionPath);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncNeverReadsAYamlFileThatIsNotAFaq()
+    {
+        // "widgetinstaller" appears in the pipeline fixture's build step too. A CI definition is
+        // not documentation and must not surface.
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.SearchAsync(
+                "widgetinstaller", regex: false, source: "csharplang", limit: 20, cursor: null,
+                CancellationToken.None);
+
+            Assert.IsFalse(result.Hits.Any(hit => hit.Path.Contains("azure-pipelines", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncReportsAFaqItCouldNotParse()
+    {
+        // One unreadable file must not fail a fan-out, and must not vanish either.
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.SearchAsync(
+                "widgetinstaller", regex: false, source: "csharplang", limit: 20, cursor: null,
+                CancellationToken.None);
+
+            Assert.IsNotNull(result.SkippedDocuments);
+            var skipped = result.SkippedDocuments.Single();
+            Assert.AreEqual("docs/broken-faq.yml", skipped.Path);
+            StringAssert.Contains(skipped.Reason, "no sections");
+            // The good FAQ still answered.
+            Assert.IsTrue(result.Hits.Any(hit => hit.Path == "docs/widget-faq.yml"));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchAsyncLeavesMarkdownHitsUnmarked()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var result = await service.SearchAsync(
+                "motivating", regex: false, source: "csharplang", limit: 20, cursor: null,
+                CancellationToken.None);
+
+            var hit = result.Hits.Single(candidate => candidate.Path == "docs/proposal-a.md");
+            Assert.IsNull(hit.RenderedFrom);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
     private static async Task<DocsQueryService> CreateServiceWithYamlAsync(string root)
     {
         var repository = Path.Combine(root, "origin");

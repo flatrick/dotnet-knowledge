@@ -80,8 +80,8 @@ public sealed class DocsQueryService
         var compiledPattern = regex ? new Regex(query, RegexOptions.NonBacktracking) : null;
 
         var sourceNames = ResolveSourceNames(source);
-        var (hits, searchedSources) = await CollectHitsAsync(query, compiledPattern, sourceNames, cancellationToken)
-            .ConfigureAwait(false);
+        var (hits, searchedSources, skipped) = await CollectHitsAsync(
+            query, compiledPattern, sourceNames, cancellationToken).ConfigureAwait(false);
 
         var effectiveQuery = query;
         DocNormalizationNote? note = null;
@@ -89,12 +89,13 @@ public sealed class DocsQueryService
             && CallerInputNormalization.TryNormalize(query, out var normalizedQuery)
             && !string.IsNullOrWhiteSpace(normalizedQuery))
         {
-            var (normalizedHits, normalizedSearchedSources) = await CollectHitsAsync(
+            var (normalizedHits, normalizedSearchedSources, normalizedSkipped) = await CollectHitsAsync(
                 normalizedQuery, compiledPattern: null, sourceNames, cancellationToken).ConfigureAwait(false);
             if (normalizedHits.Count > 0)
             {
                 hits = normalizedHits;
                 searchedSources = normalizedSearchedSources;
+                skipped = normalizedSkipped;
                 effectiveQuery = normalizedQuery;
                 note = new DocNormalizationNote(
                     $"No literal match for '{query}'; results reflect the HTML-entity/typography-" +
@@ -119,14 +120,17 @@ public sealed class DocsQueryService
             isPartial,
             isPartial ? EncodeCursor("lang-search", scope, nextOffset, revisions) : null,
             searchedSources,
-            note);
+            note,
+            skipped.Count > 0 ? skipped : null);
     }
 
-    private async Task<(List<DocLineHit> Hits, List<GitProvenance> SearchedSources)> CollectHitsAsync(
-        string query, Regex? compiledPattern, string[] sourceNames, CancellationToken cancellationToken)
+    private async Task<(List<DocLineHit> Hits, List<GitProvenance> SearchedSources, List<DocSkippedDocument> Skipped)>
+        CollectHitsAsync(
+            string query, Regex? compiledPattern, string[] sourceNames, CancellationToken cancellationToken)
     {
         var hits = new List<DocLineHit>();
         var searchedSources = new List<GitProvenance>();
+        var skipped = new List<DocSkippedDocument>();
 
         foreach (var sourceName in sourceNames)
         {
@@ -152,9 +156,10 @@ public sealed class DocsQueryService
 
             searchedSources.Add(read.Provenance);
             hits.AddRange(read.Hits);
+            skipped.AddRange(read.Skipped);
         }
 
-        return (hits, searchedSources);
+        return (hits, searchedSources, skipped);
     }
 
     public async Task<DocContentResult> GetDocAsync(
@@ -361,7 +366,20 @@ public sealed class DocsQueryService
         return new DocumentRead(rendered.Text, rendered.RenderedFrom, ToProvenance(definition, state));
     }
 
-    private sealed record SourceSearchRead(GitProvenance Provenance, IReadOnlyList<DocLineHit> Hits);
+    /// <summary>
+    /// Enumerated per extension rather than with a single wildcard, so a source's non-document
+    /// ballast - nuget-docs checks out 14 MB of images - is never walked. The extension is
+    /// re-checked because a Windows search pattern also matches 8.3 short names.
+    /// </summary>
+    private static IEnumerable<string> EnumerateDocumentFiles(string fullRoot) =>
+        DocumentExtensions
+            .SelectMany(extension => Directory.EnumerateFiles(fullRoot, $"*{extension}", SearchOption.AllDirectories))
+            .Where(HasDocumentExtension);
+
+    private sealed record SourceSearchRead(
+        GitProvenance Provenance,
+        IReadOnlyList<DocLineHit> Hits,
+        IReadOnlyList<DocSkippedDocument> Skipped);
 
     private static SourceSearchRead ReadSearchSource(
         string directory,
@@ -374,14 +392,38 @@ public sealed class DocsQueryService
         var provenance = ToProvenance(definition, state);
         var fullRoot = Path.GetFullPath(directory);
         var hits = new List<DocLineHit>();
+        var skipped = new List<DocSkippedDocument>();
 
-        foreach (var file in Directory.EnumerateFiles(fullRoot, "*.md", SearchOption.AllDirectories))
+        foreach (var file in EnumerateDocumentFiles(fullRoot))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var text = File.ReadAllText(file);
+            var relativePath = Path.GetRelativePath(fullRoot, file).Replace('\\', '/');
+
+            RenderedDocument? document;
+            try
+            {
+                // Rendering happens before the prefilter so the prefilter tests the same text the
+                // matcher will. Testing raw YAML would skip a file whose only match is a word the
+                // rendering produces - the same silent absence, one layer down.
+                document = RenderIfServable(file, File.ReadAllText(file));
+            }
+            catch (FaqParseException exception)
+            {
+                // A dropped file is indistinguishable from one with no matches. One unreadable
+                // document must not fail a fan-out across every source, so it is named instead.
+                skipped.Add(new DocSkippedDocument(relativePath, exception.Message));
+                continue;
+            }
+
+            // YAML this server does not serve. Not an absence worth reporting: it was never a
+            // document, and naming every pipeline definition would bury the ones that matter.
+            if (document is null)
+                continue;
+
+            var text = document.Text;
 
             // Skip the full Markdig parse entirely for a file that cannot match: a source can hold
-            // hundreds of markdown files, and most queries match none of them. This must check
+            // hundreds of documents, and most queries match none of them. This must check
             // per-line, the same way MarkdownLineSearch.Search below actually matches: an anchored
             // pattern like "^## " behaves differently against a single line than against the whole
             // file text (^ without RegexOptions.Multiline only matches offset 0 of whatever string
@@ -395,17 +437,17 @@ public sealed class DocsQueryService
                 continue;
 
             var outline = MarkdownOutline.Extract(text);
-            var relativePath = Path.GetRelativePath(fullRoot, file).Replace('\\', '/');
 
             foreach (var hit in MarkdownLineSearch.Search(text, outline, query, compiledPattern))
             {
                 var (matchedText, isTruncated) = DocumentationText.Budget(hit.Text, MatchTextBudget);
                 hits.Add(new DocLineHit(
-                    relativePath, hit.Line, matchedText, isTruncated, hit.SectionPath, provenance));
+                    relativePath, hit.Line, matchedText, isTruncated, hit.SectionPath, provenance,
+                    document.RenderedFrom));
             }
         }
 
-        return new SourceSearchRead(provenance, hits);
+        return new SourceSearchRead(provenance, hits, skipped);
     }
 
     private static string ResolveFullPath(string directory, string source, string path)
