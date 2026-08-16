@@ -8,16 +8,30 @@ public sealed record DocLineHit(
     string Text,
     bool IsTruncated,
     string SectionPath,
-    GitProvenance Source);
+    GitProvenance Source,
+    // Set when this hit came from a document the server rendered rather than read verbatim. The
+    // line number then indexes the rendering, not the bytes on disk. It belongs per hit, not per
+    // result, because an unfiltered search fans across rendered and verbatim documents at once.
+    string? RenderedFrom = null);
 
 public sealed record DocNormalizationNote(string Message);
+
+/// <summary>
+/// A document the server declined to read, and why. A dropped file is indistinguishable from one
+/// with no matches, which is the failure the no-silent-absence rule exists to prevent; this is the
+/// document-side counterpart of skippedDeclarations on the API payloads. Source is required, like
+/// its counterpart on DocLineHit, because an unfiltered search merges skipped documents from every
+/// source into one array and a reported path cannot otherwise be tied back to where it came from.
+/// </summary>
+public sealed record DocSkippedDocument(string Path, string Reason, GitProvenance Source);
 
 public sealed record DocSearchResult(
     IReadOnlyList<DocLineHit> Hits,
     bool IsPartial,
     string? NextPageToken,
     IReadOnlyList<GitProvenance> SearchedSources,
-    DocNormalizationNote? NormalizationNote = null);
+    DocNormalizationNote? NormalizationNote = null,
+    IReadOnlyList<DocSkippedDocument>? SkippedDocuments = null);
 
 public sealed record DocContentResult(
     string Path,
@@ -28,7 +42,8 @@ public sealed record DocContentResult(
     int EndLine,
     bool IsPartial,
     string? NextPageToken,
-    DocNormalizationNote? NormalizationNote = null);
+    DocNormalizationNote? NormalizationNote = null,
+    string? RenderedFrom = null);
 
 public sealed record DocOutlineEntry(int Level, string Text, string Path);
 
@@ -38,7 +53,8 @@ public sealed record DocOutlineResult(
     IReadOnlyList<DocOutlineEntry> Entries,
     bool IsPartial,
     string? NextPageToken,
-    DocNormalizationNote? NormalizationNote = null);
+    DocNormalizationNote? NormalizationNote = null,
+    string? RenderedFrom = null);
 
 public sealed class DocPathNotFoundException : Exception
 {

@@ -92,6 +92,12 @@ guarantee — normalizing on the way out would make the text a search matched di
 returns, and budgeting before a match would drop every hit past the cap and report an absence.
 `docs/design/mcp-tool-surface.md` has the reasoning.
 
+`DotNetKnowledge.Yaml` is the mirror of `DotNetKnowledge.Markdown`'s seam: its contract is YAML text
+in, markdown text out. `FaqMarkdown.Render` turns a parsed `YamlMime:FAQ` document into markdown, and
+everything downstream of that — outline extraction, line search, atomic blocks, paging, budgeting —
+runs unchanged, because by then the document is markdown like any other. YamlDotNet is referenced by
+no other project.
+
 ### Non-negotiables for every tool
 
 These are correctness obligations, not preferences:

@@ -82,7 +82,9 @@ The server's source, API-doc, and doc tools are implemented and work under an MC
 `find_api_references`, `search_docs`, `get_doc`, and `get_doc_outline`
 all answer correctly over stdio, including a first sync of a large upstream repository.
 API answers about Roslyn draw on the pinned `Microsoft.CodeAnalysis.Workspaces.MSBuild` package
-beside the documentation checkout, selectable per target framework.
+beside the documentation checkout, selectable per target framework. The document tools also serve
+Microsoft Learn structured-FAQ documents alongside markdown, rendering a `YamlMime:FAQ` file's
+sections and questions to a heading tree.
 
 Bundled-example queries remain future work; their intended surface is recorded in
 [`docs/design/mcp-tool-surface.md`](docs/design/mcp-tool-surface.md).

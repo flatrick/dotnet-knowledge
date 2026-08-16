@@ -11,6 +11,46 @@ public sealed class DocsToolTests
     private const string ProposalA =
         "# Feature A\n\n## Motivation\n\nSome motivating prose.\n";
 
+    // A Microsoft Learn structured FAQ.
+    private const string LearnFaq =
+        "### YamlMime:FAQ\n" +
+        "metadata:\n" +
+        "  title: Widget FAQ\n" +
+        "  ms.author: someone\n" +
+        "title: Widget frequently-asked questions\n" +
+        "summary: |\n" +
+        "  Intro prose about widgets.\n" +
+        "sections:\n" +
+        "  - name: General\n" +
+        "    questions:\n" +
+        "      - question: |\n" +
+        "          How do I install a widget?\n" +
+        "        answer: |\n" +
+        "          Run the widgetinstaller command.\n" +
+        "      - question: |\n" +
+        "          Where do widgets live?\n" +
+        "        answer: |\n" +
+        "          In the widget directory.\n" +
+        "  - name: Troubleshooting\n" +
+        "    questions:\n" +
+        "      - question: |\n" +
+        "          Why did my widget fail?\n" +
+        "        answer: |\n" +
+        "          Check the widgetlog file.\n";
+
+    // An Azure Pipelines definition. It must stay invisible.
+    private const string PipelineYaml =
+        "# Branches that trigger a build on commit\n" +
+        "trigger:\n" +
+        "  - main\n" +
+        "steps:\n" +
+        "  - script: build widgetinstaller\n";
+
+    // A file that claims the schema and then cannot be read as one.
+    private const string BrokenFaq =
+        "### YamlMime:FAQ\n" +
+        "unrelated: value\n";
+
     [TestMethod]
     public async Task GetDocOutlineNamesTheRequiredSyncWhenSourceIsMissing()
     {
@@ -167,6 +207,133 @@ public sealed class DocsToolTests
             if (Directory.Exists(root))
                 DeleteDirectory(root);
         }
+    }
+
+    [TestMethod]
+    public async Task GetDocSerializesRenderedFrom()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var json = await DocsTool.GetDoc(
+                "docs/widget-faq.yml", "csharplang", service, CancellationToken.None);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("YamlMime:FAQ", document.RootElement.GetProperty("renderedFrom").GetString());
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocOmitsRenderedFromForMarkdown()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var json = await DocsTool.GetDoc(
+                "docs/proposal-a.md", "csharplang", service, CancellationToken.None);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.IsFalse(document.RootElement.TryGetProperty("renderedFrom", out _));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchDocsSerializesSkippedDocuments()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var json = await DocsTool.SearchDocs(
+                "widgetinstaller", service, CancellationToken.None, source: "csharplang");
+
+            using var document = JsonDocument.Parse(json);
+            var skipped = document.RootElement.GetProperty("skippedDocuments");
+            Assert.AreEqual(1, skipped.GetArrayLength());
+            Assert.AreEqual("docs/broken-faq.yml", skipped[0].GetProperty("path").GetString());
+            Assert.IsTrue(skipped[0].GetProperty("source").TryGetProperty("repo", out _));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task SearchDocsOmitsSkippedDocumentsWhenNothingWasSkipped()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceAsync(root);
+
+            var json = await DocsTool.SearchDocs(
+                "motivating", service, CancellationToken.None, source: "csharplang");
+
+            using var document = JsonDocument.Parse(json);
+            Assert.IsFalse(document.RootElement.TryGetProperty("skippedDocuments", out _));
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetDocReportsAnUnreadableFaqAsAnError()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var service = await CreateServiceWithYamlAsync(root);
+
+            var json = await DocsTool.GetDoc(
+                "docs/broken-faq.yml", "csharplang", service, CancellationToken.None);
+
+            using var document = JsonDocument.Parse(json);
+            Assert.AreEqual("document_unreadable", document.RootElement.GetProperty("error").GetString());
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    private static async Task<DocsQueryService> CreateServiceWithYamlAsync(string root)
+    {
+        var repository = Path.Combine(root, "origin");
+        var docsDirectory = Path.Combine(repository, "docs");
+        Directory.CreateDirectory(docsDirectory);
+        await RunGitAsync(null, "init", "--initial-branch=main", repository);
+        await RunGitAsync(repository, "config", "user.email", "tests@example.invalid");
+        await RunGitAsync(repository, "config", "user.name", "Tests");
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "proposal-a.md"), ProposalA);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "widget-faq.yml"), LearnFaq);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "azure-pipelines.yml"), PipelineYaml);
+        await File.WriteAllTextAsync(Path.Combine(docsDirectory, "broken-faq.yml"), BrokenFaq);
+        await RunGitAsync(repository, "add", ".");
+        await RunGitAsync(repository, "commit", "-m", "docs");
+        var pin = (await RunGitAsync(repository, "rev-parse", "HEAD")).Trim();
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(catalogPath, repository, pin);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(catalog, cache);
+        await synchronizer.SyncAsync("csharplang", requestedRef: null, CancellationToken.None);
+        return new DocsQueryService(catalog, cache, synchronizer);
     }
 
     private static async Task<DocsQueryService> CreateServiceAsync(string root)

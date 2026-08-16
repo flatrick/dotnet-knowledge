@@ -5,6 +5,7 @@ using DotNetKnowledge.Markdown;
 using DotNetKnowledge.Mcp.Features.ApiDocs;
 using DotNetKnowledge.Mcp.Sources;
 using DotNetKnowledge.Mcp.Text;
+using DotNetKnowledge.Yaml;
 
 namespace DotNetKnowledge.Mcp.Features.Docs;
 
@@ -37,7 +38,7 @@ public sealed class DocsQueryService
         if (limit is < 1 or > 500)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 500.");
 
-        var (text, provenance, resolvedPath, note) =
+        var (text, provenance, resolvedPath, note, renderedFrom) =
             await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
         var headings = MarkdownOutline.Extract(text);
 
@@ -57,7 +58,8 @@ public sealed class DocsQueryService
             page.Select(heading => new DocOutlineEntry(heading.Level, heading.Text, heading.Path)).ToArray(),
             isPartial,
             isPartial ? EncodeCursor("lang-outline", scope, nextOffset, revisions) : null,
-            note);
+            note,
+            renderedFrom);
     }
 
     public async Task<DocSearchResult> SearchAsync(
@@ -78,8 +80,8 @@ public sealed class DocsQueryService
         var compiledPattern = regex ? new Regex(query, RegexOptions.NonBacktracking) : null;
 
         var sourceNames = ResolveSourceNames(source);
-        var (hits, searchedSources) = await CollectHitsAsync(query, compiledPattern, sourceNames, cancellationToken)
-            .ConfigureAwait(false);
+        var (hits, searchedSources, skipped) = await CollectHitsAsync(
+            query, compiledPattern, sourceNames, cancellationToken).ConfigureAwait(false);
 
         var effectiveQuery = query;
         DocNormalizationNote? note = null;
@@ -87,12 +89,13 @@ public sealed class DocsQueryService
             && CallerInputNormalization.TryNormalize(query, out var normalizedQuery)
             && !string.IsNullOrWhiteSpace(normalizedQuery))
         {
-            var (normalizedHits, normalizedSearchedSources) = await CollectHitsAsync(
+            var (normalizedHits, normalizedSearchedSources, normalizedSkipped) = await CollectHitsAsync(
                 normalizedQuery, compiledPattern: null, sourceNames, cancellationToken).ConfigureAwait(false);
             if (normalizedHits.Count > 0)
             {
                 hits = normalizedHits;
                 searchedSources = normalizedSearchedSources;
+                skipped = normalizedSkipped;
                 effectiveQuery = normalizedQuery;
                 note = new DocNormalizationNote(
                     $"No literal match for '{query}'; results reflect the HTML-entity/typography-" +
@@ -117,14 +120,17 @@ public sealed class DocsQueryService
             isPartial,
             isPartial ? EncodeCursor("lang-search", scope, nextOffset, revisions) : null,
             searchedSources,
-            note);
+            note,
+            skipped.Count > 0 ? skipped : null);
     }
 
-    private async Task<(List<DocLineHit> Hits, List<GitProvenance> SearchedSources)> CollectHitsAsync(
-        string query, Regex? compiledPattern, string[] sourceNames, CancellationToken cancellationToken)
+    private async Task<(List<DocLineHit> Hits, List<GitProvenance> SearchedSources, List<DocSkippedDocument> Skipped)>
+        CollectHitsAsync(
+            string query, Regex? compiledPattern, string[] sourceNames, CancellationToken cancellationToken)
     {
         var hits = new List<DocLineHit>();
         var searchedSources = new List<GitProvenance>();
+        var skipped = new List<DocSkippedDocument>();
 
         foreach (var sourceName in sourceNames)
         {
@@ -150,9 +156,10 @@ public sealed class DocsQueryService
 
             searchedSources.Add(read.Provenance);
             hits.AddRange(read.Hits);
+            skipped.AddRange(read.Skipped);
         }
 
-        return (hits, searchedSources);
+        return (hits, searchedSources, skipped);
     }
 
     public async Task<DocContentResult> GetDocAsync(
@@ -167,7 +174,7 @@ public sealed class DocsQueryService
         if (limit is < 1000 or > 50000)
             throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1000 and 50000.");
 
-        var (text, provenance, resolvedPath, pathNote) =
+        var (text, provenance, resolvedPath, pathNote, renderedFrom) =
             await ReadDocumentAsync(source, path, cancellationToken).ConfigureAwait(false);
         var lines = text.ReplaceLineEndings("\n").Split('\n');
 
@@ -240,7 +247,8 @@ public sealed class DocsQueryService
             endLineExclusive - 1,
             isPartial,
             isPartial ? EncodeCursor("lang-doc", scope, endLineExclusive, revisions) : null,
-            CombineNotes(pathNote, sectionNote));
+            CombineNotes(pathNote, sectionNote),
+            renderedFrom);
     }
 
     private static DocNormalizationNote? CombineNotes(DocNormalizationNote? first, DocNormalizationNote? second)
@@ -253,7 +261,7 @@ public sealed class DocsQueryService
         return new DocNormalizationNote(first.Message + " " + second.Message);
     }
 
-    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note, string? RenderedFrom)>
         ReadDocumentAsync(string source, string path, CancellationToken cancellationToken)
     {
         try
@@ -264,12 +272,12 @@ public sealed class DocsQueryService
         {
             try
             {
-                var (text, provenance, resolvedPath, _) =
+                var (text, provenance, resolvedPath, _, renderedFrom) =
                     await ReadDocumentAttemptAsync(source, normalizedPath, cancellationToken).ConfigureAwait(false);
                 var note = new DocNormalizationNote(
                     $"'{path}' was not found; resolved to '{resolvedPath}' after decoding HTML entities and " +
                     "typographic characters in the path.");
-                return (text, provenance, resolvedPath, note);
+                return (text, provenance, resolvedPath, note, renderedFrom);
             }
             catch (Exception retryFailure) when (retryFailure is DocPathNotFoundException or ArgumentException)
             {
@@ -284,7 +292,7 @@ public sealed class DocsQueryService
         }
     }
 
-    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note)>
+    private async Task<(string Text, GitProvenance Provenance, string ResolvedPath, DocNormalizationNote? Note, string? RenderedFrom)>
         ReadDocumentAttemptAsync(string source, string path, CancellationToken cancellationToken)
     {
         DocumentRead read;
@@ -305,19 +313,73 @@ public sealed class DocsQueryService
             throw new SourceNotSyncedException(source, exception);
         }
 
-        return (read.Text, read.Provenance, path, null);
+        return (read.Text, read.Provenance, path, null, read.RenderedFrom);
     }
 
-    private sealed record DocumentRead(string Text, GitProvenance Provenance);
+    /// <summary>
+    /// Extensions a document may have. .yaml is accepted although no source carries one today: the
+    /// content marker is what decides, so listing it costs nothing and avoids a false absence.
+    /// </summary>
+    private static readonly string[] DocumentExtensions = [".md", ".yml", ".yaml"];
+
+    private sealed record RenderedDocument(string Text, string? RenderedFrom);
+
+    private static bool HasDocumentExtension(string path) =>
+        DocumentExtensions.Any(extension => path.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsYamlPath(string path) =>
+        path.EndsWith(".yml", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The one place a non-markdown document becomes markdown. Returns null when the file is YAML
+    /// this server does not serve - a pipeline definition or a navigation file - which is not an
+    /// error. Throws <see cref="FaqParseException"/> when a file claims the FAQ schema and then
+    /// cannot be read as one, which is.
+    /// </summary>
+    private static RenderedDocument? RenderIfServable(string fullPath, string text)
+    {
+        if (!IsYamlPath(fullPath))
+            return new RenderedDocument(text, null);
+
+        if (!string.Equals(LearnYamlMime.Detect(text), LearnYamlMime.Faq, StringComparison.Ordinal))
+            return null;
+
+        return new RenderedDocument(
+            FaqMarkdown.Render(FaqDocument.Parse(text)),
+            $"YamlMime:{LearnYamlMime.Faq}");
+    }
+
+    private sealed record DocumentRead(string Text, string? RenderedFrom, GitProvenance Provenance);
 
     private static DocumentRead ReadDocument(
         string directory, string source, string path, SourceDefinition definition, SourceSyncState state)
     {
         var fullPath = ResolveFullPath(directory, source, path);
-        return new DocumentRead(File.ReadAllText(fullPath), ToProvenance(definition, state));
+        var rendered = RenderIfServable(fullPath, File.ReadAllText(fullPath));
+
+        // YAML this server does not serve is not a document, and the caller must not be able to
+        // tell it apart from a path that does not exist.
+        if (rendered is null)
+            throw new DocPathNotFoundException(path, source);
+
+        return new DocumentRead(rendered.Text, rendered.RenderedFrom, ToProvenance(definition, state));
     }
 
-    private sealed record SourceSearchRead(GitProvenance Provenance, IReadOnlyList<DocLineHit> Hits);
+    /// <summary>
+    /// Enumerated per extension rather than with a single wildcard, so a source's non-document
+    /// ballast - nuget-docs checks out 14 MB of images - is never walked. The extension is
+    /// re-checked because a Windows search pattern also matches 8.3 short names.
+    /// </summary>
+    private static IEnumerable<string> EnumerateDocumentFiles(string fullRoot) =>
+        DocumentExtensions
+            .SelectMany(extension => Directory.EnumerateFiles(fullRoot, $"*{extension}", SearchOption.AllDirectories))
+            .Where(HasDocumentExtension);
+
+    private sealed record SourceSearchRead(
+        GitProvenance Provenance,
+        IReadOnlyList<DocLineHit> Hits,
+        IReadOnlyList<DocSkippedDocument> Skipped);
 
     private static SourceSearchRead ReadSearchSource(
         string directory,
@@ -330,14 +392,38 @@ public sealed class DocsQueryService
         var provenance = ToProvenance(definition, state);
         var fullRoot = Path.GetFullPath(directory);
         var hits = new List<DocLineHit>();
+        var skipped = new List<DocSkippedDocument>();
 
-        foreach (var file in Directory.EnumerateFiles(fullRoot, "*.md", SearchOption.AllDirectories))
+        foreach (var file in EnumerateDocumentFiles(fullRoot))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var text = File.ReadAllText(file);
+            var relativePath = Path.GetRelativePath(fullRoot, file).Replace('\\', '/');
+
+            RenderedDocument? document;
+            try
+            {
+                // Rendering happens before the prefilter so the prefilter tests the same text the
+                // matcher will. Testing raw YAML would skip a file whose only match is a word the
+                // rendering produces - the same silent absence, one layer down.
+                document = RenderIfServable(file, File.ReadAllText(file));
+            }
+            catch (FaqParseException exception)
+            {
+                // A dropped file is indistinguishable from one with no matches. One unreadable
+                // document must not fail a fan-out across every source, so it is named instead.
+                skipped.Add(new DocSkippedDocument(relativePath, exception.Message, provenance));
+                continue;
+            }
+
+            // YAML this server does not serve. Not an absence worth reporting: it was never a
+            // document, and naming every pipeline definition would bury the ones that matter.
+            if (document is null)
+                continue;
+
+            var text = document.Text;
 
             // Skip the full Markdig parse entirely for a file that cannot match: a source can hold
-            // hundreds of markdown files, and most queries match none of them. This must check
+            // hundreds of documents, and most queries match none of them. This must check
             // per-line, the same way MarkdownLineSearch.Search below actually matches: an anchored
             // pattern like "^## " behaves differently against a single line than against the whole
             // file text (^ without RegexOptions.Multiline only matches offset 0 of whatever string
@@ -351,17 +437,17 @@ public sealed class DocsQueryService
                 continue;
 
             var outline = MarkdownOutline.Extract(text);
-            var relativePath = Path.GetRelativePath(fullRoot, file).Replace('\\', '/');
 
             foreach (var hit in MarkdownLineSearch.Search(text, outline, query, compiledPattern))
             {
                 var (matchedText, isTruncated) = DocumentationText.Budget(hit.Text, MatchTextBudget);
                 hits.Add(new DocLineHit(
-                    relativePath, hit.Line, matchedText, isTruncated, hit.SectionPath, provenance));
+                    relativePath, hit.Line, matchedText, isTruncated, hit.SectionPath, provenance,
+                    document.RenderedFrom));
             }
         }
 
-        return new SourceSearchRead(provenance, hits);
+        return new SourceSearchRead(provenance, hits, skipped);
     }
 
     private static string ResolveFullPath(string directory, string source, string path)
@@ -374,7 +460,7 @@ public sealed class DocsQueryService
         if (string.IsNullOrWhiteSpace(path)
             || Path.IsPathRooted(path)
             || !candidate.StartsWith(rootPrefix, comparison)
-            || !candidate.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || !HasDocumentExtension(candidate)
             || !File.Exists(candidate))
         {
             throw new DocPathNotFoundException(path, source);

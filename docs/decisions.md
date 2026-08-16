@@ -24,6 +24,18 @@ and the entry links there.
 
 ---
 
+### 2026-08-16 · YAML support is scoped to `YamlMime:FAQ`, and a rendered document declares itself
+
+Of the 13 `.yml` files in the markdown-searchable sources, eight are Azure Pipelines definitions, one
+is repository automation, two are navigation, and two are prose. Microsoft Learn states the schema on
+line 1, so the gate is content rather than path or source, and a FAQ is rendered to markdown at the
+read with every payload carrying `renderedFrom`, since the rendering's line numbers do not index the
+file on disk. Rejected: reading every `.yml`, which the backlog file itself suggested — it would put
+CI configuration for building Roslyn in front of an agent asking about C#.
+Spec: [`docs/superpowers/specs/2026-08-15-yaml-faq-searchability-design.md`](superpowers/specs/2026-08-15-yaml-faq-searchability-design.md).
+
+---
+
 ### 2026-08-14 · The framework argument is kept, but the evidence is measured, not cataloged
 
 Corrects the entry below, whose conclusion holds and whose premise did not: `Microsoft.Build.Framework`

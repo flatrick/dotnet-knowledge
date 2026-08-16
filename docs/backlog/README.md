@@ -10,7 +10,6 @@ file when the item is resolved; `git log` is the record.
 |---|---|---|
 | [The MCP Tasks extension is not adopted](mcp-tasks-extension-is-not-adopted.md) | server | Client-negotiated and unsupported by the target client; progress notifications cover the need |
 | [No client has been observed rendering `sync_source`'s progress notifications](sync-source-progress-is-unverified.md) | server | The server emits them correctly; only the client's rendering is unknown, and it needs a person watching one |
-| [YAML content in a synchronized source is unsearchable](yaml-source-content-is-unsearchable.md) | server | Three pipeline stages assume markdown; the cheapest honest fix is narrower than full support and not yet designed |
 | [Unfiltered document search has no relevance signal](cross-source-search-has-no-relevance-signal.md) | server | The `nuget-docs` tiering works around the worst case; scoring against the query is real design work not yet done |
 | [Every document search rescans every file in every source](document-search-rescans-every-file.md) | server | Unmeasured whether the cost is a real problem; an index would need sync-time invalidation |
 | [Every API query revalidates the checkout with git](every-api-query-revalidates-the-checkout.md) | server | The validation is what makes an answer trustworthy; which of the three commands costs the second is unmeasured |
