@@ -38,6 +38,11 @@ Re-run the install after changing server code, then restart the MCP connection â
 keeps serving the build it started with. `dotnet scripts/install-mcp-tool.cs` with no arguments
 reports which commit the installed tool was built from, and `-- uninstall` removes it.
 
+When a server is still running, use `-- reinstall`: it stops every process launched from the
+installed shim, then installs. Windows needs that, because a running server holds an exclusive lock
+on the shim executable and the plain install fails against it; on Linux and macOS the install works
+either way and stopping merely retires a server still answering with the old build.
+
 To build or launch from a checkout instead, without installing:
 
 ```bash

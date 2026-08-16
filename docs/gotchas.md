@@ -24,6 +24,18 @@ needs more.
 
 ---
 
+### 2026-08-16 · Linux truncates a process name to 15 characters, and `dotnet-knowledge` is 16 · environment
+
+Anything that finds this server's processes by **name** works on Windows and finds nothing on Linux.
+The kernel's process-name field is capped at 15 characters, so `dotnet-knowledge` arrives truncated
+and an exact-name match silently returns an empty set — no error, no partial result, just a clean
+"nothing is running". `dotnet-mcp` is 10 characters and is unaffected, which is what makes this
+expensive: the same code, exercised against the sibling server, looks correct.
+`scripts/install-mcp-tool.cs` therefore identifies instances by executable path, reading
+`/proc/<pid>/exe` on Linux rather than matching a name.
+
+---
+
 ### 2026-08-14 · The same flag set is read by two renderers, and fixing one left the other wrong · codebase
 
 Supersedes the entry below, whose fact holds but whose scope did not: `MetadataApiReader` renders

@@ -35,7 +35,9 @@ not for human browsing — structured payloads, no ASCII tables, no decorative f
 
 **Run `dotnet scripts/install-mcp-tool.cs -- install` once per machine, before the first session
 that uses the `dotnet-knowledge` tools.** `.mcp.json` and `.codex/config.toml` start the server with
-the `dotnet-knowledge` command from `~/.dotnet/tools`, which this install creates.
+the `dotnet-knowledge` command from `~/.dotnet/tools`, which this install creates. Use
+`-- reinstall` when a server is already running: it stops every process launched from the installed
+shim first, which Windows requires because a running server locks the shim executable.
 
 The install is machine-global, not per-checkout: a worktree needs no MCP setup of its own, and
 installing from one worktree changes the server for every concurrent session. The script self-locates
