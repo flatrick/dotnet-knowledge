@@ -1,6 +1,6 @@
 # MCP Session Source Handshake Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Require an MCP caller to begin each connection with `list_sources`, then give it machine-readable instructions for synchronizing only the source it needs.
 
@@ -44,7 +44,7 @@
 - Produces: `SourceStatus.NextAction` serialized as `nextAction`, a `SourceNextAction` object whose `tool` is `"sync_source"` with `{ "name": sourceName }` arguments when unsynced, or null when ready.
 - Produces: a non-null top-level `ListSourcesResult.NextStep` containing the session rule for both ready and unsynced catalogs.
 
-- [ ] **Step 1: Write direct failing assertions for both action states**
+- [x] **Step 1: Write direct failing assertions for both action states**
 
   In `ListSourcesReportsValidatedSynchronizationState`, after each source's `synced` assertion, require the returned action to name the source exactly:
 
@@ -74,7 +74,7 @@
   Assert.IsTrue(statusDocument.RootElement.TryGetProperty("nextStep", out _));
   ```
 
-- [ ] **Step 2: Run the source-tool tests to confirm the new contract is absent**
+- [x] **Step 2: Run the source-tool tests to confirm the new contract is absent**
 
   Run:
 
@@ -84,7 +84,7 @@
 
   Expected: FAIL because `nextAction` is not yet present on the serialized source object; do not change synchronization behavior to satisfy the test.
 
-- [ ] **Step 3: Write the public stdio regression assertions**
+- [x] **Step 3: Write the public stdio regression assertions**
 
   In `ServerListsSourceToolsOverStdio`, retain the `tools` JSON array long enough to select the `list_sources` element, then add:
 
@@ -107,7 +107,7 @@
       source.GetProperty("nextAction").GetProperty("arguments").GetProperty("name").GetString());
   ```
 
-- [ ] **Step 4: Implement the compact serialized action contract**
+- [x] **Step 4: Implement the compact serialized action contract**
 
   In `SourcesTool.cs`, change the `list_sources` description so its first operational instruction is:
 
@@ -155,7 +155,7 @@
 
   Do not alter `SyncSource`, `SourceSynchronizer`, `SourceCache`, or any query tool.
 
-- [ ] **Step 5: Document the externally visible workflow**
+- [x] **Step 5: Document the externally visible workflow**
 
   Replace the `list_sources()` entry in `docs/design/mcp-tool-surface.md` with this contract, preserving the source field inventory:
 
@@ -171,7 +171,7 @@
         omit sync_source ref for the pin, pass "head" only to accept drift
   ```
 
-- [ ] **Step 6: Run focused tests and verify the public contract**
+- [x] **Step 6: Run focused tests and verify the public contract**
 
   Run:
 
@@ -182,7 +182,7 @@
 
   Expected: both the direct and stdio tests pass, including the new metadata and JSON assertions; `git diff --check` reports no whitespace errors.
 
-- [ ] **Step 7: Run the repository test suite**
+- [x] **Step 7: Run the repository test suite**
 
   Run:
 
@@ -192,7 +192,7 @@
 
   Expected: all tests pass. If a pre-existing failure occurs, record its exact test name and output; do not classify it as caused by this change without reproducing it in the focused suite.
 
-- [ ] **Step 8: Review and commit the completed contract**
+- [x] **Step 8: Review and commit the completed contract**
 
   Run:
 

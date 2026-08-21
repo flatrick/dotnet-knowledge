@@ -49,7 +49,7 @@ public sealed class SourcesTool
                 new ListSourcesResult(
                     CacheRoot: cache.Root,
                     Sources: sources,
-                    NextStep: "For the source you need, inspect nextAction. Call sync_source only when it names that tool; " +
+                    NextStep: "For the source you need, inspect nextAction. Call sync_source only when it names that tool. " +
                               "Omit ref for the pinned revision, or pass ref: \"head\" only to accept upstream drift."),
                 WriteOptions);
         }
