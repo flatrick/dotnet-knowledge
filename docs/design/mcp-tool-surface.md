@@ -30,8 +30,14 @@ look like; the sync model it now needs is the same as every other entry.
 ```
 ── sources (fetched only) ────────────────────────────────────────────
 list_sources()
+    → first call of every MCP session, before any other dotnet-knowledge
+      tool; state can change between sessions
     → per source: name, purpose, pinned commit, currently-synced ref and
-      commit, fetchedAt, synced?, cacheDir
+      commit, fetchedAt, synced?, cacheDir, nextAction
+    → nextAction: sync_source plus { name } when that source is not ready;
+      tool: null when it is query-ready
+    → nextStep is always present: inspect the chosen source's nextAction;
+      omit sync_source ref for the pin, pass "head" only to accept drift
 
 sync_source(name, ref?)
     → clones or fetches into the cache. Long-running by nature.

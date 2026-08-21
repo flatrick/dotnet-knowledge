@@ -20,9 +20,10 @@ public sealed class SourcesTool
 
     [McpServerTool(Name = "list_sources", ReadOnly = true, Idempotent = true)]
     [Description(
+        "At the start of every MCP session, call this before any other dotnet-knowledge tool " +
+        "to see which sources are ready. " +
         "List the upstream reference sources this server can query, with the commit each one is " +
         "pinned to, whether it has been synced yet, and the on-disk cache directory. " +
-        "Call this before any api or language-doc lookup to see what is available. " +
         "The returned cacheDir is a real path: text-search it directly when a structured lookup " +
         "does not cover what you need. " +
         "The bundled example corpus is not listed here — it ships with the server and needs no sync.")]
@@ -44,16 +45,12 @@ public sealed class SourcesTool
                 synchronizer,
                 cancellationToken))).ConfigureAwait(false);
 
-            var unsynced = sources.Where(source => !source.Synced).Select(source => source.Name).ToList();
-
             return JsonSerializer.Serialize(
                 new ListSourcesResult(
                     CacheRoot: cache.Root,
                     Sources: sources,
-                    NextStep: unsynced.Count == 0
-                        ? null
-                        : $"Not synced: {string.Join(", ", unsynced)}. " +
-                          $"Call sync_source(name: \"{unsynced[0]}\") before querying it."),
+                    NextStep: "For the source you need, inspect nextAction. Call sync_source only when it names that tool; " +
+                              "Omit ref for the pinned revision, or pass ref: \"head\" only to accept upstream drift."),
                 WriteOptions);
         }
         catch (TimeoutException exception)
@@ -98,6 +95,7 @@ public sealed class SourcesTool
         }
 
         var supplements = MapSupplements(definition.ApiPackages, state?.ApiPackages, state?.Ref);
+        var synced = state is not null && supplements.All(supplement => supplement.Synced);
         return new SourceStatus(
             Name: name,
             Repository: definition.Repository,
@@ -105,14 +103,17 @@ public sealed class SourcesTool
             Url: definition.Url,
             Pin: definition.Pin,
             HeadBranch: definition.Head,
-            Synced: state is not null && supplements.All(supplement => supplement.Synced),
+            Synced: synced,
             CurrentRef: state?.Ref,
             CurrentCommit: state?.Commit,
             FetchedAt: state?.FetchedAt,
             CacheDir: state is null
                 ? cache.DirectoryFor(name)
                 : cache.RepositoryDirectoryFor(name, state.Generation),
-            Supplements: supplements);
+            Supplements: supplements,
+            NextAction: synced
+                ? new SourceNextAction(Tool: null, Arguments: null)
+                : new SourceNextAction("sync_source", new { name }));
     }
 
     [McpServerTool(Name = "sync_source", Destructive = true, Idempotent = true)]
@@ -357,10 +358,15 @@ public sealed class SourcesTool
         string? CurrentCommit,
         DateTimeOffset? FetchedAt,
         string CacheDir,
-        IReadOnlyList<SupplementStatus> Supplements);
+        IReadOnlyList<SupplementStatus> Supplements,
+        SourceNextAction NextAction);
+
+    private sealed record SourceNextAction(
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Tool,
+        object? Arguments);
 
     private sealed record ListSourcesResult(
         string CacheRoot,
         IReadOnlyList<SourceStatus> Sources,
-        string? NextStep);
+        string NextStep);
 }

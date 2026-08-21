@@ -50,6 +50,12 @@ public sealed class McpStdioTests
                 .Select(tool => tool.GetProperty("name").GetString())
                 .ToArray();
 
+            var listSourcesTool = tools.EnumerateArray().Single(tool =>
+                tool.GetProperty("name").GetString() == "list_sources");
+            StringAssert.Contains(
+                listSourcesTool.GetProperty("description").GetString(),
+                "start of every MCP session");
+
             CollectionAssert.Contains(names, "list_sources");
             CollectionAssert.Contains(names, "sync_source");
             CollectionAssert.Contains(names, "lookup_api");
@@ -78,6 +84,12 @@ public sealed class McpStdioTests
             Assert.IsNotNull(listText);
             using var listResult = JsonDocument.Parse(listText);
             Assert.IsTrue(listResult.RootElement.GetProperty("sources").GetArrayLength() > 0);
+            Assert.IsTrue(listResult.RootElement.TryGetProperty("nextStep", out _));
+            var source = listResult.RootElement.GetProperty("sources")[0];
+            Assert.AreEqual("sync_source", source.GetProperty("nextAction").GetProperty("tool").GetString());
+            Assert.AreEqual(
+                source.GetProperty("name").GetString(),
+                source.GetProperty("nextAction").GetProperty("arguments").GetProperty("name").GetString());
 
             await WriteMessageAsync(process, """
                 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sync_source","arguments":{"name":"unknown"}}}

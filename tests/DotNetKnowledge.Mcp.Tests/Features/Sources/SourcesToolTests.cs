@@ -168,6 +168,10 @@ public sealed class SourcesToolTests
             using var statusDocument = JsonDocument.Parse(statusJson);
             var status = statusDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
             Assert.AreEqual(repositoryDirectory, status.GetProperty("cacheDir").GetString());
+            var nextAction = status.GetProperty("nextAction");
+            Assert.AreEqual(JsonValueKind.Null, nextAction.GetProperty("tool").ValueKind);
+            Assert.IsFalse(nextAction.TryGetProperty("arguments", out _));
+            Assert.IsTrue(statusDocument.RootElement.TryGetProperty("nextStep", out _));
         }
         finally
         {
@@ -647,14 +651,24 @@ public sealed class SourcesToolTests
             var sources = document.RootElement.GetProperty("sources");
             Assert.AreEqual(6, sources.GetArrayLength());
             foreach (var source in sources.EnumerateArray())
+            {
                 Assert.IsFalse(source.GetProperty("synced").GetBoolean());
+                var nextAction = source.GetProperty("nextAction");
+                Assert.AreEqual("sync_source", nextAction.GetProperty("tool").GetString());
+                Assert.AreEqual(
+                    source.GetProperty("name").GetString(),
+                    nextAction.GetProperty("arguments").GetProperty("name").GetString());
+            }
             Assert.AreEqual(
                 "dotnet/csharplang",
                 sources.EnumerateArray()
                     .Single(source => source.GetProperty("name").GetString() == "csharplang")
                     .GetProperty("repository")
                     .GetString());
-            StringAssert.Contains(document.RootElement.GetProperty("nextStep").GetString(), "Call sync_source");
+            var nextStep = document.RootElement.GetProperty("nextStep").GetString();
+            Assert.IsNotNull(nextStep);
+            StringAssert.Contains(nextStep, "nextAction");
+            StringAssert.Contains(nextStep, "Omit ref");
         }
         finally
         {
