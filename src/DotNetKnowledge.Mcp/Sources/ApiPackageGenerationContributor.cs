@@ -8,13 +8,11 @@ public sealed class ApiPackageGenerationContributor(
 {
     private const string CorpusRootName = "api-packages";
     private const string DownloadRootName = ".package-downloads";
-    private const string RoslynApiDocsRepository = "dotnet/roslyn-api-docs";
 
     public bool AppliesTo(SourceDefinition definition) => AppliesToSource(definition);
 
     internal static bool AppliesToSource(SourceDefinition definition) =>
-        string.Equals(definition.Repository, RoslynApiDocsRepository, StringComparison.Ordinal)
-        && definition.ApiPackages is { Count: > 0 };
+        definition.ApiPackages is { Count: > 0 };
 
     public async Task<IReadOnlyList<ApiPackageSyncState>> BuildAsync(
         SourceDefinition definition,
@@ -38,7 +36,10 @@ public sealed class ApiPackageGenerationContributor(
         if (!pinned && !refLabel.StartsWith("head:", StringComparison.Ordinal))
             throw new InvalidDataException($"Unsupported synchronized source ref '{refLabel}'.");
 
-        var cohortVersion = RoslynPackageCohort.Read(repositoryDirectory, packages, pinned);
+        var cohortPackages = packages.Where(package => package.Cohort).ToArray();
+        var cohortVersion = cohortPackages.Length > 0
+            ? RoslynPackageCohort.Read(repositoryDirectory, cohortPackages, pinned)
+            : null;
         var supplementsRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(supplementsDirectory));
         Directory.CreateDirectory(supplementsRoot);
         var downloadRoot = GetContainedPath(supplementsRoot, DownloadRootName);
@@ -53,16 +54,17 @@ public sealed class ApiPackageGenerationContributor(
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var package = packages[index];
+                var targetVersion = package.Cohort ? cohortVersion! : package.Version;
                 var archivePath = GetContainedPath(
                     downloadRoot,
                     $"{index:D4}-{package.PackageId}.nupkg");
                 var download = await packageClient.DownloadAsync(
                     package,
-                    cohortVersion,
+                    targetVersion,
                     pinned ? package.Sha512 : null,
                     archivePath,
                     cancellationToken).ConfigureAwait(false);
-                var synchronizedPackage = package.WithSynchronizedContent(cohortVersion, download.Sha512);
+                var synchronizedPackage = package.WithSynchronizedContent(targetVersion, download.Sha512);
                 staged.Add(new StagedPackage(package, synchronizedPackage, download, archivePath));
             }
 
@@ -109,7 +111,7 @@ public sealed class ApiPackageGenerationContributor(
                 states.Add(new ApiPackageSyncState(
                     package.CatalogDefinition.PackageId,
                     package.CatalogDefinition.AssemblyName,
-                    cohortVersion,
+                    package.SynchronizedDefinition.Version,
                     package.Download.Sha512,
                     package.CatalogDefinition.Feed,
                     package.Download.FetchedAt,

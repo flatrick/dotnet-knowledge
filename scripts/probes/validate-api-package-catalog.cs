@@ -14,10 +14,10 @@
 //
 // So this deliberately runs BOTH halves:
 //
-//   1. RoslynPackageCohort.Read, which requires every cataloged package to carry the version the
-//      synchronized checkout's cohort manifest names. This is the check that was missed, and it is
-//      why a package versioned independently of Roslyn cannot be cataloged at all --
-//      docs/backlog/api-packages-are-limited-to-the-roslyn-cohort.md.
+//   1. RoslynPackageCohort.Read, which requires every cohort package (Cohort: true, the default) to
+//      carry the version the synchronized checkout's cohort manifest names. This is the check that
+//      was missed once. A package versioned independently of Roslyn opts out with `cohort: false`
+//      and is skipped here entirely -- see docs/decisions.md, 2026-08-23.
 //   2. The package half: SHA-512 against the bytes on disk, lib assets, corpus build, corpus read
 //      back, and a pairwise diff of the resulting surfaces so a new entry's framework divergence is
 //      visible at review time.
@@ -46,23 +46,31 @@ foreach (var (name, definition) in catalog.Sources.OrderBy(item => item.Key, Str
 
     Console.WriteLine($"=== {name}: {packages.Count} package(s) ===");
 
-    var snapshot = await synchronizer.TryGetCurrentSnapshotAsync(name, CancellationToken.None);
-    if (snapshot is null)
+    var cohortPackages = packages.Where(package => package.Cohort).ToArray();
+    if (cohortPackages.Length == 0)
     {
-        Console.WriteLine("  cohort   : SKIPPED, source is not synchronized (run sync_source first)");
-        failures++;
+        Console.WriteLine("  cohort   : N/A, every package is independently versioned (cohort: false)");
     }
     else
     {
-        try
+        var snapshot = await synchronizer.TryGetCurrentSnapshotAsync(name, CancellationToken.None);
+        if (snapshot is null)
         {
-            var cohort = RoslynPackageCohort.Read(snapshot.RepositoryDirectory, packages, pinned: true);
-            Console.WriteLine($"  cohort   : OK, manifest names '{cohort}' and every entry matches");
-        }
-        catch (InvalidDataException exception)
-        {
-            Console.WriteLine($"  cohort   : FAILED -- {exception.Message}");
+            Console.WriteLine("  cohort   : SKIPPED, source is not synchronized (run sync_source first)");
             failures++;
+        }
+        else
+        {
+            try
+            {
+                var cohort = RoslynPackageCohort.Read(snapshot.RepositoryDirectory, cohortPackages, pinned: true);
+                Console.WriteLine($"  cohort   : OK, manifest names '{cohort}' and every entry matches");
+            }
+            catch (InvalidDataException exception)
+            {
+                Console.WriteLine($"  cohort   : FAILED -- {exception.Message}");
+                failures++;
+            }
         }
     }
 

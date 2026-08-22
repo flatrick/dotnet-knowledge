@@ -109,7 +109,9 @@ public sealed class SourcesTool
             FetchedAt: state?.FetchedAt,
             CacheDir: state is null
                 ? cache.DirectoryFor(name)
-                : cache.RepositoryDirectoryFor(name, state.Generation),
+                : definition.Checkout
+                    ? cache.RepositoryDirectoryFor(name, state.Generation)
+                    : cache.SupplementsDirectoryFor(name, state.Generation),
             Supplements: supplements,
             NextAction: synced
                 ? new SourceNextAction(Tool: null, Arguments: null)

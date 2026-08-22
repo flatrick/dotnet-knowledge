@@ -14,6 +14,8 @@ public sealed class SourceSynchronizerTests
     ];
     private static readonly string[] GitStages =
         ["clone", "sparse-checkout", "fetch", "checkout", "validate"];
+    private static readonly string[] PackageOnlyStages =
+        ["package-download", "package-validate", "package-normalize"];
 
     [TestMethod]
     public async Task CompositeSyncPublishesPackageStateAfterGitValidation()
@@ -165,7 +167,59 @@ public sealed class SourceSynchronizerTests
     }
 
     [TestMethod]
-    public async Task NonRoslynSourceWithPackageDeclarationsRemainsGitOnly()
+    public async Task PackageOnlySourceSyncsWithoutAGitCheckout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WritePackageOnlyCatalogAsync(catalogPath);
+            var catalog = new SourceCatalog(catalogPath);
+            var packagePath = Path.Combine(root, "msbuild-framework.nupkg");
+            PackageSyncFixture.CreatePackage(packagePath, ["net10.0"]);
+            var client = new FixtureNuGetPackageClient(
+                packagePath,
+                Convert.ToBase64String(Enumerable.Repeat((byte)7, 64).ToArray()));
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(
+                catalog,
+                cache,
+                [new ApiPackageGenerationContributor(
+                    client,
+                    new DotNetKnowledge.Mcp.Features.ApiDocs.Corpus.PackageApiCorpusBuilder())],
+                GitTimeouts.Default);
+            var progress = new RecordingProgress();
+
+            var result = await synchronizer.SyncAsync(
+                "msbuild-framework", null, CancellationToken.None, progress);
+
+            Assert.AreEqual(3, synchronizer.GetStageCount("msbuild-framework"));
+            CollectionAssert.AreEqual(PackageOnlyStages, progress.Values.ToArray());
+            var package = result.ApiPackages.Single();
+            Assert.AreEqual("18.4.0", package.Version);
+            Assert.AreEqual(string.Empty, result.Commit);
+            Assert.AreEqual("pinned", result.Ref);
+            Assert.IsTrue(cache.IsSynced("msbuild-framework"));
+            Assert.IsFalse(Directory.Exists(Path.Combine(result.CacheDir, "..", "repository", ".git")));
+
+            var snapshot = await synchronizer.TryGetCurrentSnapshotAsync(
+                "msbuild-framework", CancellationToken.None);
+            Assert.IsNotNull(snapshot);
+
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+                synchronizer.SyncAsync("msbuild-framework", "head", CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task NonRoslynSourceCanSyncANonCohortPackage()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
 
@@ -176,12 +230,11 @@ public sealed class SourceSynchronizerTests
             var catalogPath = Path.Combine(root, "sources.json");
             await WriteNonRoslynPackageCatalogAsync(catalogPath, repository, pin);
             var catalog = new SourceCatalog(catalogPath);
+            var packagePath = Path.Combine(root, "independent.nupkg");
+            PackageSyncFixture.CreatePackage(packagePath, ["net10.0"]);
             var client = new FixtureNuGetPackageClient(
-                Path.Combine(root, "must-not-download.nupkg"),
-                Convert.ToBase64String(new byte[64]))
-            {
-                Failure = new InvalidOperationException("A non-Roslyn source attempted a package download."),
-            };
+                packagePath,
+                Convert.ToBase64String(Enumerable.Repeat((byte)7, 64).ToArray()));
             var synchronizer = new SourceSynchronizer(
                 catalog,
                 new SourceCache(Path.Combine(root, "cache")),
@@ -193,9 +246,10 @@ public sealed class SourceSynchronizerTests
 
             var result = await synchronizer.SyncAsync("other", null, CancellationToken.None, progress);
 
-            Assert.AreEqual(5, synchronizer.GetStageCount("other"));
-            Assert.HasCount(0, result.ApiPackages);
-            CollectionAssert.AreEqual(GitStages, progress.Values.ToArray());
+            Assert.AreEqual(8, synchronizer.GetStageCount("other"));
+            var package = result.ApiPackages.Single();
+            Assert.AreEqual("18.4.0", package.Version);
+            CollectionAssert.AreEqual(CompositeStages, progress.Values.ToArray());
         }
         finally
         {
@@ -1192,7 +1246,27 @@ public sealed class SourceSynchronizerTests
                     head = "main",
                     sparse = new[] { "docs" },
                     purpose = "Fixture non-Roslyn API source.",
-                    apiPackages = new[] { PackageSyncFixture.Package("5.3.0") },
+                    apiPackages = new[] { PackageSyncFixture.Package("18.4.0") with { Cohort = false } },
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    private static async Task WritePackageOnlyCatalogAsync(string path)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["msbuild-framework"] = new
+                {
+                    repository = "nuget/Microsoft.Build.Framework",
+                    purpose = "Fixture checkout-less API source.",
+                    checkout = false,
+                    apiPackages = new[] { PackageSyncFixture.Package("18.4.0") with { Cohort = false } },
                 },
             },
         };

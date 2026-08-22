@@ -649,7 +649,7 @@ public sealed class SourcesToolTests
             using var document = JsonDocument.Parse(json);
             Assert.AreEqual(root, document.RootElement.GetProperty("cacheRoot").GetString());
             var sources = document.RootElement.GetProperty("sources");
-            Assert.AreEqual(6, sources.GetArrayLength());
+            Assert.AreEqual(7, sources.GetArrayLength());
             foreach (var source in sources.EnumerateArray())
             {
                 Assert.IsFalse(source.GetProperty("synced").GetBoolean());
@@ -774,6 +774,74 @@ public sealed class SourcesToolTests
         };
 
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    private static async Task WritePackageOnlyCatalogAsync(string path)
+    {
+        var document = new
+        {
+            schemaVersion = 1,
+            sources = new Dictionary<string, object>
+            {
+                ["msbuild-framework"] = new
+                {
+                    repository = "nuget/Microsoft.Build.Framework",
+                    purpose = "Test checkout-less source.",
+                    checkout = false,
+                    apiPackages = new[]
+                    {
+                        new
+                        {
+                            packageId = "fixture.package",
+                            assemblyName = "Fixture.Package",
+                            feed = "https://api.nuget.org/v3/index.json",
+                            version = "5.3.0",
+                            sha512 = Convert.ToBase64String(new byte[64]),
+                            defaultFramework = "net10.0",
+                            cohort = false,
+                        },
+                    },
+                },
+            },
+        };
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(document));
+    }
+
+    [TestMethod]
+    public async Task SyncSourceReturnsSupplementsCacheDirForACheckoutLessSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            var catalogPath = Path.Combine(root, "sources.json");
+            await WritePackageOnlyCatalogAsync(catalogPath);
+            var catalog = new SourceCatalog(catalogPath);
+            var cache = new SourceCache(Path.Combine(root, "cache"));
+            var synchronizer = new SourceSynchronizer(catalog, cache, [new StateReportingContributor()]);
+
+            var json = await SourcesTool.SyncSource(
+                "msbuild-framework", synchronizer, NoOpProgress, CancellationToken.None, @ref: null);
+
+            using var document = JsonDocument.Parse(json);
+            var state = cache.TryReadState("msbuild-framework");
+            Assert.IsNotNull(state);
+            var supplementsDirectory = cache.SupplementsDirectoryFor("msbuild-framework", state.Generation);
+            Assert.AreEqual(supplementsDirectory, document.RootElement.GetProperty("cacheDir").GetString());
+
+            var statusJson = await SourcesTool.ListSources(catalog, cache, synchronizer, CancellationToken.None);
+            using var statusDocument = JsonDocument.Parse(statusJson);
+            var status = statusDocument.RootElement.GetProperty("sources").EnumerateArray().Single();
+            Assert.AreEqual(supplementsDirectory, status.GetProperty("cacheDir").GetString());
+            Assert.IsTrue(status.GetProperty("synced").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
     }
 
     private static async Task WritePackageCatalogAsync(

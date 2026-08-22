@@ -17,6 +17,12 @@ namespace DotNetKnowledge.Mcp.Sources;
 /// search and fetch this source's content. Defaults to <c>false</c> so an XML-docs source such as
 /// <c>dotnet-api-docs</c> needs no entry to stay excluded.
 /// </param>
+/// <param name="Checkout">
+/// Whether this source has a Git checkout at all. Defaults to <c>true</c>, so every source declared
+/// before this field existed keeps requiring <c>url</c>/<c>pin</c>/<c>head</c>/<c>sparse</c>
+/// unchanged. A source with <c>Checkout: false</c> has none of those four, must declare at least one
+/// <c>apiPackages</c> entry, and answers entirely from that package's own bundled XML docs.
+/// </param>
 public sealed record SourceDefinition(
     [property: JsonPropertyName("repository")] string Repository,
     [property: JsonPropertyName("url")] string Url,
@@ -25,7 +31,8 @@ public sealed record SourceDefinition(
     [property: JsonPropertyName("sparse")] IReadOnlyList<string> Sparse,
     [property: JsonPropertyName("purpose")] string Purpose,
     [property: JsonPropertyName("apiPackages")] IReadOnlyList<ApiPackageDefinition>? ApiPackages = null,
-    [property: JsonPropertyName("markdown")] bool Markdown = false);
+    [property: JsonPropertyName("markdown")] bool Markdown = false,
+    [property: JsonPropertyName("checkout")] bool Checkout = true);
 
 internal sealed record SourcesFile(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
@@ -87,7 +94,16 @@ public sealed class SourceCatalog
         foreach (var (name, definition) in parsed.Sources)
         {
             ValidateSource(path, name, definition);
-            parsed.Sources[name] = definition with { ApiPackages = definition.ApiPackages ?? [] };
+            parsed.Sources[name] = definition.Checkout
+                ? definition with { ApiPackages = definition.ApiPackages ?? [] }
+                : definition with
+                {
+                    ApiPackages = definition.ApiPackages ?? [],
+                    Url = string.Empty,
+                    Pin = string.Empty,
+                    Head = string.Empty,
+                    Sparse = [],
+                };
         }
 
         return parsed.Sources;
@@ -103,28 +119,52 @@ public sealed class SourceCatalog
 
         if (definition is null
             || string.IsNullOrWhiteSpace(definition.Repository)
-            || string.IsNullOrWhiteSpace(definition.Url)
-            || string.IsNullOrWhiteSpace(definition.Head)
-            || definition.Head.StartsWith('-')
-            || string.IsNullOrWhiteSpace(definition.Purpose)
-            || definition.Pin is not { Length: 40 }
-            || definition.Pin.Any(character => !Uri.IsHexDigit(character))
-            || definition.Sparse is not { Count: > 0 })
+            || string.IsNullOrWhiteSpace(definition.Purpose))
         {
             throw new InvalidDataException($"{path} declares incomplete source '{name}'.");
         }
 
-        foreach (var sparsePath in definition.Sparse)
+        if (definition.Checkout)
         {
-            var segments = sparsePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
-            if (string.IsNullOrWhiteSpace(sparsePath)
-                || Path.IsPathRooted(sparsePath)
-                || sparsePath.Contains(':')
-                || sparsePath.StartsWith('-')
-                || segments.Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+            if (string.IsNullOrWhiteSpace(definition.Url)
+                || string.IsNullOrWhiteSpace(definition.Head)
+                || definition.Head.StartsWith('-')
+                || definition.Pin is not { Length: 40 }
+                || definition.Pin.Any(character => !Uri.IsHexDigit(character))
+                || definition.Sparse is not { Count: > 0 })
+            {
+                throw new InvalidDataException($"{path} declares incomplete source '{name}'.");
+            }
+
+            foreach (var sparsePath in definition.Sparse)
+            {
+                var segments = sparsePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+                if (string.IsNullOrWhiteSpace(sparsePath)
+                    || Path.IsPathRooted(sparsePath)
+                    || sparsePath.Contains(':')
+                    || sparsePath.StartsWith('-')
+                    || segments.Any(segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+                {
+                    throw new InvalidDataException(
+                        $"{path} source '{name}' declares invalid sparse path '{sparsePath}'.");
+                }
+            }
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(definition.Url)
+                || !string.IsNullOrEmpty(definition.Pin)
+                || !string.IsNullOrEmpty(definition.Head)
+                || definition.Sparse is { Count: > 0 })
             {
                 throw new InvalidDataException(
-                    $"{path} source '{name}' declares invalid sparse path '{sparsePath}'.");
+                    $"{path} source '{name}' is checkout-less and must not declare url/pin/head/sparse.");
+            }
+
+            if (definition.ApiPackages is not { Count: > 0 })
+            {
+                throw new InvalidDataException(
+                    $"{path} source '{name}' is checkout-less and must declare at least one apiPackage.");
             }
         }
 

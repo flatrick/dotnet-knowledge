@@ -62,28 +62,43 @@ public sealed class SourceCache
         }
     }
 
-    internal static bool IsComplete(SourceSyncState? state) =>
-        state is not null
-        && state.SchemaVersion == SourceSyncState.CurrentSchemaVersion
-        && !string.IsNullOrWhiteSpace(state.Name)
-        && !string.IsNullOrWhiteSpace(state.Repository)
-        && !string.IsNullOrWhiteSpace(state.Url)
-        && !string.IsNullOrWhiteSpace(state.Ref)
-        && state.Commit is { Length: 40 }
-        && state.Commit.All(Uri.IsHexDigit)
-        && state.FetchedAt != default
-        && state.SparsePaths is { Count: > 0 }
-        && state.SparsePaths.All(path => !string.IsNullOrWhiteSpace(path))
-        && IsSimpleName(state.Generation)
-        && state.ApiPackages is not null
-        // A corpus this build cannot read makes the source unsynchronized, not merely awkward to
-        // query: the remedy is sync_source either way, and saying so here is what routes the caller
-        // to it instead of to a schema error raised mid-query. Sources without corpora are
-        // unaffected, so a supplement format change never re-clones an unrelated checkout.
-        // A null element is left to the backend, which already rejects one and is tested for it;
-        // widening this check to cover that would move a guarantee rather than add one.
-        && state.ApiPackages.All(package =>
-            package is null || package.CorpusSchemaVersion == PackageApiCorpusStore.SchemaVersion);
+    internal static bool IsComplete(SourceSyncState? state)
+    {
+        if (state is null
+            || state.SchemaVersion != SourceSyncState.CurrentSchemaVersion
+            || string.IsNullOrWhiteSpace(state.Name)
+            || string.IsNullOrWhiteSpace(state.Repository)
+            || state.FetchedAt == default
+            || !IsSimpleName(state.Generation)
+            || state.ApiPackages is null
+            // A corpus this build cannot read makes the source unsynchronized, not merely awkward
+            // to query: the remedy is sync_source either way, and saying so here is what routes
+            // the caller to it instead of to a schema error raised mid-query. Sources without
+            // corpora are unaffected, so a supplement format change never re-clones an unrelated
+            // checkout. A null element is left to the backend, which already rejects one and is
+            // tested for it; widening this check to cover that would move a guarantee rather than
+            // add one.
+            || !state.ApiPackages.All(package =>
+                package is null || package.CorpusSchemaVersion == PackageApiCorpusStore.SchemaVersion))
+        {
+            return false;
+        }
+
+        // A checkout-less source (see SourceDefinition.Checkout) persists an empty Url rather than
+        // a git ref/commit/sparse set that was never fetched -- its completeness rests entirely on
+        // its packages instead.
+        if (string.IsNullOrEmpty(state.Url))
+        {
+            return string.Equals(state.Ref, "pinned", StringComparison.Ordinal)
+                && state.ApiPackages.Count > 0;
+        }
+
+        return !string.IsNullOrWhiteSpace(state.Ref)
+            && state.Commit is { Length: 40 }
+            && state.Commit.All(Uri.IsHexDigit)
+            && state.SparsePaths is { Count: > 0 }
+            && state.SparsePaths.All(path => !string.IsNullOrWhiteSpace(path));
+    }
 
     private static bool IsSimpleName(string? value) =>
         !string.IsNullOrWhiteSpace(value)
@@ -120,6 +135,9 @@ public sealed class SourceCache
         var state = TryReadState(sourceName);
         if (state is null)
             return false;
+
+        if (string.IsNullOrEmpty(state.Url))
+            return Directory.Exists(SupplementsDirectoryFor(sourceName, state.Generation));
 
         var directory = RepositoryDirectoryFor(sourceName, state.Generation);
         var hasGitEntry = Directory.Exists(Path.Combine(directory, ".git"))

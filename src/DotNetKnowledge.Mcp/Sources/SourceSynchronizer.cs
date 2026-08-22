@@ -78,6 +78,12 @@ public sealed class SourceSynchronizer
 
         if (requestedRef is not null && !string.Equals(requestedRef, "head", StringComparison.Ordinal))
             throw new ArgumentException("ref must be omitted or \"head\".", nameof(requestedRef));
+        if (requestedRef is not null && !definition.Checkout)
+        {
+            throw new ArgumentException(
+                $"Source '{name}' is checkout-less and has no head; ref must be omitted.",
+                nameof(requestedRef));
+        }
 
         await using var sourceLock = await AcquireLockAsync(name, cancellationToken).ConfigureAwait(false);
         return await SyncCoreAsync(name, definition, requestedRef, progress, cancellationToken).ConfigureAwait(false);
@@ -87,6 +93,9 @@ public sealed class SourceSynchronizer
     {
         if (!_catalog.TryGet(name, out var definition))
             throw new ArgumentException($"Unknown source '{name}'. Call list_sources to see valid names.", nameof(name));
+
+        if (!definition.Checkout)
+            return 3;
 
         return ApiPackageGenerationContributor.AppliesToSource(definition) ? 8 : 5;
     }
@@ -131,8 +140,15 @@ public sealed class SourceSynchronizer
         if (state is null
             || state.SchemaVersion != SourceSyncState.CurrentSchemaVersion
             || !string.Equals(state.Name, name, StringComparison.Ordinal)
-            || !string.Equals(state.Repository, definition.Repository, StringComparison.Ordinal)
-            || !string.Equals(state.Url, definition.Url, StringComparison.Ordinal)
+            || !string.Equals(state.Repository, definition.Repository, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (!definition.Checkout)
+            return TryGetCurrentPackageOnlySnapshot(name, definition, state);
+
+        if (!string.Equals(state.Url, definition.Url, StringComparison.Ordinal)
             || !state.SparsePaths.SequenceEqual(definition.Sparse, StringComparer.Ordinal)
             || !IsConfiguredRef(state, definition))
         {
@@ -190,6 +206,31 @@ public sealed class SourceSynchronizer
         }
     }
 
+    /// <summary>
+    /// A checkout-less source (<see cref="SourceDefinition.Checkout"/> is <c>false</c>) has no ref,
+    /// commit, or sparse tree to revalidate against Git -- its packages are its only content, so a
+    /// synchronized state is current whenever its supplements directory still exists.
+    /// </summary>
+    private SourceSnapshot? TryGetCurrentPackageOnlySnapshot(
+        string name,
+        SourceDefinition definition,
+        SourceSyncState state)
+    {
+        if (!string.IsNullOrEmpty(state.Url)
+            || !string.Equals(state.Ref, "pinned", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var generationDirectory = _cache.GenerationDirectoryFor(name, state.Generation);
+        var repositoryDirectory = _cache.RepositoryDirectoryFor(name, state.Generation);
+        var supplementsDirectory = _cache.SupplementsDirectoryFor(name, state.Generation);
+        if (!Directory.Exists(supplementsDirectory))
+            return null;
+
+        return new SourceSnapshot(definition, state, generationDirectory, repositoryDirectory, supplementsDirectory);
+    }
+
     private async Task<SourceSyncResult> SyncCoreAsync(
         string name,
         SourceDefinition definition,
@@ -197,6 +238,9 @@ public sealed class SourceSynchronizer
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        if (!definition.Checkout)
+            return await SyncPackageOnlyCoreAsync(name, definition, progress, cancellationToken).ConfigureAwait(false);
+
         var refLabel = requestedRef is null ? "pinned" : $"head:{definition.Head}";
         var target = requestedRef is null ? definition.Pin : definition.Head;
         Directory.CreateDirectory(_cache.Root);
@@ -343,6 +387,88 @@ public sealed class SourceSynchronizer
                     resumed,
                     repositoryValidated,
                     DeleteDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Synchronizes a checkout-less source (<see cref="SourceDefinition.Checkout"/> is
+    /// <c>false</c>): no clone, no resume, no fetch -- its packages are downloaded fresh into a new
+    /// generation and published the same atomic way a Git-backed source's generation is.
+    /// </summary>
+    private async Task<SourceSyncResult> SyncPackageOnlyCoreAsync(
+        string name,
+        SourceDefinition definition,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(_cache.Root);
+        var generation = Guid.NewGuid().ToString("N");
+        var generationsDirectory = _cache.GenerationsDirectoryFor(name);
+        var generationStaging = Path.Combine(generationsDirectory, $".{generation}.tmp");
+        var generationDirectory = _cache.GenerationDirectoryFor(name, generation);
+        var stagedRepositoryDirectory = Path.Combine(generationStaging, "repository");
+        var stagedSupplementsDirectory = Path.Combine(generationStaging, "supplements");
+        var published = false;
+
+        try
+        {
+            Directory.CreateDirectory(generationStaging);
+            Directory.CreateDirectory(stagedSupplementsDirectory);
+
+            var apiPackages = new List<ApiPackageSyncState>();
+            var applicableContributors = _contributors.Where(contributor => contributor.AppliesTo(definition)).ToArray();
+            if (ApiPackageGenerationContributor.AppliesToSource(definition) && applicableContributors.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Source '{name}' requires an API-package generation contributor.");
+            }
+
+            foreach (var contributor in applicableContributors)
+            {
+                apiPackages.AddRange(await contributor.BuildAsync(
+                    definition,
+                    "pinned",
+                    stagedRepositoryDirectory,
+                    stagedSupplementsDirectory,
+                    progress,
+                    cancellationToken).ConfigureAwait(false));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var fetchedAt = DateTimeOffset.UtcNow;
+            Directory.Move(generationStaging, generationDirectory);
+            _cache.WriteState(
+                name,
+                new SourceSyncState(
+                    SchemaVersion: SourceSyncState.CurrentSchemaVersion,
+                    Name: name,
+                    Repository: definition.Repository,
+                    Url: string.Empty,
+                    Ref: "pinned",
+                    Commit: string.Empty,
+                    FetchedAt: fetchedAt,
+                    SparsePaths: [],
+                    Generation: generation,
+                    ApiPackages: apiPackages));
+            published = true;
+
+            PruneGenerationDirectories(name, generation);
+            ReclaimLegacySourceDirectory(name);
+
+            return new SourceSyncResult(
+                Name: name,
+                Repository: definition.Repository,
+                Ref: "pinned",
+                Commit: string.Empty,
+                FetchedAt: fetchedAt,
+                CacheDir: _cache.SupplementsDirectoryFor(name, generation),
+                ConfiguredApiPackages: definition.ApiPackages ?? [],
+                ApiPackages: apiPackages);
+        }
+        finally
+        {
+            if (!published)
+                TryDeleteDirectory(generationStaging);
         }
     }
 

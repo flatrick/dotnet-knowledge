@@ -439,29 +439,38 @@ public sealed class ApiDocsQueryService
             SkippedDeclarations: composition.SkippedDeclarations);
     }
 
+    /// <summary>
+    /// An API-docs source is either Git-backed with a checkout root <see cref="RepositoryApiDocsBackend"/>
+    /// recognizes, or checkout-less with at least one <c>apiPackages</c> entry of its own.
+    /// </summary>
+    private static bool IsApiDocsSource(string sourceName, SourceDefinition definition) =>
+        definition.Checkout
+            ? RepositoryApiDocsBackend.Supports(sourceName)
+            : definition.ApiPackages is { Count: > 0 };
+
     private string[] ResolveSourceNames(string? source, string? framework)
     {
         if (source is not null)
         {
-            if (!RepositoryApiDocsBackend.Supports(source) || !_catalog.Sources.ContainsKey(source))
+            if (!_catalog.Sources.TryGetValue(source, out var definition) || !IsApiDocsSource(source, definition))
             {
                 throw new ArgumentException(
-                    "source must be \"dotnet-api-docs\" or \"roslyn-api-docs\".",
+                    "source must name a synchronized API-docs source. Call list_sources to see valid names.",
                     nameof(source));
             }
-            if (framework is not null
-                && string.Equals(source, "dotnet-api-docs", StringComparison.Ordinal))
+            if (framework is not null && definition.ApiPackages is not { Count: > 0 })
             {
                 throw new ArgumentException(
-                    "framework applies only to the roslyn-api-docs package supplement.",
+                    "framework applies only to a source with an API package supplement.",
                     nameof(framework));
             }
 
             return [source];
         }
 
-        return RepositoryApiDocsBackend.SourceNames
-            .Where(_catalog.Sources.ContainsKey)
+        return _catalog.Sources
+            .Where(entry => IsApiDocsSource(entry.Key, entry.Value))
+            .Select(entry => entry.Key)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
     }
@@ -475,7 +484,7 @@ public sealed class ApiDocsQueryService
         where T : class
     {
         var repositoryReads = new List<T>();
-        var packageReads = new List<T>();
+        var packageReads = new List<(string SourceName, T Read)>();
         foreach (var sourceName in sourceNames)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -486,11 +495,13 @@ public sealed class ApiDocsQueryService
                     sourceName,
                     snapshot =>
                     {
-                        var repository = reader(new RepositoryApiDocsBackend(sourceName, snapshot));
+                        var repository = snapshot.Definition.Checkout
+                            ? reader(new RepositoryApiDocsBackend(sourceName, snapshot))
+                            : null;
                         var packages = new List<T>();
-                        if (string.Equals(sourceName, "roslyn-api-docs", StringComparison.Ordinal))
+                        if (snapshot.Definition.ApiPackages is { Count: > 0 })
                         {
-                            foreach (var package in OrderPackages(snapshot.Definition.ApiPackages ?? []))
+                            foreach (var package in OrderPackages(snapshot.Definition.ApiPackages))
                             {
                                 if (package is null)
                                     throw new InvalidDataException("The API package definition cannot be null.");
@@ -508,46 +519,66 @@ public sealed class ApiDocsQueryService
                 throw new SourceNotSyncedException(sourceName, exception);
             }
 
-            repositoryReads.Add(sourceReads.Repository);
-            packageReads.AddRange(sourceReads.Packages);
+            if (sourceReads.Repository is not null)
+                repositoryReads.Add(sourceReads.Repository);
+            packageReads.AddRange(sourceReads.Packages.Select(read => (sourceName, read)));
         }
 
-        var reads = repositoryReads.Concat(packageReads).ToArray();
+        var reads = repositoryReads.Concat(packageReads.Select(item => item.Read)).ToArray();
         var searchedSources = reads
             .SelectMany(read => coverage(read).SearchedSources)
             .ToArray();
-        var packageCoverages = packageReads.Select(coverage).ToArray();
-        if (packageCoverages.Length == 0)
+        if (packageReads.Count == 0)
         {
             return new ComposedReads<T>(
                 reads, searchedSources, null, null, null, null);
         }
 
-        var frameworkCoverage = packageCoverages[0];
-        if (packageCoverages.Skip(1).Any(item =>
-                !string.Equals(
-                    item.EffectiveFramework,
-                    frameworkCoverage.EffectiveFramework,
-                    StringComparison.Ordinal)
-                || !string.Equals(
-                    item.DefaultFramework,
-                    frameworkCoverage.DefaultFramework,
-                    StringComparison.Ordinal)
-                || !(item.AvailableFrameworks ?? []).SequenceEqual(
-                    frameworkCoverage.AvailableFrameworks ?? [],
-                    StringComparer.Ordinal)))
+        var packageCoveragesBySource = packageReads
+            .GroupBy(item => item.SourceName, StringComparer.Ordinal)
+            .Select(group => group.Select(item => coverage(item.Read)).ToArray())
+            .ToArray();
+        foreach (var sourceCoverages in packageCoveragesBySource)
         {
-            throw new InvalidDataException(
-                "Participating API package supplements do not expose the same framework selection.");
+            var frameworkCoverage = sourceCoverages[0];
+            if (sourceCoverages.Skip(1).Any(item =>
+                    !string.Equals(
+                        item.EffectiveFramework,
+                        frameworkCoverage.EffectiveFramework,
+                        StringComparison.Ordinal)
+                    || !string.Equals(
+                        item.DefaultFramework,
+                        frameworkCoverage.DefaultFramework,
+                        StringComparison.Ordinal)
+                    || !(item.AvailableFrameworks ?? []).SequenceEqual(
+                        frameworkCoverage.AvailableFrameworks ?? [],
+                        StringComparer.Ordinal)))
+            {
+                throw new InvalidDataException(
+                    "Participating API package supplements do not expose the same framework selection.");
+            }
         }
 
+        var allCoverages = packageCoveragesBySource.SelectMany(item => item).ToArray();
+        // Two package-bearing sources never share one framework selection by construction -- each
+        // is independently versioned from the other, which is the whole reason they are separate
+        // sources rather than two packages under one. An unfiltered query spanning both reports no
+        // single top-level framework triple rather than picking one arbitrarily; every hit still
+        // carries its own NuGetProvenance.Framework.
+        if (packageCoveragesBySource.Length > 1)
+        {
+            return new ComposedReads<T>(
+                reads, searchedSources, null, null, null, MergeSkipped(allCoverages));
+        }
+
+        var soleCoverage = allCoverages[0];
         return new ComposedReads<T>(
             reads,
             searchedSources,
-            frameworkCoverage.EffectiveFramework,
-            frameworkCoverage.DefaultFramework,
-            frameworkCoverage.AvailableFrameworks,
-            MergeSkipped(packageCoverages));
+            soleCoverage.EffectiveFramework,
+            soleCoverage.DefaultFramework,
+            soleCoverage.AvailableFrameworks,
+            MergeSkipped(allCoverages));
     }
 
     /// <summary>
@@ -686,7 +717,7 @@ public sealed class ApiDocsQueryService
         int Offset,
         IReadOnlyList<string> Revisions);
 
-    private sealed record SourceReads<T>(T Repository, IReadOnlyList<T> Packages)
+    private sealed record SourceReads<T>(T? Repository, IReadOnlyList<T> Packages)
         where T : class;
 
     private sealed record ComposedReads<T>(

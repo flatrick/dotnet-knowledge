@@ -18,10 +18,9 @@ public sealed class SourceCatalogTests
         Assert.AreEqual("net10.0", package.DefaultFramework);
     }
 
-    // Every cataloged package must carry the cohort version the checkout's manifest names, which is
-    // what stops the catalog drifting from the documentation it is joined to. It is also why a
-    // package outside the Roslyn cohort cannot be added here at all -- see
-    // docs/backlog/api-packages-are-limited-to-the-roslyn-cohort.md.
+    // Every cohort package (the default; see ApiPackageDefinition.Cohort) must carry the version
+    // the checkout's manifest names, which is what stops the catalog drifting from the
+    // documentation it is joined to. roslyn-api-docs's one package is a cohort package.
     [TestMethod]
     public void EveryCatalogedApiPackageSharesOneVersion()
     {
@@ -227,6 +226,104 @@ public sealed class SourceCatalogTests
         Assert.AreEqual("dotnet/roslyn", catalog.Sources["roslyn-wiki"].Repository);
         Assert.AreEqual("NuGet/docs.microsoft.com-nuget", catalog.Sources["nuget-docs"].Repository);
         Assert.IsTrue(catalog.Sources["nuget-docs"].Markdown);
+        Assert.AreEqual("nuget/Microsoft.Build.Framework", catalog.Sources["msbuild-framework"].Repository);
+        Assert.IsFalse(catalog.Sources["msbuild-framework"].Checkout);
+    }
+
+    [TestMethod]
+    public void CheckoutLessSourceParsesWithoutGitFields()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var path = Path.Combine(directory, "sources.json");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, CreateCheckoutLessSourcesJson());
+
+            var catalog = new SourceCatalog(path);
+
+            var definition = catalog.Sources["packaged"];
+            Assert.IsFalse(definition.Checkout);
+            Assert.AreEqual(string.Empty, definition.Url);
+            Assert.AreEqual(string.Empty, definition.Pin);
+            Assert.AreEqual(string.Empty, definition.Head);
+            Assert.IsEmpty(definition.Sparse);
+            Assert.HasCount(1, definition.ApiPackages!);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CheckoutLessSourceRejectsGitFields()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var path = Path.Combine(directory, "sources.json");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, CreateCheckoutLessSourcesJson(includeUrl: true));
+
+            var catalog = new SourceCatalog(path);
+
+            Assert.ThrowsExactly<InvalidDataException>(() => _ = catalog.Sources);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CheckoutLessSourceRequiresAtLeastOneApiPackage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+        var path = Path.Combine(directory, "sources.json");
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, CreateCheckoutLessSourcesJson(includeApiPackages: false));
+
+            var catalog = new SourceCatalog(path);
+
+            Assert.ThrowsExactly<InvalidDataException>(() => _ = catalog.Sources);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static string CreateCheckoutLessSourcesJson(
+        bool includeUrl = false,
+        bool includeApiPackages = true)
+    {
+        var packagesJson = includeApiPackages
+            ? $$"""[{"packageId":"Test.Package","assemblyName":"Test.Package","feed":"https://api.nuget.org/v3/index.json","version":"1.2.3","sha512":"{{Convert.ToBase64String(new byte[64])}}","defaultFramework":"net10.0","cohort":false}]"""
+            : "[]";
+        var urlLine = includeUrl ? "\"url\": \"C:/tmp/local\"," : "";
+        return $$"""
+            {
+              "schemaVersion": 1,
+              "sources": {
+                "packaged": {
+                  "repository": "nuget/Test.Package",
+                  {{urlLine}}
+                  "purpose": "Test checkout-less source.",
+                  "checkout": false,
+                  "apiPackages": {{packagesJson}}
+                }
+              }
+            }
+            """;
     }
 
     private static string GetFixturePath(string key) => typeof(SourceCatalogTests).Assembly

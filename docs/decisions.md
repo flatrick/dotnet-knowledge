@@ -24,6 +24,23 @@ and the entry links there.
 
 ---
 
+### 2026-08-23 · Microsoft.Build.Framework is a checkout-less source, not a second roslyn-api-docs package
+
+`ApiDocsQueryService.ReadComposedAsync`'s framework-agreement check (guarded by
+`MultiPackageFrameworkDisagreementFailsClosed`) requires every package under one source to agree on
+`(EffectiveFramework, DefaultFramework, AvailableFrameworks)`; `Microsoft.Build.Framework` has no
+reason to agree with `Microsoft.CodeAnalysis.Workspaces.MSBuild`'s framework set, so attaching it
+there would fail every unfiltered query. Instead: a new `"checkout": false` source kind with no
+`url`/`pin`/`head`/`sparse`, answering entirely from its own package's bundled XML doc, paired with a
+per-package `cohort: false` opt-out (`ApiPackageDefinition`) so `RoslynPackageCohort` validates only
+cohort packages. The agreement check is now scoped per source within one `ReadComposedAsync` call,
+not across its full multi-source fan-out, so a second package-bearing source degrades an unfiltered
+query's top-level framework fields to `null` (every hit keeps its own `NuGetProvenance.framework`)
+rather than colliding. Rejected: relaxing the fail-closed check itself, which it exists to guard.
+Closes [`docs/backlog/api-packages-are-limited-to-the-roslyn-cohort.md`](backlog/api-packages-are-limited-to-the-roslyn-cohort.md).
+
+---
+
 ### 2026-08-16 · YAML support is scoped to `YamlMime:FAQ`, and a rendered document declares itself
 
 Of the 13 `.yml` files in the markdown-searchable sources, eight are Azure Pipelines definitions, one

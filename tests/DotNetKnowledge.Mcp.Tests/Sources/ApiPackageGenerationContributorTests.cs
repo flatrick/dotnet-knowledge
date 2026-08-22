@@ -127,7 +127,7 @@ public sealed class ApiPackageGenerationContributorTests
     }
 
     [TestMethod]
-    public void AppliesToOnlyTheRoslynApiDocsRepositoryWithConfiguredPackages()
+    public void AppliesToAnySourceWithConfiguredPackagesRegardlessOfRepository()
     {
         using var fixture = new PackageSyncFixture(["net10.0"]);
         var contributor = new ApiPackageGenerationContributor(
@@ -136,7 +136,65 @@ public sealed class ApiPackageGenerationContributorTests
 
         Assert.IsTrue(contributor.AppliesTo(fixture.Source));
         Assert.IsFalse(contributor.AppliesTo(fixture.Source with { ApiPackages = [] }));
-        Assert.IsFalse(contributor.AppliesTo(fixture.Source with { Repository = "example/other-api-docs" }));
+        Assert.IsTrue(contributor.AppliesTo(fixture.Source with { Repository = "example/other-api-docs" }));
+    }
+
+    [TestMethod]
+    public async Task BuildAsyncResolvesANonCohortPackageUsingItsOwnPinnedVersion()
+    {
+        using var fixture = new PackageSyncFixture(["net10.0"]);
+        var nonCohortPackage = PackageSyncFixture.Package("18.4.0", "net10.0") with
+        {
+            PackageId = "Fixture.Independent",
+            Cohort = false,
+        };
+        var source = fixture.Source with
+        {
+            ApiPackages = [.. fixture.Source.ApiPackages!, nonCohortPackage],
+        };
+        var client = new FixtureNuGetPackageClient(fixture.PackagePath, fixture.ObservedSha512);
+        var contributor = new ApiPackageGenerationContributor(client, new PackageApiCorpusBuilder());
+
+        var states = await contributor.BuildAsync(
+            source,
+            "pinned",
+            fixture.Repository,
+            fixture.Supplements,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.HasCount(2, states);
+        var cohortState = states.Single(state =>
+            state.PackageId == "Microsoft.CodeAnalysis.Workspaces.MSBuild");
+        Assert.AreEqual("5.3.0", cohortState.Version);
+        var independentState = states.Single(state => state.PackageId == "Fixture.Independent");
+        Assert.AreEqual("18.4.0", independentState.Version);
+    }
+
+    [TestMethod]
+    public async Task BuildAsyncSkipsTheCohortManifestWhenEveryPackageOptsOut()
+    {
+        using var fixture = new PackageSyncFixture(["net10.0"]);
+        var independentPackage = PackageSyncFixture.Package("18.4.0", "net10.0") with
+        {
+            PackageId = "Fixture.Independent",
+            Cohort = false,
+        };
+        var source = fixture.Source with { ApiPackages = [independentPackage] };
+        // The repository directory carries no package-cohort manifest at all; a build that still
+        // tried to read one for an all-non-cohort package list would throw before reaching here.
+        var client = new FixtureNuGetPackageClient(fixture.PackagePath, fixture.ObservedSha512);
+        var contributor = new ApiPackageGenerationContributor(client, new PackageApiCorpusBuilder());
+
+        var state = (await contributor.BuildAsync(
+            source,
+            "pinned",
+            Path.Combine(fixture.Root, "no-such-repository"),
+            fixture.Supplements,
+            progress: null,
+            CancellationToken.None)).Single();
+
+        Assert.AreEqual("18.4.0", state.Version);
     }
 
     private sealed class RecordingProgress : IProgress<string>
