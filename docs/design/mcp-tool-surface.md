@@ -25,6 +25,9 @@ its own repository and, if these tools are built, would be added to `sources.jso
 any other source rather than bundled. The tool surface below still describes what querying it should
 look like; the sync model it now needs is the same as every other entry.
 
+Most sources are Git-backed, but a source can instead be checkout-less (`"checkout": false`) — see
+[A source can be checkout-less](#a-source-can-be-checkout-less) below.
+
 ## Tool surface
 
 ```
@@ -471,6 +474,28 @@ For the same reason, a lookup that found nothing reports the coverage it actuall
 sources, the framework, the frameworks available — and says the name may be invalid *or* outside
 that coverage. It does not send the caller to `search_api`: that tool searches the same coverage,
 so the referral would promise a completeness neither tool has.
+
+### A source can be checkout-less
+
+`apiPackages` is not only a supplement to a Git checkout. A source declared with `"checkout": false`
+has no `url`/`pin`/`head`/`sparse` at all — `sync_source` never clones anything for it — and answers
+entirely from its own `apiPackages`, each read straight from the package's own bundled
+`lib/<framework>/<Assembly>.xml`. `msbuild-framework` is one: `Microsoft.Build.Framework` ships its
+own XML doc file, needs no curated repository text to fill gaps around, and is versioned on its own
+schedule, unrelated to any other source's. Each package still carries `cohort: false` in that case,
+marking it as independently versioned rather than required to share one manifest-agreed version with
+its source's other packages, the way `roslyn-api-docs`'s cohort packages do.
+
+The one invariant this shape cannot honor is "every package under one source agrees on
+`framework`/`AvailableFrameworks`" — that guarantee is what lets a `roslyn-api-docs` query report one
+top-level framework triple for every package it composed. It holds *within* a single source, cohort
+or not, and a mismatch there still fails closed. It was never meant to hold *across* independently
+versioned sources. An unfiltered query that happens to span both `roslyn-api-docs` and
+`msbuild-framework` reports `null` for the top-level `framework`/`defaultFramework`/
+`availableFrameworks` fields instead of picking one arbitrarily — every hit still carries its own
+`NuGetProvenance.framework`, so no information is lost, only the misleading single-valued rollup is
+withheld. Scoping the query with `source: "msbuild-framework"` (or any other single source) restores
+the one-triple answer exactly as before.
 
 ## The provenance envelope
 

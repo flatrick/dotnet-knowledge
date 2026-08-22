@@ -1122,6 +1122,41 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
+    public async Task CrossSourcePackagesReportNoTopLevelFrameworkButKeepPerHitProvenance()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
+
+        try
+        {
+            var service = await CreateCrossSourcePackageServiceAsync(root);
+
+            var unfiltered = await service.SearchAsync(
+                "Widget", framework: null, limit: 100, cursor: null,
+                cancellationToken: CancellationToken.None);
+            Assert.IsNull(unfiltered.EffectiveFramework);
+            Assert.IsNull(unfiltered.DefaultFramework);
+            Assert.IsNull(unfiltered.AvailableFrameworks);
+            Assert.IsTrue(unfiltered.Items.Any(item => item.Source is NuGetProvenance));
+            Assert.IsTrue(unfiltered.Items.Any(item => item.Source is GitProvenance));
+
+            var scoped = await service.LookupAsync(
+                "StringDerived", "msbuild-framework", framework: null,
+                limit: 100, cursor: null, cancellationToken: CancellationToken.None);
+            Assert.IsNotNull(scoped.EffectiveFramework);
+            Assert.IsNotNull(scoped.DefaultFramework);
+            Assert.IsNotNull(scoped.AvailableFrameworks);
+            Assert.AreEqual(
+                "Fixture.Independent",
+                ((NuGetProvenance)scoped.Matches.Single().Source).PackageId);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                DeleteDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public async Task CursorsBindCanonicalFrameworkAndEveryParticipatingRevision()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");

@@ -1043,4 +1043,67 @@ internal static class ApiDocsFixture
             purpose = "Test API docs.",
             apiPackages = packages,
         });
+
+    private static KeyValuePair<string, object> PackageOnlySource(
+        string name,
+        ApiPackageDefinition package) =>
+        new(name, new
+        {
+            repository = "nuget/" + package.PackageId,
+            purpose = "Test checkout-less API source.",
+            checkout = false,
+            apiPackages = new[] { package },
+        });
+
+    public static ApiPackageDefinition IndependentPackageDefinition() => new(
+        "Fixture.Independent",
+        "Fixture.Independent",
+        "https://feed.test/v3/index.json",
+        "9.0.0",
+        Convert.ToBase64String(Enumerable.Repeat((byte)0x63, 64).ToArray()),
+        "net10.0",
+        Cohort: false);
+
+    /// <summary>
+    /// <c>dotnet-api-docs</c> and <c>roslyn-api-docs</c> synced exactly as in
+    /// <see cref="CreateMergedServiceAsync"/>, plus a checkout-less <c>msbuild-framework</c> source
+    /// carrying its own independently-versioned package -- the shape a cross-source unfiltered
+    /// query has to compose.
+    /// </summary>
+    public static async Task<ApiDocsQueryService> CreateCrossSourcePackageServiceAsync(string root)
+    {
+        var dotnetRepository = Path.Combine(root, "dotnet-origin");
+        var dotnetPin = await CreateRepositoryAsync(
+            dotnetRepository,
+            [
+                ("xml/System/Widget.xml", WidgetXml),
+                ("xml/System/WidgetKit.xml", WidgetKitXml),
+                ("xml/System/WidgetPolicy`1.xml", WidgetPolicyXml),
+                ("xml/System.Widgets/Gadget.xml", GadgetXml),
+            ]);
+        var roslynRepository = Path.Combine(root, "roslyn-origin");
+        var roslynPin = await CreateRepositoryAsync(
+            roslynRepository,
+            [("dotnet/xml/System/Widget.xml", WidgetXml)]);
+
+        var catalogPath = Path.Combine(root, "sources.json");
+        await WriteCatalogAsync(
+            catalogPath,
+            [
+                ApiSource("dotnet-api-docs", dotnetRepository, dotnetPin, "xml"),
+                ApiSource(
+                    "roslyn-api-docs", roslynRepository, roslynPin, "dotnet/xml", PackageDefinition()),
+                PackageOnlySource("msbuild-framework", IndependentPackageDefinition()),
+            ]);
+        var catalog = new SourceCatalog(catalogPath);
+        var cache = new SourceCache(Path.Combine(root, "cache"));
+        var synchronizer = new SourceSynchronizer(
+            catalog,
+            cache,
+            [new FixturePackageContributor(reverseFixtureInsertion: false)]);
+        await synchronizer.SyncAsync("dotnet-api-docs", requestedRef: null, CancellationToken.None);
+        await synchronizer.SyncAsync("roslyn-api-docs", requestedRef: null, CancellationToken.None);
+        await synchronizer.SyncAsync("msbuild-framework", requestedRef: null, CancellationToken.None);
+        return new ApiDocsQueryService(catalog, cache, synchronizer);
+    }
 }

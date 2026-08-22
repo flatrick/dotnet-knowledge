@@ -11,7 +11,12 @@
     "'repository' is the stable owner/name identity carried in each provenance envelope.",
     "",
     "'sparse' limits the checkout to the paths the query tools actually read. dotnet-api-docs",
-    "is large enough that a full clone is not a reasonable first-run experience."
+    "is large enough that a full clone is not a reasonable first-run experience.",
+    "",
+    "A source with \"checkout\": false has no Git checkout at all -- no url/pin/head/sparse -- and",
+    "answers entirely from its apiPackages' own bundled XML docs. Its one or more packages are",
+    "independently versioned from any other source's, so 'cohort: false' on each one is what lets",
+    "sync_source verify it by its own pinned version and hash instead of a shared manifest version."
   ],
 
   "schemaVersion": 1,
@@ -76,6 +81,20 @@
       "sparse": ["docs"],
       "purpose": "NuGet package management: PackageReference, restore, packing, nuget.config, CLI and MSBuild reference, nuget.org.",
       "markdown": true
+    },
+    "msbuild-framework": {
+      "repository": "nuget/Microsoft.Build.Framework",
+      "purpose": "MSBuild Framework API XML docs (Microsoft.Build.Framework.*): the surface tasks, loggers, and MSBuildWorkspace callers implement against. Independently versioned from the Roslyn cohort.",
+      "checkout": false,
+      "apiPackages": [{
+        "packageId": "Microsoft.Build.Framework",
+        "assemblyName": "Microsoft.Build.Framework",
+        "feed": "https://api.nuget.org/v3/index.json",
+        "version": "18.4.0",
+        "sha512": "VmOBicA4RSSTO857wrg91S9eOAsfnZLPeZZdXCsffJAZ8zQAMmZjATuin/LZFH21ajS9nPj7GBe+jvFRNzJPhA==",
+        "defaultFramework": "net10.0",
+        "cohort": false
+      }]
     }
   }
 }
