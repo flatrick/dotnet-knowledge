@@ -17,23 +17,26 @@ public sealed class ApiDocsTool
     };
 
     private const string FrameworkDescription =
-        "Part of the Roslyn coverage comes from a pinned NuGet package, which declares one API " +
-        "surface per target framework; pass framework to choose which - net472, net8.0, net9.0 or " +
-        "net10.0 - and omit it for the cataloged default. Every response reports the " +
-        "effectiveFramework it queried beside defaultFramework and availableFrameworks, and an " +
+        "Some sources answer partly or entirely from one or more pinned NuGet packages, each " +
+        "declaring one API surface per target framework; pass framework to choose which - net472, " +
+        "net8.0, net9.0 or net10.0 - and omit it for the cataloged default. Every response reports " +
+        "the effectiveFramework it queried beside defaultFramework and availableFrameworks, and an " +
         "unavailable value returns framework_not_available listing them rather than an empty " +
-        "result. The repository-sourced documentation is framework-neutral, so framework applies " +
-        "to the package half of the coverage only and is rejected with source: \"dotnet-api-docs\".";
+        "result. A source with no package supplement is framework-neutral, so framework is " +
+        "rejected against it (e.g. source: \"dotnet-api-docs\"). When a query spans more than one " +
+        "package-bearing source at once, effectiveFramework/defaultFramework/availableFrameworks " +
+        "are omitted at the top level instead of naming one arbitrarily - scope with source to get " +
+        "them back. Call list_sources for the current set of sources and which carry packages.";
 
     [McpServerTool(Name = "lookup_api", ReadOnly = true, Idempotent = true)]
     [Description(
-        "Look up a .NET or Roslyn API type or member in synchronized ECMA XML docs. " +
+        "Look up a .NET, Roslyn or MSBuild API type or member in synchronized ECMA XML docs. " +
         "TypeName returns every member's signature only; TypeName.MemberName returns full " +
         "documentation for that member. Each match reports detail - \"signatures\" or \"full\" - " +
         "because the tier is decided per source, so one source resolving the string as a type " +
-        "never collapses another's member match. Pass source to restrict the lookup to " +
-        "dotnet-api-docs or roslyn-api-docs, and limit/cursor to page. Returns provenance with " +
-        "every match. " + FrameworkDescription)]
+        "never collapses another's member match. Pass source to restrict the lookup to one " +
+        "configured source (call list_sources for the current set), and limit/cursor to page. " +
+        "Returns provenance with every match. " + FrameworkDescription)]
     public static async Task<string> LookupApi(
         string symbol,
         ApiDocsQueryService service,
@@ -138,7 +141,7 @@ public sealed class ApiDocsTool
 
     [McpServerTool(Name = "search_api", ReadOnly = true, Idempotent = true)]
     [Description(
-        "Search synchronized .NET and Roslyn ECMA XML docs by name. The pattern matches a " +
+        "Search synchronized .NET, Roslyn and MSBuild ECMA XML docs by name. The pattern matches a " +
         "fully-qualified name (\"System.Text.Json.JsonSerializer\"), a whole namespace or a run of " +
         "its dot-separated segments from anywhere in the path (\"System.Text.Json\", \"Text.Json\", " +
         "\"Json\"), or a fragment of a type name (\"Concurrent\"). Namespaces match on complete " +
@@ -226,7 +229,7 @@ public sealed class ApiDocsTool
 
     [McpServerTool(Name = "search_api_text", ReadOnly = true, Idempotent = true)]
     [Description(
-        "Search the PROSE inside synchronized .NET and Roslyn ECMA XML docs - summaries, remarks, " +
+        "Search the PROSE inside synchronized .NET, Roslyn and MSBuild ECMA XML docs - summaries, remarks, " +
         "returns, parameter and exception descriptions - by literal case-insensitive substring. " +
         "This is the tool for \"which API mentions this behavior?\", the question lookup_api cannot " +
         "answer because it takes the name as input; use search_api when you have a name. " +

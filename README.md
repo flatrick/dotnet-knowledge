@@ -1,6 +1,6 @@
 # dotnet-knowledge
 
-Version-pinned reference material about C#, VB.NET and Roslyn, for both people and agents.
+Version-pinned reference material about C#, VB.NET, Roslyn and MSBuild, for both people and agents.
 
 **An MCP server.** Serves API and language-design documentation to coding agents, fetched on demand
 from upstream Microsoft repositories at commits this repository pins. Every answer states which
@@ -61,9 +61,11 @@ choose which of the package's surfaces to answer from, and report the one they q
 halves document the same declaration the repository text wins; every match states whether it came
 from Git or from the package, naming the commit or the verified package hash.
 
-Every cataloged package must belong to the Roslyn cohort the checkout's manifest names, so the
-catalog cannot yet carry a package versioned independently of Roslyn — the gap is recorded in
-[`docs/backlog/`](docs/backlog/README.md).
+`msbuild` covers MSBuild instead: `Microsoft.Build`, `Microsoft.Build.Framework`,
+`Microsoft.Build.Utilities.Core` and `Microsoft.Build.Tasks.Core`, each independently versioned from
+the Roslyn cohort (`cohort: false`) and read entirely from its own bundled XML doc — this source has
+no Git checkout at all (`checkout: false`). Call `list_sources` for the current set of sources and
+which carry package supplements.
 
 Fetched sources land in a per-user cache shared by every checkout and client on the machine:
 `%LOCALAPPDATA%\dotnet-knowledge\sources` on Windows,

@@ -52,14 +52,17 @@ sync_source(name, ref?)
       package's id, version, verified sha512, frameworks and default
 
 ── API docs ──────────────────────────────────────────────────────────
-framework?, on all four: which target framework of the Roslyn source's
-    pinned NuGet supplement to query — net472, net8.0, net9.0 or
+framework?, on all four: which target framework of a source's pinned
+    NuGet package supplement(s) to query — net472, net8.0, net9.0 or
     net10.0 — omitted selecting the cataloged default, net10.0. Every
     result carries effectiveFramework, defaultFramework and
     availableFrameworks; an unavailable value is a
     framework_not_available error listing them, never an empty result.
     Rejected as invalid_request with source: "dotnet-api-docs", whose
-    documentation is framework-neutral.
+    documentation is framework-neutral. An unfiltered query spanning more
+    than one package-bearing source (e.g. roslyn-api-docs and msbuild at
+    once) reports these three as null at the top level instead of naming
+    one arbitrarily; scope with source to get them back.
 
 skippedDeclarations, on all four: present only when the queried package
     corpus omits something the metadata reader could not model, and
