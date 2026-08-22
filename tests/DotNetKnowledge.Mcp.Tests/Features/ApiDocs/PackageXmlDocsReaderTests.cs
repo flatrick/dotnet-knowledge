@@ -74,18 +74,81 @@ public sealed class PackageXmlDocsReaderTests
     }
 
     [TestMethod]
-    public void ReadRejectsDuplicateNamedDocumentationKeysWithinEachElementKind()
+    public void ReadRejectsDuplicateParameterAndTypeParameterKeys()
     {
         var duplicates = new[]
         {
             "<param name=\"value\"></param><param name=\"value\">Second.</param>",
             "<typeparam name=\"T\"></typeparam><typeparam name=\"T\">Second.</typeparam>",
-            "<exception cref=\"T:System.Exception\"></exception><exception cref=\"T:System.Exception\">Second.</exception>",
         };
 
         foreach (var duplicate in duplicates)
         {
             var xml = $"<doc><members><member name=\"M:Fixtures.Type.Run\">{duplicate}</member></members></doc>";
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+                PackageXmlDocsReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml))));
+        }
+    }
+
+    // Real, official package XML (e.g. Microsoft.Build 18.9.6) documents the same exception type
+    // twice on one member for two distinct reasons -- redundant authoring, not corruption, unlike a
+    // repeated <param>/<typeparam> name, which really would indicate a broken signature. Both
+    // reasons must survive, or the second one is silently dropped.
+    [TestMethod]
+    public void ReadMergesDuplicateExceptionCrefsInsteadOfRejectingThem()
+    {
+        const string xml = """
+            <doc><members><member name="M:Fixtures.Type.Run">
+            <exception cref="T:System.InvalidOperationException">When null.</exception>
+            <exception cref="T:System.InvalidOperationException">When already shut down.</exception>
+            </member></members></doc>
+            """;
+
+        var documentation = PackageXmlDocsReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml)))
+            .Values.Single();
+
+        var exception = documentation.Exceptions.Single();
+        Assert.AreEqual("T:System.InvalidOperationException", exception.Name);
+        StringAssert.Contains(exception.Text, "When null.");
+        StringAssert.Contains(exception.Text, "When already shut down.");
+    }
+
+    // Real, official package XML (Microsoft.Build 18.9.6,
+    // P:Microsoft.Build.Execution.BuildResult.Item(System.String)) also omits cref entirely and
+    // names the exception type in prose instead. The corpus schema requires every exception entry
+    // to name a canonical type, so there is nothing valid to key an uncref'd entry by; it is
+    // dropped like an undecodable attribute argument costs the attribute, not the declaration --
+    // the member and its other, well-formed exceptions still survive.
+    [TestMethod]
+    public void ReadDropsExceptionsWithNoCrefInsteadOfRejectingOrKeepingThem()
+    {
+        const string xml = """
+            <doc><members><member name="P:Fixtures.Type.Item(System.String)">
+            <exception>KeyNotFoundException when the target doesn't exist.</exception>
+            <exception cref="T:System.ArgumentException">When the target already has results.</exception>
+            </member></members></doc>
+            """;
+
+        var documentation = PackageXmlDocsReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml)))
+            .Values.Single();
+
+        var exception = documentation.Exceptions.Single();
+        Assert.AreEqual("T:System.ArgumentException", exception.Name);
+        Assert.AreEqual("When the target already has results.", exception.Text);
+    }
+
+    [TestMethod]
+    public void ReadRejectsAParamOrTypeParamWithNoNameAttribute()
+    {
+        var missingName = new[]
+        {
+            "<param>Second.</param>",
+            "<typeparam>Second.</typeparam>",
+        };
+
+        foreach (var xmlFragment in missingName)
+        {
+            var xml = $"<doc><members><member name=\"M:Fixtures.Type.Run\">{xmlFragment}</member></members></doc>";
             Assert.ThrowsExactly<InvalidDataException>(() =>
                 PackageXmlDocsReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml))));
         }
