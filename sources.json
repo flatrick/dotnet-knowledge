@@ -84,7 +84,7 @@
     },
     "msbuild-framework": {
       "repository": "nuget/Microsoft.Build.Framework",
-      "purpose": "MSBuild Framework API XML docs (Microsoft.Build.Framework.*): the surface tasks, loggers, and MSBuildWorkspace callers implement against. Independently versioned from the Roslyn cohort.",
+      "purpose": "MSBuild Framework API XML docs (Microsoft.Build.Framework.*): the interfaces assembly tasks and loggers implement against (ITask, ILogger, IBuildEngine, etc.) -- not the Evaluation API, where Project and ProjectCollection live in the separate Microsoft.Build assembly. Independently versioned from the Roslyn cohort.",
       "checkout": false,
       "apiPackages": [{
         "packageId": "Microsoft.Build.Framework",
