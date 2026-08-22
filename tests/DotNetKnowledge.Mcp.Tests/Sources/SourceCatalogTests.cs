@@ -6,6 +6,9 @@ namespace DotNetKnowledge.Mcp.Tests.Sources;
 [TestClass]
 public sealed class SourceCatalogTests
 {
+    private static readonly string[] ExpectedMsbuildPackageIds =
+        ["Microsoft.Build", "Microsoft.Build.Framework", "Microsoft.Build.Utilities.Core", "Microsoft.Build.Tasks.Core"];
+
     [TestMethod]
     public void BundledRoslynSourcePinsTheMsbuildApiPackage()
     {
@@ -226,8 +229,12 @@ public sealed class SourceCatalogTests
         Assert.AreEqual("dotnet/roslyn", catalog.Sources["roslyn-wiki"].Repository);
         Assert.AreEqual("NuGet/docs.microsoft.com-nuget", catalog.Sources["nuget-docs"].Repository);
         Assert.IsTrue(catalog.Sources["nuget-docs"].Markdown);
-        Assert.AreEqual("nuget/Microsoft.Build.Framework", catalog.Sources["msbuild-framework"].Repository);
-        Assert.IsFalse(catalog.Sources["msbuild-framework"].Checkout);
+        Assert.AreEqual("nuget/Microsoft.Build", catalog.Sources["msbuild"].Repository);
+        Assert.IsFalse(catalog.Sources["msbuild"].Checkout);
+        CollectionAssert.AreEquivalent(
+            ExpectedMsbuildPackageIds,
+            catalog.Sources["msbuild"].ApiPackages!.Select(package => package.PackageId).ToArray());
+        Assert.IsTrue(catalog.Sources["msbuild"].ApiPackages!.All(package => !package.Cohort));
     }
 
     [TestMethod]

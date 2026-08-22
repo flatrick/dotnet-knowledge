@@ -82,19 +82,48 @@
       "purpose": "NuGet package management: PackageReference, restore, packing, nuget.config, CLI and MSBuild reference, nuget.org.",
       "markdown": true
     },
-    "msbuild-framework": {
-      "repository": "nuget/Microsoft.Build.Framework",
-      "purpose": "MSBuild Framework API XML docs (Microsoft.Build.Framework.*): the surface tasks, loggers, and MSBuildWorkspace callers implement against. Independently versioned from the Roslyn cohort.",
+    "msbuild": {
+      "repository": "nuget/Microsoft.Build",
+      "purpose": "MSBuild API XML docs, independently versioned from the Roslyn cohort: the Evaluation API (Microsoft.Build.*: Project, ProjectCollection, ...), the tasks/loggers interfaces assembly (Microsoft.Build.Framework.*: ITask, ILogger, IBuildEngine, ...), task-authoring base classes (Microsoft.Build.Utilities.*: Task, ToolTask, ...), and the built-in task implementations (Microsoft.Build.Tasks.*).",
       "checkout": false,
-      "apiPackages": [{
-        "packageId": "Microsoft.Build.Framework",
-        "assemblyName": "Microsoft.Build.Framework",
-        "feed": "https://api.nuget.org/v3/index.json",
-        "version": "18.4.0",
-        "sha512": "VmOBicA4RSSTO857wrg91S9eOAsfnZLPeZZdXCsffJAZ8zQAMmZjATuin/LZFH21ajS9nPj7GBe+jvFRNzJPhA==",
-        "defaultFramework": "net10.0",
-        "cohort": false
-      }]
+      "apiPackages": [
+        {
+          "packageId": "Microsoft.Build",
+          "assemblyName": "Microsoft.Build",
+          "feed": "https://api.nuget.org/v3/index.json",
+          "version": "18.9.6",
+          "sha512": "RFkvcSYHbgZuHt7fKQiDJIBhrC95Km/dADULJclCtGxPgGz8jRXjrCfuKzLKg3VG4vGUp6Km/UuHZs0UPMu0eg==",
+          "defaultFramework": "net10.0",
+          "cohort": false
+        },
+        {
+          "packageId": "Microsoft.Build.Framework",
+          "assemblyName": "Microsoft.Build.Framework",
+          "feed": "https://api.nuget.org/v3/index.json",
+          "version": "18.9.6",
+          "sha512": "F+eN+lwW7zTn3iUBe67HuIH4Kt3zESTayBxLZ25FyAB9I2JFooucF9pO+JXovOPy8geJMqJrc8/NeHpZFSxRVQ==",
+          "defaultFramework": "net10.0",
+          "cohort": false
+        },
+        {
+          "packageId": "Microsoft.Build.Utilities.Core",
+          "assemblyName": "Microsoft.Build.Utilities.Core",
+          "feed": "https://api.nuget.org/v3/index.json",
+          "version": "18.9.6",
+          "sha512": "a+us4ag9VQvGA2iVoGnBBDjWb1ANEYkRVgJsuK2+zNEKXeTW3RErufkVe9oCVckmmGm6DGcRViO5BtlkKXcEUg==",
+          "defaultFramework": "net10.0",
+          "cohort": false
+        },
+        {
+          "packageId": "Microsoft.Build.Tasks.Core",
+          "assemblyName": "Microsoft.Build.Tasks.Core",
+          "feed": "https://api.nuget.org/v3/index.json",
+          "version": "18.9.6",
+          "sha512": "N4sod+ixKb/XWwD+DwUdOfHm6yd4nwmoG/OdgxjJyQlx8jIx+uUNpoWgs7XMyXKh+as8t84V0ePf+fDNWQuESA==",
+          "defaultFramework": "net10.0",
+          "cohort": false
+        }
+      ]
     }
   }
 }

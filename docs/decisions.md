@@ -24,6 +24,25 @@ and the entry links there.
 
 ---
 
+### 2026-08-23 · `msbuild` covers the whole MSBuild package family; a duplicate `<exception>` cref no longer fails a package
+
+Renamed `msbuild-framework` to `msbuild` and added `Microsoft.Build`, `Microsoft.Build.Utilities.Core`
+and `Microsoft.Build.Tasks.Core` (all 18.9.6, `cohort: false`) alongside `Microsoft.Build.Framework`
+(bumped 18.4.0 → 18.9.6 to match) — the four ship on one release train and happen to agree on
+`AvailableFrameworks`, so they compose under the per-source agreement check without issue.
+`Microsoft.Build.Locator` was left out: its `.nupkg` ships no bundled XML doc at all, so
+`PackageArchiveReader` cannot pair an assembly with documentation for it. Syncing the real
+`Microsoft.Build` 18.9.6 package surfaced a real defect in `PackageXmlDocsReader`: its own official
+XML redundantly documents the same `<exception cref>` twice on ~13 members (real authoring, not
+corruption — the two occurrences carry different reasons), and one member omits `cref` entirely. A
+repeated `<exception cref>` is now merged (both reasons kept) rather than rejected; a `cref`-less
+`<exception>` is dropped, like an undecodable attribute argument costs the attribute, not the
+declaration. `<param>`/`<typeparam>` duplicates and missing names still fail closed — those really do
+indicate a broken signature. Rejected: leaving `Microsoft.Build` uncatalogable, since the strict
+behavior assumed every duplicate meant a corrupt archive, which does not hold for real Microsoft XML.
+
+---
+
 ### 2026-08-23 · Microsoft.Build.Framework is a checkout-less source, not a second roslyn-api-docs package
 
 `ApiDocsQueryService.ReadComposedAsync`'s framework-agreement check (guarded by

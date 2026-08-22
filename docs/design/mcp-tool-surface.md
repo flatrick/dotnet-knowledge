@@ -52,14 +52,17 @@ sync_source(name, ref?)
       package's id, version, verified sha512, frameworks and default
 
 ── API docs ──────────────────────────────────────────────────────────
-framework?, on all four: which target framework of the Roslyn source's
-    pinned NuGet supplement to query — net472, net8.0, net9.0 or
+framework?, on all four: which target framework of a source's pinned
+    NuGet package supplement(s) to query — net472, net8.0, net9.0 or
     net10.0 — omitted selecting the cataloged default, net10.0. Every
     result carries effectiveFramework, defaultFramework and
     availableFrameworks; an unavailable value is a
     framework_not_available error listing them, never an empty result.
     Rejected as invalid_request with source: "dotnet-api-docs", whose
-    documentation is framework-neutral.
+    documentation is framework-neutral. An unfiltered query spanning more
+    than one package-bearing source (e.g. roslyn-api-docs and msbuild at
+    once) reports these three as null at the top level instead of naming
+    one arbitrarily; scope with source to get them back.
 
 skippedDeclarations, on all four: present only when the queried package
     corpus omits something the metadata reader could not model, and
@@ -480,22 +483,25 @@ so the referral would promise a completeness neither tool has.
 `apiPackages` is not only a supplement to a Git checkout. A source declared with `"checkout": false`
 has no `url`/`pin`/`head`/`sparse` at all — `sync_source` never clones anything for it — and answers
 entirely from its own `apiPackages`, each read straight from the package's own bundled
-`lib/<framework>/<Assembly>.xml`. `msbuild-framework` is one: `Microsoft.Build.Framework` ships its
-own XML doc file, needs no curated repository text to fill gaps around, and is versioned on its own
-schedule, unrelated to any other source's. Each package still carries `cohort: false` in that case,
-marking it as independently versioned rather than required to share one manifest-agreed version with
-its source's other packages, the way `roslyn-api-docs`'s cohort packages do.
+`lib/<framework>/<Assembly>.xml`. `msbuild` is one: `Microsoft.Build`, `Microsoft.Build.Framework`,
+`Microsoft.Build.Utilities.Core` and `Microsoft.Build.Tasks.Core` each ship their own XML doc file,
+need no curated repository text to fill gaps around, and are versioned on their own schedule,
+unrelated to any other source's. Each package still carries `cohort: false` in that case, marking it
+as independently versioned rather than required to share one manifest-agreed version with its
+source's other packages, the way `roslyn-api-docs`'s cohort packages do. The four happen to agree on
+`(EffectiveFramework, DefaultFramework, AvailableFrameworks)` today, since they ship on one MSBuild
+release train — the per-source agreement check (below) still applies and would fail closed the day
+one of them diverges.
 
 The one invariant this shape cannot honor is "every package under one source agrees on
 `framework`/`AvailableFrameworks`" — that guarantee is what lets a `roslyn-api-docs` query report one
 top-level framework triple for every package it composed. It holds *within* a single source, cohort
 or not, and a mismatch there still fails closed. It was never meant to hold *across* independently
-versioned sources. An unfiltered query that happens to span both `roslyn-api-docs` and
-`msbuild-framework` reports `null` for the top-level `framework`/`defaultFramework`/
-`availableFrameworks` fields instead of picking one arbitrarily — every hit still carries its own
-`NuGetProvenance.framework`, so no information is lost, only the misleading single-valued rollup is
-withheld. Scoping the query with `source: "msbuild-framework"` (or any other single source) restores
-the one-triple answer exactly as before.
+versioned sources. An unfiltered query that happens to span both `roslyn-api-docs` and `msbuild`
+reports `null` for the top-level `framework`/`defaultFramework`/`availableFrameworks` fields instead
+of picking one arbitrarily — every hit still carries its own `NuGetProvenance.framework`, so no
+information is lost, only the misleading single-valued rollup is withheld. Scoping the query with
+`source: "msbuild"` (or any other single source) restores the one-triple answer exactly as before.
 
 ## The provenance envelope
 
