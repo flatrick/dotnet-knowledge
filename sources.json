@@ -46,15 +46,25 @@
       "pin": "4fed37999ba2fb00b90d4489358bb9a7763e49ef",
       "head": "main",
       "sparse": ["dotnet/xml"],
-      "purpose": "Roslyn compiler and workspace API XML docs (Microsoft.CodeAnalysis.*).",
-      "apiPackages": [{
-        "packageId": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
-        "assemblyName": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
-        "feed": "https://api.nuget.org/v3/index.json",
-        "version": "5.3.0",
-        "sha512": "eA4XuxeicHbppkEcCv1sxGqdyEcrYisH1tUqTvN9pehiQKURoIdR7ydohK6WUoenjTJNJDMH3HqAP6P1Vu/yRg==",
-        "defaultFramework": "net10.0"
-      }]
+      "purpose": "Roslyn compiler and workspace API XML docs (Microsoft.CodeAnalysis.*), plus the Workspaces.MSBuild and Features package surfaces the checkout itself does not document.",
+      "apiPackages": [
+        {
+          "packageId": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
+          "assemblyName": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
+          "feed": "https://api.nuget.org/v3/index.json",
+          "version": "5.3.0",
+          "sha512": "eA4XuxeicHbppkEcCv1sxGqdyEcrYisH1tUqTvN9pehiQKURoIdR7ydohK6WUoenjTJNJDMH3HqAP6P1Vu/yRg==",
+          "defaultFramework": "net10.0"
+        },
+        {
+          "packageId": "Microsoft.CodeAnalysis.Features",
+          "assemblyName": "Microsoft.CodeAnalysis.Features",
+          "feed": "https://api.nuget.org/v3/index.json",
+          "version": "5.3.0",
+          "sha512": "bv8uDiWJO1/pRnHixzs4Mdinnb3eUw8wnFotP/ymHLKx41VvaoCiT9kiIs5gSSGUjG3J2Mnv39eH4DjoLrXaMg==",
+          "defaultFramework": "net10.0"
+        }
+      ]
     },
     "dotnet-api-docs": {
       "repository": "dotnet/dotnet-api-docs",
