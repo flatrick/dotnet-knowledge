@@ -538,34 +538,24 @@ public sealed class ApiDocsQueryService
             .GroupBy(item => item.SourceName, StringComparer.Ordinal)
             .Select(group => group.Select(item => coverage(item.Read)).ToArray())
             .ToArray();
-        foreach (var sourceCoverages in packageCoveragesBySource)
-        {
-            var frameworkCoverage = sourceCoverages[0];
-            if (sourceCoverages.Skip(1).Any(item =>
-                    !string.Equals(
-                        item.EffectiveFramework,
-                        frameworkCoverage.EffectiveFramework,
-                        StringComparison.Ordinal)
-                    || !string.Equals(
-                        item.DefaultFramework,
-                        frameworkCoverage.DefaultFramework,
-                        StringComparison.Ordinal)
-                    || !(item.AvailableFrameworks ?? []).SequenceEqual(
-                        frameworkCoverage.AvailableFrameworks ?? [],
-                        StringComparer.Ordinal)))
-            {
-                throw new InvalidDataException(
-                    "Participating API package supplements do not expose the same framework selection.");
-            }
-        }
-
         var allCoverages = packageCoveragesBySource.SelectMany(item => item).ToArray();
-        // Two package-bearing sources never share one framework selection by construction -- each
-        // is independently versioned from the other, which is the whole reason they are separate
-        // sources rather than two packages under one. An unfiltered query spanning both reports no
-        // single top-level framework triple rather than picking one arbitrarily; every hit still
-        // carries its own NuGetProvenance.Framework.
-        if (packageCoveragesBySource.Length > 1)
+        // Package supplements never have to share one framework selection. Two independently
+        // versioned sources need not agree by construction, so a query spanning more than one
+        // package-bearing source always reports no single top-level triple, even if their values
+        // happen to coincide today -- that agreement is not a contract either source has made. And
+        // even within one source, a same-version Roslyn cohort member can ship a different TFM
+        // matrix than another package under it (Microsoft.CodeAnalysis.Features has no net472
+        // build; Workspaces.MSBuild does), so per-source agreement is checked too rather than
+        // assumed. Either way, no information is lost: every hit still carries its own
+        // NuGetProvenance.Framework.
+        var frameworksAgree = packageCoveragesBySource.Length == 1
+            && packageCoveragesBySource[0].Skip(1).All(item =>
+                string.Equals(item.EffectiveFramework, allCoverages[0].EffectiveFramework, StringComparison.Ordinal)
+                && string.Equals(item.DefaultFramework, allCoverages[0].DefaultFramework, StringComparison.Ordinal)
+                && (item.AvailableFrameworks ?? []).SequenceEqual(
+                    allCoverages[0].AvailableFrameworks ?? [],
+                    StringComparer.Ordinal));
+        if (!frameworksAgree)
         {
             return new ComposedReads<T>(
                 reads, searchedSources, null, null, null, MergeSkipped(allCoverages));

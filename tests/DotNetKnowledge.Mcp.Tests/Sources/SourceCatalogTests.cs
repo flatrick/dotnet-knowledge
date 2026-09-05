@@ -14,16 +14,15 @@ public sealed class SourceCatalogTests
     {
         var packages = new SourceCatalog().Sources["roslyn-api-docs"].ApiPackages;
 
-        Assert.HasCount(1, packages!);
-        var package = packages![0];
-        Assert.AreEqual("Microsoft.CodeAnalysis.Workspaces.MSBuild", package.PackageId);
+        Assert.HasCount(2, packages!);
+        var package = packages!.Single(item => item.PackageId == "Microsoft.CodeAnalysis.Workspaces.MSBuild");
         Assert.AreEqual("5.3.0", package.Version);
         Assert.AreEqual("net10.0", package.DefaultFramework);
     }
 
     // Every cohort package (the default; see ApiPackageDefinition.Cohort) must carry the version
     // the checkout's manifest names, which is what stops the catalog drifting from the
-    // documentation it is joined to. roslyn-api-docs's one package is a cohort package.
+    // documentation it is joined to. roslyn-api-docs's two packages are both cohort packages.
     [TestMethod]
     public void EveryCatalogedApiPackageSharesOneVersion()
     {

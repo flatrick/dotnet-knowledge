@@ -1099,7 +1099,7 @@ public sealed class ApiDocsQueryServiceTests
     }
 
     [TestMethod]
-    public async Task MultiPackageFrameworkDisagreementFailsClosed()
+    public async Task MultiPackageFrameworkDisagreementReportsNoTopLevelFrameworkButKeepsPerHitProvenance()
     {
         var root = Path.Combine(Path.GetTempPath(), $"dotnet-knowledge-tests-{Guid.NewGuid():N}");
 
@@ -1107,12 +1107,20 @@ public sealed class ApiDocsQueryServiceTests
         {
             var service = await CreateMultiPackageServiceAsync(root, disagreeOnFrameworks: true);
 
-            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => service.SearchAsync(
+            var unfiltered = await service.SearchAsync(
                 "Widget", framework: null, limit: 20, cursor: null,
-                cancellationToken: CancellationToken.None));
-            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => service.SearchAsync(
+                cancellationToken: CancellationToken.None);
+            Assert.IsNull(unfiltered.EffectiveFramework);
+            Assert.IsNull(unfiltered.DefaultFramework);
+            Assert.IsNull(unfiltered.AvailableFrameworks);
+            Assert.IsTrue(unfiltered.Items.Any(item => item.Source is NuGetProvenance));
+
+            var scopedToOnePackagesFramework = await service.SearchAsync(
                 "Widget", framework: "net10.0", limit: 20, cursor: null,
-                cancellationToken: CancellationToken.None));
+                cancellationToken: CancellationToken.None);
+            Assert.IsNull(scopedToOnePackagesFramework.EffectiveFramework);
+            Assert.IsNull(scopedToOnePackagesFramework.DefaultFramework);
+            Assert.IsNull(scopedToOnePackagesFramework.AvailableFrameworks);
         }
         finally
         {
