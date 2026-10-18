@@ -53,3 +53,6 @@ node_modules/
 .vs/
 *.rsuser
 .zvec-grep/
+.DS_Store
+Thumbs.db
+.env

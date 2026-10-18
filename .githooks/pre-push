@@ -1,0 +1,12 @@
+#!/bin/sh
+# Installed by `gir init`. Commit this file; see `gir explain hooks`.
+if command -v gir >/dev/null 2>&1; then
+	exec gir hook pre-push "$@"
+fi
+mode=$(git config --file "$(git rev-parse --show-toplevel)/.girconfig" gir.hookMissing 2>/dev/null)
+if [ "$mode" = "fail" ]; then
+	echo "gir: not installed, pre-push check blocked (gir.hookMissing=fail)" >&2
+	exit 1
+fi
+echo "gir: not installed, pre-push check skipped" >&2
+exit 0
