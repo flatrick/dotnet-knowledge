@@ -10,7 +10,8 @@ Consistent messages make the history readable and let tools build the changelog 
 2. In your clone, run `gir init`.
 
 Git never turns on hooks from a fresh clone, so step 2 is needed in every clone.
-It sets `core.hooksPath` to `.githooks` and restores the hooks and `.girconfig` if they are missing.
+It sets `core.hooksPath` to `.githooks` and restores missing required files.
+These include the hooks, `.girconfig` and `conventional-commits.json`.
 
 ## Writing commits
 
@@ -19,6 +20,11 @@ Write messages as `<type>[(scope)][!]: <description>`, for example `fix(api): re
 - `gir explain types` lists the types this repository allows (they are set in `.girconfig`).
 - When a commit is rejected, the message names a rule in brackets, such as `[type-unknown]`; `gir explain <rule>` explains it.
 - `gir fixup` and `gir explain fixup` cover fixing an earlier commit on your branch.
+
+## SourceGit commit helper
+
+`gir init` writes `conventional-commits.json` with gir's built-in commit types.
+In SourceGit, set the repository's `Conventional Commit Types` setting to this file.
 
 ## Maintainers: checking contributions
 
